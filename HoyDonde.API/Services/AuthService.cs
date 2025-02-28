@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 
 namespace HoyDonde.API.Services
 {
-    public class AuthService
+    public class AuthService : IAuthService
     {
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;

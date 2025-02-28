@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 
 namespace HoyDonde.API.Services
 {
-    public class PasswordResetService
+    public class PasswordResetService : IPasswordResetService
     {
         private readonly UserManager<ApplicationUser> _userManager;
 
@@ -14,7 +14,7 @@ namespace HoyDonde.API.Services
             _userManager = userManager;
         }
 
-        public async Task<string> GenerateResetToken(string email)
+        public async Task<string?> GenerateResetToken(string email)
         {
             var user = await _userManager.FindByEmailAsync(email);
             if (user == null) return null;

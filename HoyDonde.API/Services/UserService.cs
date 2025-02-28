@@ -8,8 +8,6 @@ using System;
 using System.Drawing.Imaging;
 using System.Drawing;
 using System.Threading.Tasks;
-using ZXing.QrCode;
-
 namespace HoyDonde.API.Services
 {
     public class UserService
