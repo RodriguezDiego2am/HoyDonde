@@ -1,16 +1,11 @@
 ﻿using HoyDonde.API.Models;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace HoyDonde.API.Repositories
 {
-    public interface IEventRepository
+    public interface IEventRepository : IRepository<Event>
     {
-        Task<Event?> GetByIdAsync(int id);
-        Task<IEnumerable<Event>> GetAllAsync();
         Task<IEnumerable<Event>> GetByOrganizerIdAsync(string organizerId);
-        Task AddAsync(Event evento);
-        Task UpdateAsync(Event evento);
-        Task DeleteAsync(Event evento);
     }
-
 }

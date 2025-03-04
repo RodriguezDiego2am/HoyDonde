@@ -22,6 +22,7 @@ namespace HoyDonde.API.Models
             Cancelado,
             Finalizado
         }
+
     }
 
 }

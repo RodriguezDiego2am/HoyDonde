@@ -12,6 +12,7 @@ namespace HoyDonde.API.Models
         public string ClienteId { get; set; } = string.Empty; // Relación con el cliente dueño del ticket
         public virtual Cliente Cliente { get; set; } = null!;
         public DateTime FechaCompra { get; set; } = DateTime.UtcNow;
+
     }
 
 }

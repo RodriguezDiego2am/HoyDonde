@@ -1,60 +1,42 @@
 ﻿using HoyDonde.API.Data;
 using HoyDonde.API.Models;
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace HoyDonde.API.Repositories
 {
-    public class EventRepository : IEventRepository
+    public class EventRepository : Repository<Event>, IEventRepository
     {
-        private readonly ApplicationDbContext _context;
-
-        public EventRepository(ApplicationDbContext context)
-        {
-            _context = context;
-        }
-
-        public async Task<Event?> GetByIdAsync(int id)
-        {
-            return await _context.Eventos
-                .Include(e => e.TicketTypes)
-                .Include(e => e.Asistentes)
-                .FirstOrDefaultAsync(e => e.Id == id);
-        }
-
-        public async Task<IEnumerable<Event>> GetAllAsync()
-        {
-            return await _context.Eventos
-                .Include(e => e.TicketTypes)
-                .Include(e => e.Asistentes)
-                .ToListAsync();
-        }
+        public EventRepository(ApplicationDbContext context) : base(context) { }
 
         public async Task<IEnumerable<Event>> GetByOrganizerIdAsync(string organizerId)
         {
-            return await _context.Eventos
+            return await _dbSet
                 .Where(e => e.OrganizadorId == organizerId)
                 .Include(e => e.TicketTypes)
                 .Include(e => e.Asistentes)
                 .ToListAsync();
         }
 
-        public async Task AddAsync(Event evento)
+        public override async Task<IEnumerable<Event>> GetAllAsync()
         {
-            await _context.Eventos.AddAsync(evento);
-            await _context.SaveChangesAsync();
+            return await _dbSet
+                .Include(e => e.TicketTypes)
+                .Include(e => e.Asistentes)
+                .ToListAsync();
         }
 
-        public async Task UpdateAsync(Event evento)
+        public override async Task<Event?> GetByIdAsync(object id)
         {
-            _context.Eventos.Update(evento);
-            await _context.SaveChangesAsync();
+            return await _dbSet
+                .Include(e => e.TicketTypes)
+                .Include(e => e.Asistentes)
+                .FirstOrDefaultAsync(e => e.Id.Equals(id));
         }
 
-        public async Task DeleteAsync(Event evento)
-        {
-            _context.Eventos.Remove(evento);
-            await _context.SaveChangesAsync();
-        }
+        // Los métodos AddAsync, Update y Remove se usan tal como están en Repository<T>
+        // Y la confirmación de cambios se delega a UnitOfWork.
     }
 }

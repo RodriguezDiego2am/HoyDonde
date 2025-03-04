@@ -85,9 +85,9 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-// 5) Registrar los Repositorios
-builder.Services.AddScoped<IUserRepository, UserRepository>();
-builder.Services.AddScoped<IEventRepository, EventRepository>();
+// 5) Registrar los Repositorios con UnitOfWork
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+
 
 // 6) Registrar los Servicios
 builder.Services.AddScoped<AuthService>();

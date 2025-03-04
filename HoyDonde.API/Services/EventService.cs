@@ -5,34 +5,32 @@ using static HoyDonde.API.Models.Event;
 
 public class EventService : IEventService
 {
-    private readonly IEventRepository _eventRepository;
-    private readonly IUserRepository _userRepository; // Para verificar organizador válido
+    private readonly IUnitOfWork _unitOfWork;
 
-    public EventService(IEventRepository eventRepository, IUserRepository organizerRepository)
+    public EventService(IUnitOfWork unitOfWork)
     {
-        _eventRepository = eventRepository;
-        _userRepository = organizerRepository;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<Event?> GetByIdAsync(int id)
     {
-        return await _eventRepository.GetByIdAsync(id);
+        return await _unitOfWork.Events.GetByIdAsync(id);
     }
 
     public async Task<IEnumerable<Event>> GetAllAsync()
     {
-        return await _eventRepository.GetAllAsync();
+        return await _unitOfWork.Events.GetAllAsync();
     }
 
     public async Task<IEnumerable<Event>> GetByOrganizerIdAsync(string organizerId)
     {
-        return await _eventRepository.GetByOrganizerIdAsync(organizerId);
+        return await _unitOfWork.Events.GetByOrganizerIdAsync(organizerId);
     }
 
     public async Task<Event> CreateEventAsync(Event evento)
     {
         // Validación: El organizador debe existir
-        var organizer = await _userRepository.GetOrganizerByIdAsync(evento.OrganizadorId);
+        var organizer = await _unitOfWork.Users.GetOrganizerByIdAsync(evento.OrganizadorId);
         if (organizer == null)
             throw new Exception("El organizador no existe.");
 
@@ -43,13 +41,13 @@ public class EventService : IEventService
         // Estado inicial del evento
         evento.Estado = EventStatus.Pendiente;
 
-        await _eventRepository.AddAsync(evento);
+        await _unitOfWork.Events.AddAsync(evento);
         return evento;
     }
 
     public async Task<bool> UpdateEventAsync(Event evento)
     {
-        var existingEvent = await _eventRepository.GetByIdAsync(evento.Id);
+        var existingEvent = await _unitOfWork.Events.GetByIdAsync(evento.Id);
         if (existingEvent == null)
             throw new Exception("Evento no encontrado.");
 
@@ -62,33 +60,36 @@ public class EventService : IEventService
         existingEvent.Fecha = evento.Fecha;
         existingEvent.CapacidadMaxima = evento.CapacidadMaxima;
 
-        await _eventRepository.UpdateAsync(existingEvent);
+        _unitOfWork.Events.Update(evento);
+        await _unitOfWork.SaveChangesAsync();
         return true;
     }
 
     public async Task<bool> PublishEventAsync(int eventId)
     {
-        var evento = await _eventRepository.GetByIdAsync(eventId);
+        var evento = await _unitOfWork.Events.GetByIdAsync(eventId);
         if (evento == null)
             throw new Exception("Evento no encontrado.");
 
         // Solo un admin puede aprobar el evento (esto se verifica en el controlador)
         evento.Estado = EventStatus.Publicado;
 
-        await _eventRepository.UpdateAsync(evento);
+        _unitOfWork.Events.Update(evento);
+        await _unitOfWork.SaveChangesAsync();
         return true;
     }
 
     public async Task<bool> CancelEventAsync(int eventId)
     {
-        var evento = await _eventRepository.GetByIdAsync(eventId);
+        var evento = await _unitOfWork.Events.GetByIdAsync(eventId);
         if (evento == null)
             throw new Exception("Evento no encontrado.");
 
         // Se marca como cancelado y se generan vales
         evento.Estado = EventStatus.Cancelado;
 
-        await _eventRepository.UpdateAsync(evento);
+        _unitOfWork.Events.Update(evento);
+        await _unitOfWork.SaveChangesAsync();
         return true;
     }
 }
