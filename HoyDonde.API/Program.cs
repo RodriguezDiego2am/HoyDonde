@@ -1,32 +1,74 @@
 ﻿using HoyDonde.API.Data;
+using HoyDonde.API.Middleware;
 using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
 using HoyDonde.API.Services;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Serilog;
+using Serilog.Events;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1) Configurar la conexión a SQL Server
+// Configuración de Serilog
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .WriteTo.File("logs/hoydonde.txt", rollingInterval: RollingInterval.Day)
+    .CreateLogger();
+
+builder.Host.UseSerilog();
+
+// Servicios principales
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// 2) Configurar servicios de Swagger
-builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
+    .AddEntityFrameworkStores<ApplicationDbContext>()
+    .AddDefaultTokenProviders();
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Agregamos el esquema de seguridad en Swagger para que podamos enviar el token
-// ─────────────────────────────────────────────────────────────────────────────
+// Configuración de autenticación JWT
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.RequireHttpsMetadata = false;
+    options.SaveToken = true;
+
+    var secretKey = builder.Configuration["JwtSettings:Secret"] ?? "";
+    var issuer = builder.Configuration["JwtSettings:Issuer"] ?? "";
+    var audience = builder.Configuration["JwtSettings:Audience"] ?? "";
+
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
+        ValidateIssuer = true,
+        ValidIssuer = issuer,
+        ValidateAudience = true,
+        ValidAudience = audience,
+        ValidateLifetime = true,
+        ClockSkew = TimeSpan.Zero
+    };
+});
+
+// Autorización
+builder.Services.AddAuthorization();
+
+// Swagger
+builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "HoyDonde API", Version = "v1" });
 
-    // Para que Swagger pueda usar JWT
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Description = "JWT Authorization header using the Bearer scheme. Ejemplo: \"Authorization: Bearer {token}\"",
@@ -44,77 +86,51 @@ builder.Services.AddSwaggerGen(c =>
                     Id = "Bearer"
                 }
             },
-            System.Array.Empty<string>()
+            Array.Empty<string>()
         }
     });
 });
 
-// 3) Configurar Identity
-builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
-    .AddEntityFrameworkStores<ApplicationDbContext>()
-    .AddDefaultTokenProviders();
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 4) Configurar la autenticación con JWT
-// ─────────────────────────────────────────────────────────────────────────────
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
-{
-    options.RequireHttpsMetadata = false;
-    options.SaveToken = true;
-
-    // Leemos claves del appsettings.json (JwtSettings:Secret, etc.)
-    var secretKey = builder.Configuration["JwtSettings:Secret"] ?? "";
-    var issuer = builder.Configuration["JwtSettings:Issuer"] ?? "";
-    var audience = builder.Configuration["JwtSettings:Audience"] ?? "";
-
-    options.TokenValidationParameters = new TokenValidationParameters
-    {
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
-        ValidateIssuer = true,
-        ValidIssuer = issuer,
-        ValidateAudience = true,
-        ValidAudience = audience,
-        ValidateLifetime = true,
-        ClockSkew = System.TimeSpan.Zero
-    };
-});
-
-// 5) Registrar los Repositorios con UnitOfWork
+// Repositorios y servicios
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
-
-
-// 6) Registrar los Servicios
 builder.Services.AddScoped<AuthService>();
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 7) (OPCIONAL) Registrar un servicio para generar el JWT si no lo tienes aún.
-// ─────────────────────────────────────────────────────────────────────────────
 builder.Services.AddScoped<IJwtService, JwtService>();
 
-builder.Services.AddAuthorization();
+// Controllers
 builder.Services.AddControllers();
 
 var app = builder.Build();
 
-// 8) Swagger en desarrollo
-if (app.Environment.IsDevelopment())
+try
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
+    // Middleware
+    app.UseMiddleware<ExceptionMiddleware>();
+    app.UseMiddleware<LoggingMiddleware>();
+
+    // Swagger solo en desarrollo
+    if (app.Environment.IsDevelopment())
     {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "HoyDonde API v1");
-    });
+        app.UseSwagger();
+        app.UseSwaggerUI(c =>
+        {
+            c.SwaggerEndpoint("/swagger/v1/swagger.json", "HoyDonde API v1");
+        });
+    }
+
+    // Pipeline HTTP
+    app.UseAuthentication();
+    app.UseAuthorization();
+
+    app.MapControllers();
+
+    Log.Information("Iniciando HoyDonde API");
+    app.Run();
 }
-
-// 9) Activar la autenticación y autorización
-app.UseAuthentication();
-app.UseAuthorization();
-
-app.MapControllers();
-app.Run();
+catch (Exception ex)
+{
+    Log.Fatal(ex, "La aplicación se detuvo inesperadamente");
+}
+finally
+{
+    Log.CloseAndFlush();
+}

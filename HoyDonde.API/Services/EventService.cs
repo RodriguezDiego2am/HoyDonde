@@ -60,7 +60,7 @@ public class EventService : IEventService
         existingEvent.Fecha = evento.Fecha;
         existingEvent.CapacidadMaxima = evento.CapacidadMaxima;
 
-        _unitOfWork.Events.Update(evento);
+        _unitOfWork.Events.Update(existingEvent);
         await _unitOfWork.SaveChangesAsync();
         return true;
     }
