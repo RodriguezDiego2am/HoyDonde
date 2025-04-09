@@ -93,8 +93,11 @@ builder.Services.AddSwaggerGen(c =>
 
 // Repositorios y servicios
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
-builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IJwtService, JwtService>();
+builder.Services.AddScoped<IEventService, EventService>();
+builder.Services.AddScoped<IUserService, UserService>();
+
 
 // Controllers
 builder.Services.AddControllers();
