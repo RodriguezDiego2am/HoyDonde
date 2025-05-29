@@ -1,0 +1,137 @@
+[1mdiff --git a/HoyDonde.API/Program.cs b/HoyDonde.API/Program.cs[m
+[1mindex c8fb463..502250a 100644[m
+[1m--- a/HoyDonde.API/Program.cs[m
+[1m+++ b/HoyDonde.API/Program.cs[m
+[36m@@ -9,7 +9,6 @@[m [musing Microsoft.EntityFrameworkCore;[m
+ using Microsoft.IdentityModel.Tokens;[m
+ using Microsoft.OpenApi.Models;[m
+ using Serilog;[m
+[31m-using Serilog.Events;[m
+ using System.Text;[m
+ [m
+ var builder = WebApplication.CreateBuilder(args);[m
+[36m@@ -24,15 +23,17 @@[m [mLog.Logger = new LoggerConfiguration()[m
+ [m
+ builder.Host.UseSerilog();[m
+ [m
+[31m-// Servicios principales[m
+[32m+[m[32m// Configuración de Entity Framework Core y SQL Server[m
+ builder.Services.AddDbContext<ApplicationDbContext>(options =>[m
+[31m-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));[m
+[32m+[m[32m    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"))[m
+[32m+[m[32m);[m
+ [m
+[32m+[m[32m// Configuración de Identity[m
+ builder.Services.AddIdentity<ApplicationUser, IdentityRole>()[m
+     .AddEntityFrameworkStores<ApplicationDbContext>()[m
+     .AddDefaultTokenProviders();[m
+ [m
+[31m-// Configuración de autenticación JWT[m
+[32m+[m[32m// Configuración de autenticación con JWT[m
+ builder.Services.AddAuthentication(options =>[m
+ {[m
+     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;[m
+[36m@@ -60,15 +61,17 @@[m [mbuilder.Services.AddAuthentication(options =>[m
+     };[m
+ });[m
+ [m
+[31m-// Autorización[m
+[32m+[m[32m// Agregar servicios de autorización[m
+ builder.Services.AddAuthorization();[m
+ [m
+[31m-// Swagger[m
+[32m+[m[32m// Agregar controladores[m
+[32m+[m[32mbuilder.Services.AddControllers();[m
+[32m+[m
+[32m+[m[32m// Configuración de Swagger/OpenAPI[m
+ builder.Services.AddEndpointsApiExplorer();[m
+ builder.Services.AddSwaggerGen(c =>[m
+ {[m
+     c.SwaggerDoc("v1", new OpenApiInfo { Title = "HoyDonde API", Version = "v1" });[m
+[31m-[m
+     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme[m
+     {[m
+         Description = "JWT Authorization header using the Bearer scheme. Ejemplo: \"Authorization: Bearer {token}\"",[m
+[36m@@ -86,47 +89,60 @@[m [mbuilder.Services.AddSwaggerGen(c =>[m
+                     Id = "Bearer"[m
+                 }[m
+             },[m
+[31m-            Array.Empty<string>()[m
+[32m+[m[32m            new string[] {}[m
+         }[m
+     });[m
+ });[m
+ [m
+[31m-// Repositorios y servicios[m
+[32m+[m[32m// Registrar dependencias para Repositorios y Servicios[m
+ builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();[m
+[32m+[m[32mbuilder.Services.AddScoped<IUserRepository, UserRepository>();[m
+ builder.Services.AddScoped<IAuthService, AuthService>();[m
+ builder.Services.AddScoped<IJwtService, JwtService>();[m
+ builder.Services.AddScoped<IEventService, EventService>();[m
+ builder.Services.AddScoped<IUserService, UserService>();[m
+[32m+[m[32mbuilder.Services.AddScoped<IPasswordResetService, PasswordResetService>();[m
+ [m
+[32m+[m[32mvar app = builder.Build();[m
+ [m
+[31m-// Controllers[m
+[31m-builder.Services.AddControllers();[m
+[32m+[m[32m// Uso de middlewares personalizados[m
+[32m+[m[32mapp.UseMiddleware<ExceptionMiddleware>();[m
+[32m+[m[32mapp.UseMiddleware<LoggingMiddleware>();[m
+ [m
+[31m-var app = builder.Build();[m
+[32m+[m[32m// Configuración de Swagger en ambiente de desarrollo[m
+[32m+[m[32mif (app.Environment.IsDevelopment())[m
+[32m+[m[32m{[m
+[32m+[m[32m    app.UseSwagger();[m
+[32m+[m[32m    app.UseSwaggerUI(c =>[m
+[32m+[m[32m    {[m
+[32m+[m[32m        c.SwaggerEndpoint("/swagger/v1/swagger.json", "HoyDonde API v1");[m
+[32m+[m[32m    });[m
+[32m+[m[32m}[m
+ [m
+[31m-try[m
+[32m+[m[32mapp.UseAuthentication();[m
+[32m+[m[32mapp.UseAuthorization();[m
+[32m+[m
+[32m+[m[32mapp.MapControllers();[m
+[32m+[m
+[32m+[m[32m// Seeding de Roles[m
+[32m+[m[32musing (var scope = app.Services.CreateScope())[m
+ {[m
+[31m-    // Middleware[m
+[31m-    app.UseMiddleware<ExceptionMiddleware>();[m
+[31m-    app.UseMiddleware<LoggingMiddleware>();[m
+[32m+[m[32m    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();[m
+[32m+[m[32m    var roles = new[] { Roles.Admin, Roles.Organizador, Roles.Cliente, Roles.Control };[m
+ [m
+[31m-    // Swagger solo en desarrollo[m
+[31m-    if (app.Environment.IsDevelopment())[m
+[32m+[m[32m    foreach (var role in roles)[m
+     {[m
+[31m-        app.UseSwagger();[m
+[31m-        app.UseSwaggerUI(c =>[m
+[32m+[m[32m        if (!await roleManager.RoleExistsAsync(role))[m
+         {[m
+[31m-            c.SwaggerEndpoint("/swagger/v1/swagger.json", "HoyDonde API v1");[m
+[31m-        });[m
+[32m+[m[32m            await roleManager.CreateAsync(new IdentityRole(role));[m
+[32m+[m[32m        }[m
+     }[m
+[32m+[m[32m}[m
+ [m
+[31m-    // Pipeline HTTP[m
+[31m-    app.UseAuthentication();[m
+[31m-    app.UseAuthorization();[m
+[31m-[m
+[31m-    app.MapControllers();[m
+[31m-[m
+[31m-    Log.Information("Iniciando HoyDonde API");[m
+[32m+[m[32m// Iniciar la aplicación y manejo de excepciones en el arranque[m
+[32m+[m[32mLog.Information("Iniciando HoyDonde API");[m
+[32m+[m[32mtry[m
+[32m+[m[32m{[m
+     app.Run();[m
+ }[m
+ catch (Exception ex)[m
