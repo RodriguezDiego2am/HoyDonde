@@ -1,95 +1,142 @@
-﻿using HoyDonde.API.Models;
+using HoyDonde.API.DTOs;
+using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
-using HoyDonde.API.Services;
+using Microsoft.Extensions.Logging;
+using System;
+using System.Linq;
 using static HoyDonde.API.Models.Event;
 
-public class EventService : IEventService
+namespace HoyDonde.API.Services
 {
-    private readonly IUnitOfWork _unitOfWork;
-
-    public EventService(IUnitOfWork unitOfWork)
+    public class EventService : IEventService
     {
-        _unitOfWork = unitOfWork;
-    }
+        private readonly IUnitOfWork _unitOfWork;
+        private readonly ILogger<EventService> _logger;
 
-    public async Task<Event?> GetByIdAsync(int id)
-    {
-        return await _unitOfWork.Events.GetByIdAsync(id);
-    }
+        public EventService(IUnitOfWork unitOfWork, ILogger<EventService> logger)
+        {
+            _unitOfWork = unitOfWork;
+            _logger = logger;
+        }
 
-    public async Task<IEnumerable<Event>> GetAllAsync()
-    {
-        return await _unitOfWork.Events.GetAllAsync();
-    }
+        public async Task<Event?> GetByIdAsync(int id)
+        {
+            return await _unitOfWork.Events.GetByIdAsync(id);
+        }
 
-    public async Task<IEnumerable<Event>> GetByOrganizerIdAsync(string organizerId)
-    {
-        return await _unitOfWork.Events.GetByOrganizerIdAsync(organizerId);
-    }
+        public async Task<IEnumerable<Event>> GetAllAsync()
+        {
+            return await _unitOfWork.Events.GetAllAsync();
+        }
 
-    public async Task<Event> CreateEventAsync(Event evento)
-    {
-        // Validación: El organizador debe existir
-        var organizer = await _unitOfWork.Users.GetOrganizerByIdAsync(evento.OrganizadorId);
-        if (organizer == null)
-            throw new Exception("El organizador no existe.");
+        public async Task<IEnumerable<Event>> GetByOrganizerIdAsync(string organizerId)
+        {
+            return await _unitOfWork.Events.GetByOrganizerIdAsync(organizerId);
+        }
 
-        // Validación: Debe haber al menos un grupo de entradas
-        if (evento.TicketTypes == null || !evento.TicketTypes.Any())
-            throw new Exception("Debe haber al menos un grupo de entradas.");
+        public async Task<EventResponse> CreateEventAsync(EventCreateRequest request, string organizerId)
+        {
+            _logger.LogInformation("Creando evento {Nombre} para organizador {Organizador}", request.Nombre, organizerId);
 
-        // Estado inicial del evento
-        evento.Estado = EventStatus.Pendiente;
+            var organizer = await _unitOfWork.Users.GetOrganizerByIdAsync(organizerId);
+            if (organizer == null)
+            {
+                _logger.LogError("Organizador {OrganizadorId} no existe", organizerId);
+                throw new Exception("El organizador no existe.");
+            }
 
-        await _unitOfWork.Events.AddAsync(evento);
-        return evento;
-    }
+            if (request.TicketGroups == null || !request.TicketGroups.Any())
+                throw new Exception("Debe haber al menos un grupo de entradas.");
 
-    public async Task<bool> UpdateEventAsync(Event evento)
-    {
-        var existingEvent = await _unitOfWork.Events.GetByIdAsync(evento.Id);
-        if (existingEvent == null)
-            throw new Exception("Evento no encontrado.");
+            if (request.FechaInicio <= DateTime.UtcNow)
+                throw new Exception("La fecha del evento debe ser futura.");
 
-        // Solo se puede modificar si está pendiente o si no tiene ventas
-        if (existingEvent.Estado != EventStatus.Pendiente && existingEvent.Asistentes.Any())
-            throw new Exception("No se puede modificar un evento con entradas vendidas.");
+            var evento = new Event
+            {
+                Nombre = request.Nombre,
+                Descripcion = request.Descripcion,
+                Fecha = request.FechaInicio,
+                Ubicacion = request.Ubicacion,
+                Categoria = request.Categoria,
+                OrganizadorId = organizerId,
+                Estado = EventStatus.Activo
+            };
 
-        existingEvent.Nombre = evento.Nombre;
-        existingEvent.Ubicacion = evento.Ubicacion;
-        existingEvent.Fecha = evento.Fecha;
-        existingEvent.CapacidadMaxima = evento.CapacidadMaxima;
+            evento.TicketTypes = request.TicketGroups.Select(g => new TicketType
+            {
+                Nombre = g.Nombre,
+                Precio = g.Precio,
+                CantidadDisponible = g.CantidadDisponible
+            }).ToList();
 
-        _unitOfWork.Events.Update(existingEvent);
-        await _unitOfWork.SaveChangesAsync();
-        return true;
-    }
+            evento.CapacidadMaxima = evento.TicketTypes.Sum(t => t.CantidadDisponible);
 
-    public async Task<bool> PublishEventAsync(int eventId)
-    {
-        var evento = await _unitOfWork.Events.GetByIdAsync(eventId);
-        if (evento == null)
-            throw new Exception("Evento no encontrado.");
+            await _unitOfWork.Events.AddAsync(evento);
+            await _unitOfWork.SaveChangesAsync();
 
-        // Solo un admin puede aprobar el evento (esto se verifica en el controlador)
-        evento.Estado = EventStatus.Publicado;
+            _logger.LogInformation("Evento {Id} creado correctamente", evento.Id);
 
-        _unitOfWork.Events.Update(evento);
-        await _unitOfWork.SaveChangesAsync();
-        return true;
-    }
+            return new EventResponse
+            {
+                Id = evento.Id,
+                Nombre = evento.Nombre,
+                Descripcion = evento.Descripcion,
+                FechaInicio = evento.Fecha,
+                Ubicacion = evento.Ubicacion,
+                Categoria = evento.Categoria,
+                Estado = evento.Estado,
+                TicketGroups = evento.TicketTypes.Select(t => new TicketGroupDto
+                {
+                    Nombre = t.Nombre,
+                    Precio = t.Precio,
+                    CantidadDisponible = t.CantidadDisponible
+                }).ToList()
+            };
+        }
 
-    public async Task<bool> CancelEventAsync(int eventId)
-    {
-        var evento = await _unitOfWork.Events.GetByIdAsync(eventId);
-        if (evento == null)
-            throw new Exception("Evento no encontrado.");
+        public async Task<bool> UpdateEventAsync(Event evento)
+        {
+            var existingEvent = await _unitOfWork.Events.GetByIdAsync(evento.Id);
+            if (existingEvent == null)
+                throw new Exception("Evento no encontrado.");
 
-        // Se marca como cancelado y se generan vales
-        evento.Estado = EventStatus.Cancelado;
+            if (existingEvent.Estado != EventStatus.Pendiente && existingEvent.Asistentes.Any())
+                throw new Exception("No se puede modificar un evento con entradas vendidas.");
 
-        _unitOfWork.Events.Update(evento);
-        await _unitOfWork.SaveChangesAsync();
-        return true;
+            existingEvent.Nombre = evento.Nombre;
+            existingEvent.Ubicacion = evento.Ubicacion;
+            existingEvent.Fecha = evento.Fecha;
+            existingEvent.CapacidadMaxima = evento.CapacidadMaxima;
+
+            _unitOfWork.Events.Update(existingEvent);
+            await _unitOfWork.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> PublishEventAsync(int eventId)
+        {
+            var evento = await _unitOfWork.Events.GetByIdAsync(eventId);
+            if (evento == null)
+                throw new Exception("Evento no encontrado.");
+
+            evento.Estado = EventStatus.Publicado;
+
+            _unitOfWork.Events.Update(evento);
+            await _unitOfWork.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> CancelEventAsync(int eventId)
+        {
+            var evento = await _unitOfWork.Events.GetByIdAsync(eventId);
+            if (evento == null)
+                throw new Exception("Evento no encontrado.");
+
+            evento.Estado = EventStatus.Cancelado;
+
+            _unitOfWork.Events.Update(evento);
+            await _unitOfWork.SaveChangesAsync();
+            return true;
+        }
     }
 }

@@ -1,4 +1,5 @@
-﻿using HoyDonde.API.Models;
+using HoyDonde.API.DTOs;
+using HoyDonde.API.Models;
 
 namespace HoyDonde.API.Services
 {
@@ -7,7 +8,7 @@ namespace HoyDonde.API.Services
         Task<Event?> GetByIdAsync(int id);
         Task<IEnumerable<Event>> GetAllAsync();
         Task<IEnumerable<Event>> GetByOrganizerIdAsync(string organizerId);
-        Task<Event> CreateEventAsync(Event evento);
+        Task<EventResponse> CreateEventAsync(EventCreateRequest request, string organizerId);
         Task<bool> UpdateEventAsync(Event evento);
         Task<bool> PublishEventAsync(int eventId);
         Task<bool> CancelEventAsync(int eventId);
