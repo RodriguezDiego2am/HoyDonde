@@ -4,6 +4,9 @@
     {
         IEventRepository Events { get; }
         IUserRepository Users { get; }
+        IOrderRepository Orders { get; }
+        IReservationRepository Reservations { get; }
+        IPaymentRepository Payments { get; }
         Task<int> SaveChangesAsync();
     }
 }

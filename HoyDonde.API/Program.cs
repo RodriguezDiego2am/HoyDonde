@@ -103,6 +103,20 @@ builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 
+// Nuevos repositorios para sistema de compras
+builder.Services.AddScoped<IOrderRepository, OrderRepository>();
+builder.Services.AddScoped<IReservationRepository, ReservationRepository>();
+builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
+
+// Nuevos servicios para sistema de compras
+builder.Services.AddScoped<IOrderService, OrderService>();
+builder.Services.AddScoped<IReservationService, ReservationService>();
+builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<IPricingService, PricingService>();
+
+// Background job para limpieza de reservas expiradas
+builder.Services.AddHostedService<HoyDonde.API.BackgroundJobs.ReservationCleanupService>();
+
 var app = builder.Build();
 
 // Uso de middlewares personalizados

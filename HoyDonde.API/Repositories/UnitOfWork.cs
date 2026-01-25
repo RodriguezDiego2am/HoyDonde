@@ -9,6 +9,9 @@ namespace HoyDonde.API.Repositories
         private readonly ApplicationDbContext _context;
         private IEventRepository? _eventRepository;
         private IUserRepository? _userRepository;
+        private IOrderRepository? _orderRepository;
+        private IReservationRepository? _reservationRepository;
+        private IPaymentRepository? _paymentRepository;
         private readonly UserManager<ApplicationUser> _userManager;
 
         public UnitOfWork(ApplicationDbContext context, UserManager<ApplicationUser> userManager)
@@ -22,6 +25,15 @@ namespace HoyDonde.API.Repositories
 
         public IUserRepository Users
             => _userRepository ??= new UserRepository(_userManager, _context);
+
+        public IOrderRepository Orders
+            => _orderRepository ??= new OrderRepository(_context);
+
+        public IReservationRepository Reservations
+            => _reservationRepository ??= new ReservationRepository(_context);
+
+        public IPaymentRepository Payments
+            => _paymentRepository ??= new PaymentRepository(_context);
 
         public async Task<int> SaveChangesAsync()
         {
