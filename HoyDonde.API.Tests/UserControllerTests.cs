@@ -30,8 +30,8 @@ namespace HoyDonde.API.Tests
             // Habilitamos el Fake Auth que creamos en el TestApplicationFactory
             _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Test");
 
-            // Etapa 5 del refactor de seguridad: la autorización real depende de IPermissionService,
-            // no del claim de rol legacy (Test-Role queda como vestigio inofensivo en estos tests).
+            // Etapa 5 del refactor de seguridad: la autorización real depende exclusivamente de
+            // IPermissionService, resuelto contra las acciones concedidas acá.
             _factory.GrantAccion(ActorUid, "usuario-user-controller-test", "persona-user-controller-test",
                 Acciones.UsuarioCrearAdmin, Acciones.UsuarioCrearOrganizador, Acciones.ControlCrear);
         }
@@ -231,7 +231,6 @@ namespace HoyDonde.API.Tests
                 Content = JsonContent.Create(request)
             };
             reqMessage.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Test");
-            reqMessage.Headers.Add("Test-Role", Models.Roles.Admin);
 
             var response = await _client.SendAsync(reqMessage);
 
@@ -255,7 +254,6 @@ namespace HoyDonde.API.Tests
                 Content = JsonContent.Create(request)
             };
             reqMessage.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Test");
-            reqMessage.Headers.Add("Test-Role", Models.Roles.Admin);
 
             var response = await _client.SendAsync(reqMessage);
 
@@ -307,7 +305,6 @@ namespace HoyDonde.API.Tests
                 Content = JsonContent.Create(request)
             };
             reqMessage.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Test");
-            reqMessage.Headers.Add("Test-Role", Models.Roles.Admin);
 
             var response = await _client.SendAsync(reqMessage);
 

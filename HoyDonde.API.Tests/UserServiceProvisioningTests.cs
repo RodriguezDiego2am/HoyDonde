@@ -76,8 +76,6 @@ namespace HoyDonde.API.Tests
             Assert.Equal(ActorUid, capturedRequest.AssignedBy);
             Assert.Equal("uid-admin", capturedRequest.ExternalSubjectId);
 
-            identityProvider.Verify(p => p.SetTemporaryClaimAsync("uid-admin",
-                It.Is<System.Collections.Generic.IReadOnlyDictionary<string, object>>(c => (string)c["role"] == Roles.Admin)), Times.Once);
             identityProvider.Verify(p => p.DeleteIdentityAsync(It.IsAny<string>()), Times.Never);
             identidadHuerfanaRepository.Verify(r => r.RegistrarAsync(It.IsAny<IdentidadHuerfana>()), Times.Never);
         }
@@ -100,8 +98,6 @@ namespace HoyDonde.API.Tests
 
             Assert.Equal("ORGANIZADOR", capturedRequest!.RolCodigo);
             Assert.Equal(ActorUid, capturedRequest.AssignedBy);
-            identityProvider.Verify(p => p.SetTemporaryClaimAsync("uid-org",
-                It.Is<System.Collections.Generic.IReadOnlyDictionary<string, object>>(c => (string)c["role"] == Roles.Organizador)), Times.Once);
         }
 
         // ---- Control: resolución del organizador + ownership antes de tocar Firebase ----
@@ -190,28 +186,6 @@ namespace HoyDonde.API.Tests
         }
 
         // ---- Compensación ----
-
-        [Fact]
-        public async Task RegisterAdminAsync_WhenSetTemporaryClaimFails_CompensatesByDeletingIdentity()
-        {
-            var (sut, usuarioRepository, identidadHuerfanaRepository, _, identityProvider, _, _, _) = CreateSut();
-            identityProvider
-                .Setup(p => p.CreateIdentityAsync("admin@test.com", "Password123!", null))
-                .ReturnsAsync(new IdentityCreationResult("uid-admin", FirebaseIdentityProvider.ProviderName));
-            var claimError = new InvalidOperationException("claim failed");
-            identityProvider
-                .Setup(p => p.SetTemporaryClaimAsync("uid-admin", It.IsAny<System.Collections.Generic.IReadOnlyDictionary<string, object>>()))
-                .ThrowsAsync(claimError);
-            identityProvider.Setup(p => p.DeleteIdentityAsync("uid-admin")).Returns(Task.CompletedTask);
-
-            var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
-                () => sut.RegisterAdminAsync(ActorUid, "admin@test.com", "Password123!"));
-
-            Assert.Same(claimError, thrown);
-            identityProvider.Verify(p => p.DeleteIdentityAsync("uid-admin"), Times.Once);
-            usuarioRepository.Verify(r => r.ProvisionarAsync(It.IsAny<UsuarioProvisioningRequest>()), Times.Never);
-            identidadHuerfanaRepository.Verify(r => r.RegistrarAsync(It.IsAny<IdentidadHuerfana>()), Times.Never);
-        }
 
         [Fact]
         public async Task RegisterAdminAsync_WhenProvisionarAsyncFails_CompensatesByDeletingIdentity()

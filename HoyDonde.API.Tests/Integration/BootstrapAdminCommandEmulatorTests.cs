@@ -62,9 +62,6 @@ namespace HoyDonde.API.Tests.Integration
             identityProvider
                 .Setup(p => p.CreateIdentityAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()))
                 .Returns(() => Task.FromResult(new IdentityCreationResult($"uid-bootstrap-{Guid.NewGuid():N}-{uidCounter++}", FirebaseIdentityProvider.ProviderName)));
-            identityProvider
-                .Setup(p => p.SetTemporaryClaimAsync(It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, object>>()))
-                .Returns(Task.CompletedTask);
 
             var sut = CreateSut(identityProvider, usuarioRepository, rolRepository, accionRepository);
 

@@ -43,7 +43,7 @@ namespace HoyDonde.API.Tests
             // tomado del token (FakeAuthHandler), nunca de lo que viaja en el body.
             _factory.MockAuthService
                 .Setup(s => s.SyncClienteAsync(TokenUid, TokenEmail, It.IsAny<SyncClienteRequest>()))
-                .ReturnsAsync(new SyncClienteResult("usuario-1", "persona-1", new List<string> { "CLIENTE" }, true));
+                .ReturnsAsync(new SyncClienteResult("usuario-1", "persona-1", new List<string> { "CLIENTE" }));
 
             var body = new SyncClienteRequestDto { FullName = "Juan Perez", Dni = "12345678", PhoneNumber = "+5491122334455" };
 
@@ -58,11 +58,11 @@ namespace HoyDonde.API.Tests
         }
 
         [Fact]
-        public async Task SyncUser_ReturnsClaimsUpdatedAndRolesFromService()
+        public async Task SyncUser_ReturnsRolesFromService()
         {
             _factory.MockAuthService
                 .Setup(s => s.SyncClienteAsync(TokenUid, TokenEmail, It.IsAny<SyncClienteRequest>()))
-                .ReturnsAsync(new SyncClienteResult("usuario-2", "persona-2", new List<string> { "CLIENTE" }, true));
+                .ReturnsAsync(new SyncClienteResult("usuario-2", "persona-2", new List<string> { "CLIENTE" }));
 
             var response = await _client.PostAsJsonAsync("/api/auth/sync", new SyncClienteRequestDto());
             var payload = await response.Content.ReadFromJsonAsync<SyncUserResponseDto>();
@@ -71,23 +71,22 @@ namespace HoyDonde.API.Tests
             Assert.NotNull(payload);
             Assert.Equal("usuario-2", payload!.UsuarioId);
             Assert.Equal("persona-2", payload.PersonaId);
-            Assert.True(payload.ClaimsUpdated);
             Assert.Contains("CLIENTE", payload.Roles);
         }
 
         [Fact]
-        public async Task SyncUser_WhenActorIsNotCliente_ClaimsUpdatedIsFalse()
+        public async Task SyncUser_WhenActorHasOtherRoles_ReturnsThoseRoles()
         {
             _factory.MockAuthService
                 .Setup(s => s.SyncClienteAsync(TokenUid, TokenEmail, It.IsAny<SyncClienteRequest>()))
-                .ReturnsAsync(new SyncClienteResult("usuario-3", "persona-3", new List<string> { "ADMINISTRADOR" }, false));
+                .ReturnsAsync(new SyncClienteResult("usuario-3", "persona-3", new List<string> { "ADMINISTRADOR" }));
 
             var response = await _client.PostAsJsonAsync("/api/auth/sync", new SyncClienteRequestDto());
             var payload = await response.Content.ReadFromJsonAsync<SyncUserResponseDto>();
 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            Assert.False(payload!.ClaimsUpdated);
-            Assert.DoesNotContain("CLIENTE", payload.Roles);
+            Assert.DoesNotContain("CLIENTE", payload!.Roles);
+            Assert.Contains("ADMINISTRADOR", payload.Roles);
         }
     }
 }

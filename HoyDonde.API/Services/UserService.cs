@@ -3,15 +3,13 @@ using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
 using Microsoft.Extensions.Logging;
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace HoyDonde.API.Services
 {
     // Altas privilegiadas (Admin/Organizador/Control) sobre el modelo nuevo Persona+Usuario+
-    // UsuarioRol+IdentidadExterna (docs/security-refactor-plan.md §2.2, Etapa 3). No escribe
-    // nada en users/user_audits legacy. El alta de Cliente vive en AuthService (POST
-    // /api/auth/sync, §2.1), no acá.
+    // UsuarioRol+IdentidadExterna (docs/security-refactor-plan.md §2.2, Etapa 3). El alta de
+    // Cliente vive en AuthService (POST /api/auth/sync, §2.1), no acá.
     public class UserService : IUserService
     {
         // Ver docs/security-refactor-plan.md §2.1 punto 4 y §2.3: usado por AuthService para el
@@ -50,12 +48,12 @@ namespace HoyDonde.API.Services
 
         public Task<UsuarioProvisioningResult> RegisterAdminAsync(string assignedBy, string email, string password)
         {
-            return ProvisionarConCompensacionAsync(email, password, null, RolAdministrador, Roles.Admin, assignedBy);
+            return ProvisionarConCompensacionAsync(email, password, null, RolAdministrador, assignedBy);
         }
 
         public Task<UsuarioProvisioningResult> RegisterOrganizadorAsync(string assignedBy, string email, string password)
         {
-            return ProvisionarConCompensacionAsync(email, password, null, RolOrganizador, Roles.Organizador, assignedBy);
+            return ProvisionarConCompensacionAsync(email, password, null, RolOrganizador, assignedBy);
         }
 
         public async Task<UsuarioProvisioningResult> RegisterControlAsync(string assignedBy, string userName, string password, string eventId)
@@ -71,7 +69,7 @@ namespace HoyDonde.API.Services
             if (evento.OrganizadorPersonaId != organizadorPersonaId) throw new EventOwnershipException(eventId, assignedBy);
 
             var email = $"{userName}@control.hoydonde.com";
-            var result = await ProvisionarConCompensacionAsync(email, password, userName, RolControl, Roles.Control, assignedBy);
+            var result = await ProvisionarConCompensacionAsync(email, password, userName, RolControl, assignedBy);
 
             await _controlAsignacionRepository.AsignarAsync(result.PersonaId, eventId, organizadorPersonaId);
 
@@ -80,13 +78,12 @@ namespace HoyDonde.API.Services
 
         // Crea la identidad externa y, si eso tiene éxito, provisiona Persona+Usuario+
         // UsuarioRol+IdentidadExterna en una sola transacción (IUsuarioRepository.ProvisionarAsync,
-        // Etapa 2) más el claim legacy temporal (compatibilidad de código con
-        // [Authorize(Roles=...)], §2.1 punto 7 / §3). Si CreateIdentityAsync lanza
-        // IdentityEmailAlreadyExistsException, se propaga tal cual: no se creó nada en esta
-        // llamada, así que no hay nada que compensar ni ninguna cuenta existente que tocar.
+        // Etapa 2). Si CreateIdentityAsync lanza IdentityEmailAlreadyExistsException, se propaga
+        // tal cual: no se creó nada en esta llamada, así que no hay nada que compensar ni ninguna
+        // cuenta existente que tocar.
         private async Task<UsuarioProvisioningResult> ProvisionarConCompensacionAsync(
             string email, string password, string? displayName,
-            string rolCodigo, string legacyRoleClaim, string assignedBy)
+            string rolCodigo, string assignedBy)
         {
             var identity = await _identityProvider.CreateIdentityAsync(email, password, displayName);
 
@@ -95,9 +92,6 @@ namespace HoyDonde.API.Services
 
             try
             {
-                var claims = new Dictionary<string, object> { { "role", legacyRoleClaim } };
-                await _identityProvider.SetTemporaryClaimAsync(identity.ExternalSubjectId, claims);
-
                 var request = new UsuarioProvisioningRequest(
                     personaId, usuarioId, identity.IdentityProvider, identity.ExternalSubjectId,
                     email, rolCodigo, assignedBy, FullName: displayName);

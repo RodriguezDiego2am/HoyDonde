@@ -15,6 +15,5 @@ namespace HoyDonde.API.Services
     public record SyncClienteResult(
         string UsuarioId,
         string PersonaId,
-        IReadOnlyList<string> Roles,
-        bool ClaimsUpdated);
+        IReadOnlyList<string> Roles);
 }

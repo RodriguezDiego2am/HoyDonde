@@ -30,8 +30,8 @@ namespace HoyDonde.API.Tests
             // Por simplicidad, agregaremos el header default
             _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Test");
 
-            // Etapa 5 del refactor de seguridad: la autorización real depende de IPermissionService,
-            // no del claim de rol legacy (Test-Role queda como vestigio inofensivo en estos tests).
+            // Etapa 5 del refactor de seguridad: la autorización real depende exclusivamente de
+            // IPermissionService, resuelto contra las acciones concedidas acá.
             _factory.GrantAccion("test-uid-123", "usuario-tickets-test", "persona-tickets-test",
                 Acciones.TicketComprar, Acciones.TicketVerPropio, Acciones.TicketValidar);
         }
@@ -58,12 +58,10 @@ namespace HoyDonde.API.Tests
                 .ReturnsAsync(expectedResponse);
 
             // Act
-            // El TestAuthFakeHandler ahora lee Test-Role para simular roles. Mandamos Cliente
             var reqMessage = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, "/api/tickets/buy")
             {
                 Content = JsonContent.Create(request)
             };
-            reqMessage.Headers.Add("Test-Role", Models.Roles.Cliente);
 
             var response = await _client.SendAsync(reqMessage);
 
@@ -87,7 +85,6 @@ namespace HoyDonde.API.Tests
             {
                 Content = JsonContent.Create(request)
             };
-            reqMessage.Headers.Add("Test-Role", Models.Roles.Cliente);
 
             var response = await _client.SendAsync(reqMessage);
 
@@ -95,13 +92,12 @@ namespace HoyDonde.API.Tests
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         }
 
-        // ---- ValidateTicket: rol, evento asignado y estado del ticket ----
+        // ---- ValidateTicket: evento asignado y estado del ticket ----
 
-        private HttpRequestMessage ValidateRequest(string ticketId, string eventId, string role)
+        private HttpRequestMessage ValidateRequest(string ticketId, string eventId)
         {
             var msg = new HttpRequestMessage(HttpMethod.Post, $"/api/tickets/validate?ticketId={ticketId}&eventId={eventId}");
             msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Test");
-            msg.Headers.Add("Test-Role", role);
             return msg;
         }
 
@@ -112,7 +108,7 @@ namespace HoyDonde.API.Tests
                 .Setup(s => s.ValidateTicketAsync("test-uid-123", "ticket-1", "event-1"))
                 .ReturnsAsync(TicketValidationOutcome.Success);
 
-            var response = await _client.SendAsync(ValidateRequest("ticket-1", "event-1", Models.Roles.Control));
+            var response = await _client.SendAsync(ValidateRequest("ticket-1", "event-1"));
 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
@@ -124,7 +120,7 @@ namespace HoyDonde.API.Tests
                 .Setup(s => s.ValidateTicketAsync("test-uid-123", "ticket-1", "event-2"))
                 .ReturnsAsync(TicketValidationOutcome.NotAuthorized);
 
-            var response = await _client.SendAsync(ValidateRequest("ticket-1", "event-2", Models.Roles.Control));
+            var response = await _client.SendAsync(ValidateRequest("ticket-1", "event-2"));
 
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         }
@@ -136,7 +132,7 @@ namespace HoyDonde.API.Tests
                 .Setup(s => s.ValidateTicketAsync("test-uid-123", "ticket-used", "event-1"))
                 .ReturnsAsync(TicketValidationOutcome.AlreadyUsed);
 
-            var response = await _client.SendAsync(ValidateRequest("ticket-used", "event-1", Models.Roles.Control));
+            var response = await _client.SendAsync(ValidateRequest("ticket-used", "event-1"));
 
             Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         }
@@ -148,7 +144,7 @@ namespace HoyDonde.API.Tests
                 .Setup(s => s.ValidateTicketAsync("test-uid-123", "ticket-anulado", "event-1"))
                 .ReturnsAsync(TicketValidationOutcome.Cancelled);
 
-            var response = await _client.SendAsync(ValidateRequest("ticket-anulado", "event-1", Models.Roles.Control));
+            var response = await _client.SendAsync(ValidateRequest("ticket-anulado", "event-1"));
 
             Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         }
@@ -157,7 +153,7 @@ namespace HoyDonde.API.Tests
         public async Task ValidateTicket_SinAccionTicketValidar_ReturnsForbidden()
         {
             // El servicio ni siquiera debería llamarse: la policy TICKET_VALIDAR corta antes.
-            var msg = ValidateRequest("ticket-1", "event-1", Models.Roles.Control);
+            var msg = ValidateRequest("ticket-1", "event-1");
             msg.Headers.Add("Test-Uid", "uid-sin-permiso-tickets");
 
             var response = await _client.SendAsync(msg);
@@ -195,7 +191,6 @@ namespace HoyDonde.API.Tests
             {
                 Content = JsonContent.Create(request)
             };
-            reqMessage.Headers.Add("Test-Role", Models.Roles.Cliente);
 
             var response = await _client.SendAsync(reqMessage);
             var content = await response.Content.ReadAsStringAsync();

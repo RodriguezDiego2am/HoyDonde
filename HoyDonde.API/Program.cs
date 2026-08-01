@@ -61,7 +61,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         ValidateAudience = true,
         ValidAudience = projectId,
         ValidateLifetime = true,
-        RoleClaimType = "role" // Maps Firebase custom claim 'role' to ClaimsIdentity.RoleClaimType
     };
 });
 
@@ -108,7 +107,6 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 // Registrar dependencias para Repositorios y Servicios
-builder.Services.AddScoped<IUserRepository, FirestoreUserRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IIdentityProvider, FirebaseIdentityProvider>();
 builder.Services.AddScoped<IUserService, UserService>();

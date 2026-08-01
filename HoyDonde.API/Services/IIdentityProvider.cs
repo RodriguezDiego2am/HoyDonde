@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace HoyDonde.API.Services
@@ -18,12 +17,6 @@ namespace HoyDonde.API.Services
         Task UpdateAttributesAsync(string externalSubjectId, IdentityAttributeUpdate update);
 
         Task<string> GeneratePasswordResetLinkAsync(string externalSubjectId);
-
-        // El claim "role" solo se mantiene mientras dure la compatibilidad legacy con el
-        // modelo de autorización actual (ver diseño de la Etapa 5/9 del refactor).
-        Task SetTemporaryClaimAsync(string externalSubjectId, IReadOnlyDictionary<string, object> claims);
-
-        Task ClearClaimAsync(string externalSubjectId, string claimKey);
     }
 
     public record IdentityCreationResult(string ExternalSubjectId, string IdentityProvider);

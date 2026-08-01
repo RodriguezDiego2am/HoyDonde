@@ -4,8 +4,7 @@ namespace HoyDonde.API.Models
 {
     // Auditoría de mutaciones de administración de seguridad (docs/security-refactor-plan.md §6,
     // Etapa 5): crear/editar/activar Rol, asignar/quitar Accion de Rol, asignar/quitar Rol de
-    // Usuario, activar/desactivar Usuario. Mismo patrón que UserAudit, en su propia colección
-    // ("security_audits") para no mezclar con la auditoría legacy de "users".
+    // Usuario, activar/desactivar Usuario. Colección propia ("security_audits").
     [Google.Cloud.Firestore.FirestoreData]
     public class SecurityAudit
     {

@@ -46,7 +46,6 @@ namespace HoyDonde.API.Controllers
                 UsuarioId = result.UsuarioId,
                 PersonaId = result.PersonaId,
                 Roles = result.Roles,
-                ClaimsUpdated = result.ClaimsUpdated,
             });
         }
     }

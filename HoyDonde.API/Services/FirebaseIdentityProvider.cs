@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using FirebaseAdmin.Auth;
 using HoyDonde.API.Exceptions;
@@ -58,20 +56,6 @@ namespace HoyDonde.API.Services
         {
             var userRecord = await FirebaseAuth.DefaultInstance.GetUserAsync(externalSubjectId);
             return await FirebaseAuth.DefaultInstance.GeneratePasswordResetLinkAsync(userRecord.Email);
-        }
-
-        public Task SetTemporaryClaimAsync(string externalSubjectId, IReadOnlyDictionary<string, object> claims)
-        {
-            return FirebaseAuth.DefaultInstance.SetCustomUserClaimsAsync(externalSubjectId, claims);
-        }
-
-        public async Task ClearClaimAsync(string externalSubjectId, string claimKey)
-        {
-            var userRecord = await FirebaseAuth.DefaultInstance.GetUserAsync(externalSubjectId);
-            var remaining = (userRecord.CustomClaims ?? new Dictionary<string, object>())
-                .Where(kv => kv.Key != claimKey)
-                .ToDictionary(kv => kv.Key, kv => kv.Value);
-            await FirebaseAuth.DefaultInstance.SetCustomUserClaimsAsync(externalSubjectId, remaining);
         }
     }
 }

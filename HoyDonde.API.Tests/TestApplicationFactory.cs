@@ -30,15 +30,13 @@ namespace HoyDonde.API.Tests
             {
                 return Task.FromResult(AuthenticateResult.NoResult());
             }
-            var role = Request.Headers.ContainsKey("Test-Role")
-                ? Request.Headers["Test-Role"].ToString()
-                : Models.Roles.Organizador;
 
-            // Etapa 5 del refactor de seguridad: la autorización real ya no depende de este claim
-            // de rol (ver AccionAuthorizationHandler), solo de IPermissionService resuelto a
-            // partir del UID. "Test-Uid" permite a un test simular un actor SIN ninguna acción
-            // concedida (uid nunca pasado a TestApplicationFactory.GrantAccion) sin tener que
-            // mutar el estado compartido de los mocks de permisos entre tests.
+            // Etapa 5 del refactor de seguridad: la autorización real depende exclusivamente de
+            // IPermissionService resuelto a partir del UID (ver AccionAuthorizationHandler), así
+            // que la identidad falsa solo aporta los claims necesarios para autenticación (UID y
+            // email). "Test-Uid" permite a un test simular un actor SIN ninguna acción concedida
+            // (uid nunca pasado a TestApplicationFactory.GrantAccion) sin tener que mutar el
+            // estado compartido de los mocks de permisos entre tests.
             var uid = Request.Headers.ContainsKey("Test-Uid")
                 ? Request.Headers["Test-Uid"].ToString()
                 : "test-uid-123";
@@ -47,8 +45,6 @@ namespace HoyDonde.API.Tests
             {
                 new Claim(ClaimTypes.NameIdentifier, uid),
                 new Claim(ClaimTypes.Email, "test@example.com"),
-                new Claim(ClaimTypes.Role, role),
-                new Claim("role", role) // Firebase custom claim mock
             };
 
             var identity = new ClaimsIdentity(claims, "Test");
@@ -64,7 +60,6 @@ namespace HoyDonde.API.Tests
         public Mock<IEventService> MockEventService { get; } = new();
         public Mock<IUserService> MockUserService { get; } = new();
         public Mock<IAuthService> MockAuthService { get; } = new();
-        public Mock<IUserRepository> MockUserRepository { get; } = new();
         public Mock<ITicketService> MockTicketService { get; } = new();
         public Mock<IUsuarioRepository> MockUsuarioRepository { get; } = new();
         public Mock<IRolRepository> MockRolRepository { get; } = new();
@@ -119,9 +114,6 @@ namespace HoyDonde.API.Tests
                 // Remove Firebase services and real repos
                 var firestoreDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(FirestoreDb));
                 if (firestoreDescriptor != null) services.Remove(firestoreDescriptor);
-
-                var userRepoDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IUserRepository));
-                if (userRepoDescriptor != null) services.Remove(userRepoDescriptor);
 
                 var eventServiceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IEventService));
                 if (eventServiceDescriptor != null) services.Remove(eventServiceDescriptor);
@@ -183,7 +175,6 @@ namespace HoyDonde.API.Tests
                 services.AddSingleton(MockEventService.Object);
                 services.AddSingleton(MockUserService.Object);
                 services.AddSingleton(MockAuthService.Object);
-                services.AddSingleton(MockUserRepository.Object);
                 services.AddSingleton(MockTicketService.Object);
                 services.AddSingleton(MockSecurityAdminService.Object);
                 services.AddSingleton(Mock.Of<ITicketValidationStore>());
