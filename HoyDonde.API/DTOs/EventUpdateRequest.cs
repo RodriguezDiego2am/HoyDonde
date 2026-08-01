@@ -4,7 +4,7 @@ using HoyDonde.API.Models;
 namespace HoyDonde.API.DTOs
 {
     // Campos editables por el organizador dueño del evento.
-    // Deliberadamente no incluye Estado ni OrganizadorId: el ciclo de estados
+    // Deliberadamente no incluye Estado ni OrganizadorPersonaId: el ciclo de estados
     // y la propiedad del evento no se tocan en este hotfix.
     public class EventUpdateRequest
     {

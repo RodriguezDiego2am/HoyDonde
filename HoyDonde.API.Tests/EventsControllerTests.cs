@@ -195,5 +195,57 @@ namespace HoyDonde.API.Tests
 
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         }
+
+        // ---- IdentityNotProvisionedException: 403 genérico, nunca 400, nunca el UID en el body ----
+
+        [Fact]
+        public async Task CreateEvent_ActorNotProvisioned_ReturnsForbidden_WithoutLeakingUid()
+        {
+            _factory.MockEventService
+                .Setup(s => s.CreateEventAsync(It.IsAny<EventCreateRequest>(), "test-uid-123"))
+                .ThrowsAsync(new IdentityNotProvisionedException("test-uid-123"));
+
+            var request = new EventCreateRequest
+            {
+                Nombre = "Festival sin identidad",
+                FechaInicio = DateTime.UtcNow.AddDays(5),
+            };
+
+            var response = await _client.PostAsJsonAsync("/api/events", request);
+            var content = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.DoesNotContain("test-uid-123", content);
+        }
+
+        [Fact]
+        public async Task PublishEvent_ActorNotProvisioned_ReturnsForbidden_WithoutLeakingUid()
+        {
+            _factory.MockEventService
+                .Setup(s => s.PublishEventAsync("event-sin-identidad", "test-uid-123"))
+                .ThrowsAsync(new IdentityNotProvisionedException("test-uid-123"));
+
+            var response = await _client.PostAsync("/api/events/event-sin-identidad/publish", null);
+            var content = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.DoesNotContain("test-uid-123", content);
+        }
+
+        [Fact]
+        public async Task GetMyEvents_ActorNotProvisioned_ReturnsForbidden_WithoutLeakingUid()
+        {
+            // GetMyEvents no tiene ningún try/catch propio: cubre el camino en el que la
+            // excepción llega directo al middleware, sin pasar por ningún catch de controller.
+            _factory.MockEventService
+                .Setup(s => s.GetByOrganizerIdAsync("test-uid-123"))
+                .ThrowsAsync(new IdentityNotProvisionedException("test-uid-123"));
+
+            var response = await _client.GetAsync("/api/events/organizer/me");
+            var content = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.DoesNotContain("test-uid-123", content);
+        }
     }
 }

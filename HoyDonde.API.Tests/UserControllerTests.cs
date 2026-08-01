@@ -139,6 +139,27 @@ namespace HoyDonde.API.Tests
         }
 
         [Fact]
+        public async Task RegisterControl_WhenActorNotProvisioned_ReturnsForbidden_WithoutLeakingUid()
+        {
+            var request = new RegisterControlDto
+            {
+                UserName = "control_sin_identidad",
+                Password = "Password123!",
+                EventId = "event-1"
+            };
+
+            _factory.MockUserService
+                .Setup(s => s.RegisterControlAsync(ActorUid, request.UserName, request.Password, request.EventId))
+                .ThrowsAsync(new IdentityNotProvisionedException(ActorUid));
+
+            var response = await _client.PostAsJsonAsync("/api/users/control", request);
+            var content = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.DoesNotContain(ActorUid, content);
+        }
+
+        [Fact]
         public async Task RegisterControl_WhenEmailAlreadyExists_ReturnsConflict()
         {
             var request = new RegisterControlDto

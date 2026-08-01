@@ -13,10 +13,12 @@ namespace HoyDonde.API.Tests
     // Ejercita UserService directamente (sin HTTP/TestApplicationFactory): altas de
     // Admin/Organizador/Control sobre el modelo nuevo (Persona+Usuario+UsuarioRol+
     // IdentidadExterna vía IUsuarioRepository), incluida la compensación simplificada de
-    // docs/security-refactor-plan.md §2.2, Etapa 3.
+    // docs/security-refactor-plan.md §2.2, Etapa 3, y la resolución/ownership por PersonaId de
+    // §4 (Etapa 4) para el alta de Control.
     public class UserServiceProvisioningTests
     {
         private const string ActorUid = "actor-uid-1";
+        private const string OrganizadorPersonaId = "organizador-persona-1";
         private const string EventId = "event-1";
 
         private static (
@@ -25,12 +27,16 @@ namespace HoyDonde.API.Tests
             Mock<IIdentidadHuerfanaRepository> identidadHuerfanaRepository,
             Mock<IEventService> eventService,
             Mock<IIdentityProvider> identityProvider,
+            Mock<IAuthenticatedPersonaResolver> personaResolver,
+            Mock<IControlAsignacionRepository> controlAsignacionRepository,
             Mock<ILogger<UserService>> logger) CreateSut()
         {
             var usuarioRepository = new Mock<IUsuarioRepository>();
             var identidadHuerfanaRepository = new Mock<IIdentidadHuerfanaRepository>();
             var eventService = new Mock<IEventService>();
             var identityProvider = new Mock<IIdentityProvider>();
+            var personaResolver = new Mock<IAuthenticatedPersonaResolver>();
+            var controlAsignacionRepository = new Mock<IControlAsignacionRepository>();
             var logger = new Mock<ILogger<UserService>>();
 
             var sut = new UserService(
@@ -38,9 +44,11 @@ namespace HoyDonde.API.Tests
                 identidadHuerfanaRepository.Object,
                 eventService.Object,
                 identityProvider.Object,
+                personaResolver.Object,
+                controlAsignacionRepository.Object,
                 logger.Object);
 
-            return (sut, usuarioRepository, identidadHuerfanaRepository, eventService, identityProvider, logger);
+            return (sut, usuarioRepository, identidadHuerfanaRepository, eventService, identityProvider, personaResolver, controlAsignacionRepository, logger);
         }
 
         // ---- Happy path: Admin/Organizador ----
@@ -48,7 +56,7 @@ namespace HoyDonde.API.Tests
         [Fact]
         public async Task RegisterAdminAsync_HappyPath_UsesActorAsAssignedBy_AndNeverCompensates()
         {
-            var (sut, usuarioRepository, identidadHuerfanaRepository, _, identityProvider, _) = CreateSut();
+            var (sut, usuarioRepository, identidadHuerfanaRepository, _, identityProvider, _, _, _) = CreateSut();
             identityProvider
                 .Setup(p => p.CreateIdentityAsync("admin@test.com", "Password123!", null))
                 .ReturnsAsync(new IdentityCreationResult("uid-admin", FirebaseIdentityProvider.ProviderName));
@@ -77,7 +85,7 @@ namespace HoyDonde.API.Tests
         [Fact]
         public async Task RegisterOrganizadorAsync_HappyPath_UsesActorAsAssignedBy()
         {
-            var (sut, usuarioRepository, _, _, identityProvider, _) = CreateSut();
+            var (sut, usuarioRepository, _, _, identityProvider, _, _, _) = CreateSut();
             identityProvider
                 .Setup(p => p.CreateIdentityAsync("org@test.com", "Password123!", null))
                 .ReturnsAsync(new IdentityCreationResult("uid-org", FirebaseIdentityProvider.ProviderName));
@@ -96,13 +104,14 @@ namespace HoyDonde.API.Tests
                 It.Is<System.Collections.Generic.IReadOnlyDictionary<string, object>>(c => (string)c["role"] == Roles.Organizador)), Times.Once);
         }
 
-        // ---- Control: ownership antes de tocar Firebase ----
+        // ---- Control: resolución del organizador + ownership antes de tocar Firebase ----
 
         [Fact]
-        public async Task RegisterControlAsync_ForOwnEvent_Succeeds()
+        public async Task RegisterControlAsync_ForOwnEvent_Succeeds_AndCreatesControlAsignacion()
         {
-            var (sut, usuarioRepository, _, eventService, identityProvider, _) = CreateSut();
-            eventService.Setup(s => s.GetByIdAsync(EventId)).ReturnsAsync(new Event { Id = EventId, OrganizadorId = ActorUid });
+            var (sut, usuarioRepository, _, eventService, identityProvider, personaResolver, controlAsignacionRepository, _) = CreateSut();
+            personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
+            eventService.Setup(s => s.GetByIdAsync(EventId)).ReturnsAsync(new Event { Id = EventId, OrganizadorPersonaId = OrganizadorPersonaId });
             identityProvider
                 .Setup(p => p.CreateIdentityAsync("control1@control.hoydonde.com", "Password123!", "control1"))
                 .ReturnsAsync(new IdentityCreationResult("uid-control", FirebaseIdentityProvider.ProviderName));
@@ -114,30 +123,52 @@ namespace HoyDonde.API.Tests
 
             Assert.Null(ex);
             usuarioRepository.Verify(r => r.ProvisionarAsync(It.Is<UsuarioProvisioningRequest>(req => req.RolCodigo == "CONTROL" && req.AssignedBy == ActorUid)), Times.Once);
+            controlAsignacionRepository.Verify(r => r.AsignarAsync("persona-3", EventId, OrganizadorPersonaId), Times.Once);
         }
 
         [Fact]
-        public async Task RegisterControlAsync_ForForeignEvent_ThrowsOwnershipException_AndNeverTouchesIdentityProvider()
+        public async Task RegisterControlAsync_ForForeignEvent_ThrowsOwnershipException_AndNeverTouchesIdentityProviderOrAsignacion()
         {
-            var (sut, usuarioRepository, _, eventService, identityProvider, _) = CreateSut();
-            eventService.Setup(s => s.GetByIdAsync(EventId)).ReturnsAsync(new Event { Id = EventId, OrganizadorId = "otro-organizador" });
+            var (sut, usuarioRepository, _, eventService, identityProvider, personaResolver, controlAsignacionRepository, _) = CreateSut();
+            personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
+            eventService.Setup(s => s.GetByIdAsync(EventId)).ReturnsAsync(new Event { Id = EventId, OrganizadorPersonaId = "otro-organizador-persona" });
 
             await Assert.ThrowsAsync<EventOwnershipException>(() => sut.RegisterControlAsync(ActorUid, "control1", "Password123!", EventId));
 
             identityProvider.Verify(p => p.CreateIdentityAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
             usuarioRepository.Verify(r => r.ProvisionarAsync(It.IsAny<UsuarioProvisioningRequest>()), Times.Never);
+            controlAsignacionRepository.Verify(r => r.AsignarAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         }
 
         [Fact]
-        public async Task RegisterControlAsync_ForNonexistentEvent_ThrowsNotFoundException_AndNeverTouchesIdentityProvider()
+        public async Task RegisterControlAsync_ForNonexistentEvent_ThrowsNotFoundException_AndNeverTouchesIdentityProviderOrAsignacion()
         {
-            var (sut, usuarioRepository, _, eventService, identityProvider, _) = CreateSut();
+            var (sut, usuarioRepository, _, eventService, identityProvider, personaResolver, controlAsignacionRepository, _) = CreateSut();
+            personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
             eventService.Setup(s => s.GetByIdAsync(EventId)).ReturnsAsync((Event?)null);
 
             await Assert.ThrowsAsync<EventNotFoundException>(() => sut.RegisterControlAsync(ActorUid, "control1", "Password123!", EventId));
 
             identityProvider.Verify(p => p.CreateIdentityAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
             usuarioRepository.Verify(r => r.ProvisionarAsync(It.IsAny<UsuarioProvisioningRequest>()), Times.Never);
+            controlAsignacionRepository.Verify(r => r.AsignarAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task RegisterControlAsync_WhenActorNotProvisioned_PropagatesException_AndNeverTouchesEventOrIdentityProvider()
+        {
+            var (sut, usuarioRepository, _, eventService, identityProvider, personaResolver, controlAsignacionRepository, _) = CreateSut();
+            personaResolver
+                .Setup(r => r.ResolvePersonaIdAsync(ActorUid))
+                .ThrowsAsync(new IdentityNotProvisionedException(ActorUid));
+
+            await Assert.ThrowsAsync<IdentityNotProvisionedException>(
+                () => sut.RegisterControlAsync(ActorUid, "control1", "Password123!", EventId));
+
+            eventService.Verify(s => s.GetByIdAsync(It.IsAny<string>()), Times.Never);
+            identityProvider.Verify(p => p.CreateIdentityAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
+            usuarioRepository.Verify(r => r.ProvisionarAsync(It.IsAny<UsuarioProvisioningRequest>()), Times.Never);
+            controlAsignacionRepository.Verify(r => r.AsignarAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         }
 
         // ---- Email ya existe: 409 sin compensar, sin tocar Firestore ----
@@ -145,7 +176,7 @@ namespace HoyDonde.API.Tests
         [Fact]
         public async Task RegisterAdminAsync_WhenEmailAlreadyExists_PropagatesWithoutCompensating()
         {
-            var (sut, usuarioRepository, identidadHuerfanaRepository, _, identityProvider, _) = CreateSut();
+            var (sut, usuarioRepository, identidadHuerfanaRepository, _, identityProvider, _, _, _) = CreateSut();
             identityProvider
                 .Setup(p => p.CreateIdentityAsync("duplicado@test.com", "Password123!", null))
                 .ThrowsAsync(new IdentityEmailAlreadyExistsException("duplicado@test.com"));
@@ -163,7 +194,7 @@ namespace HoyDonde.API.Tests
         [Fact]
         public async Task RegisterAdminAsync_WhenSetTemporaryClaimFails_CompensatesByDeletingIdentity()
         {
-            var (sut, usuarioRepository, identidadHuerfanaRepository, _, identityProvider, _) = CreateSut();
+            var (sut, usuarioRepository, identidadHuerfanaRepository, _, identityProvider, _, _, _) = CreateSut();
             identityProvider
                 .Setup(p => p.CreateIdentityAsync("admin@test.com", "Password123!", null))
                 .ReturnsAsync(new IdentityCreationResult("uid-admin", FirebaseIdentityProvider.ProviderName));
@@ -185,7 +216,7 @@ namespace HoyDonde.API.Tests
         [Fact]
         public async Task RegisterAdminAsync_WhenProvisionarAsyncFails_CompensatesByDeletingIdentity()
         {
-            var (sut, usuarioRepository, identidadHuerfanaRepository, _, identityProvider, _) = CreateSut();
+            var (sut, usuarioRepository, identidadHuerfanaRepository, _, identityProvider, _, _, _) = CreateSut();
             identityProvider
                 .Setup(p => p.CreateIdentityAsync("admin@test.com", "Password123!", null))
                 .ReturnsAsync(new IdentityCreationResult("uid-admin", FirebaseIdentityProvider.ProviderName));
@@ -206,7 +237,7 @@ namespace HoyDonde.API.Tests
         [Fact]
         public async Task RegisterAdminAsync_WhenCompensationFails_RegistersIdentidadHuerfana_WithBothErrors()
         {
-            var (sut, usuarioRepository, identidadHuerfanaRepository, _, identityProvider, _) = CreateSut();
+            var (sut, usuarioRepository, identidadHuerfanaRepository, _, identityProvider, _, _, _) = CreateSut();
             identityProvider
                 .Setup(p => p.CreateIdentityAsync("admin@test.com", "Password123!", null))
                 .ReturnsAsync(new IdentityCreationResult("uid-admin", FirebaseIdentityProvider.ProviderName));
@@ -238,7 +269,7 @@ namespace HoyDonde.API.Tests
         [Fact]
         public async Task RegisterAdminAsync_WhenCompensationAndHuerfanaRegistrationBothFail_LogsStructuredErrors_AndStillThrowsOriginal()
         {
-            var (sut, usuarioRepository, identidadHuerfanaRepository, _, identityProvider, logger) = CreateSut();
+            var (sut, usuarioRepository, identidadHuerfanaRepository, _, identityProvider, _, _, logger) = CreateSut();
             identityProvider
                 .Setup(p => p.CreateIdentityAsync("admin@test.com", "Password123!", null))
                 .ReturnsAsync(new IdentityCreationResult("uid-admin", FirebaseIdentityProvider.ProviderName));

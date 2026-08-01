@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
 using HoyDonde.API.DTOs;
+using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Moq;
@@ -153,6 +154,33 @@ namespace HoyDonde.API.Tests
             var response = await _client.SendAsync(ValidateRequest("ticket-1", "event-1", Models.Roles.Cliente));
 
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task BuyTickets_ActorNotProvisioned_ReturnsForbidden_WithoutLeakingUid()
+        {
+            _factory.MockTicketService
+                .Setup(ts => ts.BuyTicketsAsync("test-uid-123", It.IsNotNull<TicketBuyRequest>()))
+                .ThrowsAsync(new IdentityNotProvisionedException("test-uid-123"));
+
+            var request = new TicketBuyRequest
+            {
+                EventoId = "evento-id-123",
+                TicketTypeId = "ticket-tipo-vip",
+                Cantidad = 2
+            };
+
+            var reqMessage = new HttpRequestMessage(HttpMethod.Post, "/api/tickets/buy")
+            {
+                Content = JsonContent.Create(request)
+            };
+            reqMessage.Headers.Add("Test-Role", Models.Roles.Cliente);
+
+            var response = await _client.SendAsync(reqMessage);
+            var content = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.DoesNotContain("test-uid-123", content);
         }
     }
 }

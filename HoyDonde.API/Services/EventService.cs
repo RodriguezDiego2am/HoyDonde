@@ -2,7 +2,6 @@ using Google.Cloud.Firestore;
 using HoyDonde.API.DTOs;
 using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
-using HoyDonde.API.Repositories;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -15,14 +14,14 @@ namespace HoyDonde.API.Services
     public class EventService : IEventService
     {
         private readonly FirestoreDb _firestore;
-        private readonly IUserRepository _userRepository;
+        private readonly IAuthenticatedPersonaResolver _personaResolver;
         private readonly ILogger<EventService> _logger;
         private const string CollectionName = "events";
 
-        public EventService(FirestoreDb firestore, IUserRepository userRepository, ILogger<EventService> logger)
+        public EventService(FirestoreDb firestore, IAuthenticatedPersonaResolver personaResolver, ILogger<EventService> logger)
         {
             _firestore = firestore;
-            _userRepository = userRepository;
+            _personaResolver = personaResolver;
             _logger = logger;
         }
 
@@ -41,24 +40,17 @@ namespace HoyDonde.API.Services
 
         public async Task<IEnumerable<Event>> GetByOrganizerIdAsync(string organizerId)
         {
-            var query = _firestore.Collection(CollectionName).WhereEqualTo("OrganizadorId", organizerId);
+            var organizadorPersonaId = await _personaResolver.ResolvePersonaIdAsync(organizerId);
+            var query = _firestore.Collection(CollectionName).WhereEqualTo(nameof(Event.OrganizadorPersonaId), organizadorPersonaId);
             var snapshot = await query.GetSnapshotAsync();
             return snapshot.Documents.Select(d => d.ConvertTo<Event>()).ToList();
         }
 
         public async Task<EventResponse> CreateEventAsync(EventCreateRequest request, string organizerId)
         {
-            _logger.LogInformation("Creating event {Nombre} for organizer {Organizador}", request.Nombre, organizerId);
+            var organizadorPersonaId = await _personaResolver.ResolvePersonaIdAsync(organizerId);
 
-            var organizer = await _userRepository.GetOrganizerByIdAsync(organizerId); 
-            // Note: If organizer logic is strict, check if user has 'organizer' role or just exists.
-            
-            // Check existence at least
-            var user = await _userRepository.GetUserByIdAsync(organizerId);
-            if (user == null)
-            {
-                throw new Exception("Organizer does not exist.");
-            }
+            _logger.LogInformation("Creating event {Nombre} for organizador persona {PersonaId}", request.Nombre, organizadorPersonaId);
 
             if (request.FechaInicio <= DateTime.UtcNow)
                 throw new Exception("Event date must be in the future.");
@@ -72,7 +64,7 @@ namespace HoyDonde.API.Services
                 Fecha = request.FechaInicio,
                 Ubicacion = request.Ubicacion,
                 Categoria = request.Categoria,
-                OrganizadorId = organizerId,
+                OrganizadorPersonaId = organizadorPersonaId,
                 Estado = EventStatus.Activo,
                 CapacidadMaxima = 0 // Will calc
             };
@@ -117,7 +109,7 @@ namespace HoyDonde.API.Services
         {
             var evento = await GetOwnedEventOrThrowAsync(eventId, actorId);
 
-            // No se toca el ciclo de estados (Estado) ni la propiedad (OrganizadorId) desde acá.
+            // No se toca el ciclo de estados (Estado) ni la propiedad (OrganizadorPersonaId) desde acá.
             evento.Nombre = request.Nombre;
             evento.Descripcion = request.Descripcion;
             evento.Ubicacion = request.Ubicacion;
@@ -159,16 +151,19 @@ namespace HoyDonde.API.Services
             await docRef.UpdateAsync("Estado", EventStatus.Cancelado);
         }
 
-        // Lee el evento desde Firestore (nunca confía en un OrganizadorId recibido del cliente)
-        // y valida que actorId (UID del token) sea el dueño antes de permitir la operación.
+        // Lee el evento desde Firestore (nunca confía en un OrganizadorPersonaId recibido del
+        // cliente) y valida que el actor autenticado (resuelto a PersonaId) sea el dueño antes
+        // de permitir la operación.
         private async Task<Event> GetOwnedEventOrThrowAsync(string eventId, string actorId)
         {
+            var organizadorPersonaId = await _personaResolver.ResolvePersonaIdAsync(actorId);
+
             var docRef = _firestore.Collection(CollectionName).Document(eventId);
             var snapshot = await docRef.GetSnapshotAsync();
             if (!snapshot.Exists) throw new EventNotFoundException(eventId);
 
             var evento = snapshot.ConvertTo<Event>();
-            if (evento.OrganizadorId != actorId) throw new EventOwnershipException(eventId, actorId);
+            if (evento.OrganizadorPersonaId != organizadorPersonaId) throw new EventOwnershipException(eventId, actorId);
 
             return evento;
         }

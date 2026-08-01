@@ -26,6 +26,8 @@ namespace HoyDonde.API.Services
         private readonly IIdentidadHuerfanaRepository _identidadHuerfanaRepository;
         private readonly IEventService _eventService;
         private readonly IIdentityProvider _identityProvider;
+        private readonly IAuthenticatedPersonaResolver _personaResolver;
+        private readonly IControlAsignacionRepository _controlAsignacionRepository;
         private readonly ILogger<UserService> _logger;
 
         public UserService(
@@ -33,12 +35,16 @@ namespace HoyDonde.API.Services
             IIdentidadHuerfanaRepository identidadHuerfanaRepository,
             IEventService eventService,
             IIdentityProvider identityProvider,
+            IAuthenticatedPersonaResolver personaResolver,
+            IControlAsignacionRepository controlAsignacionRepository,
             ILogger<UserService> logger)
         {
             _usuarioRepository = usuarioRepository;
             _identidadHuerfanaRepository = identidadHuerfanaRepository;
             _eventService = eventService;
             _identityProvider = identityProvider;
+            _personaResolver = personaResolver;
+            _controlAsignacionRepository = controlAsignacionRepository;
             _logger = logger;
         }
 
@@ -54,15 +60,22 @@ namespace HoyDonde.API.Services
 
         public async Task<UsuarioProvisioningResult> RegisterControlAsync(string assignedBy, string userName, string password, string eventId)
         {
-            // El evento se lee de Firestore y se compara contra el actor autenticado (nunca
-            // contra un valor enviado por el cliente). Si el evento no existe o pertenece a
-            // otro organizador, no se crea nada en el proveedor de identidad ni en Firestore.
+            // El organizador autenticado se resuelve a su PersonaId, y el evento se lee de
+            // Firestore y se compara contra esa PersonaId (nunca contra un valor enviado por el
+            // cliente). Si el evento no existe o pertenece a otro organizador, no se crea nada
+            // en el proveedor de identidad ni en Firestore.
+            var organizadorPersonaId = await _personaResolver.ResolvePersonaIdAsync(assignedBy);
+
             var evento = await _eventService.GetByIdAsync(eventId);
             if (evento == null) throw new EventNotFoundException(eventId);
-            if (evento.OrganizadorId != assignedBy) throw new EventOwnershipException(eventId, assignedBy);
+            if (evento.OrganizadorPersonaId != organizadorPersonaId) throw new EventOwnershipException(eventId, assignedBy);
 
             var email = $"{userName}@control.hoydonde.com";
-            return await ProvisionarConCompensacionAsync(email, password, userName, RolControl, Roles.Control, assignedBy);
+            var result = await ProvisionarConCompensacionAsync(email, password, userName, RolControl, Roles.Control, assignedBy);
+
+            await _controlAsignacionRepository.AsignarAsync(result.PersonaId, eventId, organizadorPersonaId);
+
+            return result;
         }
 
         // Crea la identidad externa y, si eso tiene éxito, provisiona Persona+Usuario+

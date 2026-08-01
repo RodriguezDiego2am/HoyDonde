@@ -115,6 +115,12 @@ namespace HoyDonde.API.Tests
                 var identidadHuerfanaRepositoryDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IIdentidadHuerfanaRepository));
                 if (identidadHuerfanaRepositoryDescriptor != null) services.Remove(identidadHuerfanaRepositoryDescriptor);
 
+                // Etapa 4 del refactor de seguridad: IControlAsignacionRepository también
+                // depende de FirestoreDb. TicketService/UserService quedan mockeados o resueltos
+                // contra este mock, pero ValidateOnBuild igual necesita poder resolverlo.
+                var controlAsignacionRepositoryDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IControlAsignacionRepository));
+                if (controlAsignacionRepositoryDescriptor != null) services.Remove(controlAsignacionRepositoryDescriptor);
+
                 // Add Mocks
                 services.AddSingleton(MockEventService.Object);
                 services.AddSingleton(MockUserService.Object);
@@ -126,6 +132,7 @@ namespace HoyDonde.API.Tests
                 services.AddSingleton(Mock.Of<IRolRepository>());
                 services.AddSingleton(Mock.Of<IAccionRepository>());
                 services.AddSingleton(Mock.Of<IIdentidadHuerfanaRepository>());
+                services.AddSingleton(Mock.Of<IControlAsignacionRepository>());
 
                 // Add Fake Authentication
                 services.AddAuthentication("Test")

@@ -16,6 +16,6 @@ namespace HoyDonde.API.Repositories
     // un doble en memoria sin depender de un emulador/credenciales de Firestore.
     public interface ITicketValidationStore
     {
-        Task<TicketConsumeResult> TryConsumeAsync(string ticketId, string eventId, string validatedBy);
+        Task<TicketConsumeResult> TryConsumeAsync(string ticketId, string eventId, string validatedByPersonaId);
     }
 }

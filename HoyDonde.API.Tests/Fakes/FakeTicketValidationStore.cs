@@ -20,7 +20,7 @@ namespace HoyDonde.API.Tests.Fakes
 
         public void Seed(Ticket ticket) => _tickets[ticket.Id] = ticket;
 
-        public Task<TicketConsumeResult> TryConsumeAsync(string ticketId, string eventId, string validatedBy)
+        public Task<TicketConsumeResult> TryConsumeAsync(string ticketId, string eventId, string validatedByPersonaId)
         {
             var gate = _locks.GetOrAdd(ticketId, _ => new object());
 
@@ -40,7 +40,7 @@ namespace HoyDonde.API.Tests.Fakes
 
                 ticket.Estado = Ticket.TicketStatus.Usado;
                 ticket.FechaUso = DateTime.UtcNow;
-                ticket.ValidadoPor = validatedBy;
+                ticket.ValidadoPorPersonaId = validatedByPersonaId;
 
                 return Task.FromResult(TicketConsumeResult.Success);
             }

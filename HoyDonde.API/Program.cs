@@ -116,6 +116,11 @@ builder.Services.AddScoped<SecurityCatalogSeeder>();
 builder.Services.AddScoped<IIdentidadHuerfanaRepository, FirestoreIdentidadHuerfanaRepository>();
 builder.Services.AddScoped<BootstrapAdminCommand>();
 
+// Etapa 4 del refactor de seguridad (docs/security-refactor-plan.md §4): resolución UID ->
+// PersonaId reutilizada por EventService/TicketService/UserService, y asignación Control<->Evento.
+builder.Services.AddScoped<IAuthenticatedPersonaResolver, AuthenticatedPersonaResolver>();
+builder.Services.AddScoped<IControlAsignacionRepository, FirestoreControlAsignacionRepository>();
+
 
 var app = builder.Build();
 

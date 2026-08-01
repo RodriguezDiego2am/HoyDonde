@@ -117,6 +117,12 @@ namespace HoyDonde.API.Controllers
             {
                 return Conflict(new { message = "Ya existe una cuenta con ese email." });
             }
+            catch (IdentityNotProvisionedException)
+            {
+                // Se deja propagar al middleware: respuesta 403 genérica centralizada, sin
+                // reenviar información interna (docs/security-refactor-plan.md §1/§4).
+                throw;
+            }
             catch (Exception ex)
             {
                 return BadRequest(new { message = ex.Message });

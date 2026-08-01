@@ -15,7 +15,7 @@ namespace HoyDonde.API.Repositories
             _firestore = firestore;
         }
 
-        public async Task<TicketConsumeResult> TryConsumeAsync(string ticketId, string eventId, string validatedBy)
+        public async Task<TicketConsumeResult> TryConsumeAsync(string ticketId, string eventId, string validatedByPersonaId)
         {
             var ticketRef = _firestore.Collection(TicketsCollection).Document(ticketId);
             var result = TicketConsumeResult.NotFound;
@@ -51,7 +51,7 @@ namespace HoyDonde.API.Repositories
 
                 ticket.Estado = Ticket.TicketStatus.Usado;
                 ticket.FechaUso = DateTime.UtcNow;
-                ticket.ValidadoPor = validatedBy;
+                ticket.ValidadoPorPersonaId = validatedByPersonaId;
 
                 transaction.Set(ticketRef, ticket, SetOptions.MergeAll);
                 result = TicketConsumeResult.Success;

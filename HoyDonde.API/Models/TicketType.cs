@@ -13,7 +13,7 @@ namespace HoyDonde.API.Models
         [Google.Cloud.Firestore.FirestoreProperty]
         public string Nombre { get; set; } = string.Empty;
 
-        [Google.Cloud.Firestore.FirestoreProperty]
+        [Google.Cloud.Firestore.FirestoreProperty(ConverterType = typeof(HoyDonde.API.Converters.DecimalFirestoreConverter))]
         public decimal Precio { get; set; }
 
         public string EventoId { get; set; } = string.Empty; 

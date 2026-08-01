@@ -38,7 +38,11 @@ namespace HoyDonde.API.Tests.Integration
         {
             var identidadHuerfanaRepository = new FirestoreIdentidadHuerfanaRepository(_fixture.Db!);
             var eventService = new Mock<IEventService>(); // no lo usa ningún camino de Admin
-            var userService = new UserService(usuarioRepository, identidadHuerfanaRepository, eventService.Object, identityProvider.Object, NullLogger<UserService>.Instance);
+            var personaResolver = new Mock<IAuthenticatedPersonaResolver>(); // no lo usa RegisterAdminAsync
+            var controlAsignacionRepository = new Mock<IControlAsignacionRepository>(); // no lo usa RegisterAdminAsync
+            var userService = new UserService(
+                usuarioRepository, identidadHuerfanaRepository, eventService.Object, identityProvider.Object,
+                personaResolver.Object, controlAsignacionRepository.Object, NullLogger<UserService>.Instance);
             var seeder = new SecurityCatalogSeeder(rolRepository, accionRepository);
 
             return new BootstrapAdminCommand(

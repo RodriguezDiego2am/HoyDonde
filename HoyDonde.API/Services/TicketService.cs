@@ -13,7 +13,8 @@ namespace HoyDonde.API.Services
     public class TicketService : ITicketService
     {
         private readonly FirestoreDb _firestore;
-        private readonly IUserRepository _userRepository;
+        private readonly IAuthenticatedPersonaResolver _personaResolver;
+        private readonly IControlAsignacionRepository _controlAsignacionRepository;
         private readonly ITicketValidationStore _validationStore;
         private readonly ILogger<TicketService> _logger;
         private const string TicketsCollection = "tickets";
@@ -21,20 +22,24 @@ namespace HoyDonde.API.Services
 
         public TicketService(
             FirestoreDb firestore,
-            IUserRepository userRepository,
+            IAuthenticatedPersonaResolver personaResolver,
+            IControlAsignacionRepository controlAsignacionRepository,
             ITicketValidationStore validationStore,
             ILogger<TicketService> logger)
         {
             _firestore = firestore;
-            _userRepository = userRepository;
+            _personaResolver = personaResolver;
+            _controlAsignacionRepository = controlAsignacionRepository;
             _validationStore = validationStore;
             _logger = logger;
         }
 
         public async Task<List<TicketResponseDto>> BuyTicketsAsync(string clienteId, TicketBuyRequest request)
         {
-            _logger.LogInformation("Cliente {ClienteId} procesando compra de {Cantidad} tickets para Evento {EventId}", 
-                clienteId, request.Cantidad, request.EventoId);
+            var clientePersonaId = await _personaResolver.ResolvePersonaIdAsync(clienteId);
+
+            _logger.LogInformation("Cliente persona {ClientePersonaId} procesando compra de {Cantidad} tickets para Evento {EventId}",
+                clientePersonaId, request.Cantidad, request.EventoId);
 
             var eventRef = _firestore.Collection(EventsCollection).Document(request.EventoId);
             var ticketsColRef = _firestore.Collection(TicketsCollection);
@@ -71,11 +76,11 @@ namespace HoyDonde.API.Services
                     {
                         Id = Guid.NewGuid().ToString(),
                         TicketTypeId = ticketType.Id,
-                        ClienteId = clienteId,
+                        ClientePersonaId = clientePersonaId,
                         EventoId = request.EventoId,
                         FechaCompra = DateTime.UtcNow
                     };
-                    
+
                     var newTicketRef = ticketsColRef.Document(ticket.Id);
                     transaction.Set(newTicketRef, ticket);
                     purchasedTickets.Add(ticket);
@@ -85,21 +90,23 @@ namespace HoyDonde.API.Services
                 transaction.Set(eventRef, evento, SetOptions.MergeAll);
             });
 
-            _logger.LogInformation("Compra finalizada exitosamente para {ClienteId}. Generados {Count} tickets.", clienteId, purchasedTickets.Count);
+            _logger.LogInformation("Compra finalizada exitosamente para persona {ClientePersonaId}. Generados {Count} tickets.", clientePersonaId, purchasedTickets.Count);
 
             return purchasedTickets.Select(t => new TicketResponseDto
             {
                 Id = t.Id,
                 EventoId = t.EventoId,
                 TicketTypeId = t.TicketTypeId,
-                ClienteId = t.ClienteId,
+                ClientePersonaId = t.ClientePersonaId,
                 FechaCompra = t.FechaCompra
             }).ToList();
         }
 
         public async Task<List<TicketResponseDto>> GetTicketsByClienteIdAsync(string clienteId)
         {
-            var query = _firestore.Collection(TicketsCollection).WhereEqualTo("ClienteId", clienteId);
+            var clientePersonaId = await _personaResolver.ResolvePersonaIdAsync(clienteId);
+
+            var query = _firestore.Collection(TicketsCollection).WhereEqualTo(nameof(Ticket.ClientePersonaId), clientePersonaId);
             var snapshot = await query.GetSnapshotAsync();
 
             return snapshot.Documents
@@ -109,31 +116,27 @@ namespace HoyDonde.API.Services
                     Id = t.Id,
                     EventoId = t.EventoId,
                     TicketTypeId = t.TicketTypeId,
-                    ClienteId = t.ClienteId,
+                    ClientePersonaId = t.ClientePersonaId,
                     FechaCompra = t.FechaCompra
                 }).ToList();
         }
 
         public async Task<TicketValidationOutcome> ValidateTicketAsync(string controlId, string ticketId, string eventId)
         {
-            // El Control y su evento asignado se leen de Firestore; nunca se confía en
-            // identificadores de control ni en el eventId "asignado" enviados por el cliente.
-            var control = await _userRepository.GetUserByIdAsync(controlId) as Control;
-            if (control == null || control.Role != Roles.Control || !control.IsActive)
-            {
-                _logger.LogWarning("Intento de validación de ticket por usuario no autorizado {ControlId}", controlId);
-                return TicketValidationOutcome.NotAuthorized;
-            }
+            // El Control se resuelve a su PersonaId y su asignación se lee de Firestore; nunca se
+            // confía en un eventId "asignado" enviado por el cliente.
+            var controlPersonaId = await _personaResolver.ResolvePersonaIdAsync(controlId);
 
-            if (control.EventId != eventId)
+            var asignado = await _controlAsignacionRepository.ExisteAsignacionAsync(controlPersonaId, eventId);
+            if (!asignado)
             {
                 _logger.LogWarning(
-                    "Control {ControlId} intentó validar tickets del evento {EventId} pero está asignado a {AssignedEventId}",
-                    controlId, eventId, control.EventId);
+                    "Control persona {ControlPersonaId} intentó validar tickets del evento {EventId} sin asignación vigente.",
+                    controlPersonaId, eventId);
                 return TicketValidationOutcome.NotAuthorized;
             }
 
-            var result = await _validationStore.TryConsumeAsync(ticketId, eventId, controlId);
+            var result = await _validationStore.TryConsumeAsync(ticketId, eventId, controlPersonaId);
 
             return result switch
             {

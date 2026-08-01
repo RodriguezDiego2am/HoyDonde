@@ -28,11 +28,8 @@ namespace HoyDonde.API.Models
         public int CapacidadMaxima { get; set; }
 
         [Google.Cloud.Firestore.FirestoreProperty]
-        public string OrganizadorId { get; set; } = string.Empty;
+        public string OrganizadorPersonaId { get; set; } = string.Empty;
 
-        // Navigation properties are removed or ignored in Firestore
-        public virtual Organizador Organizador { get; set; } = null!;
-        
         [Google.Cloud.Firestore.FirestoreProperty]
         public virtual List<TicketType> TicketTypes { get; set; } = new();
 

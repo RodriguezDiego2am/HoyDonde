@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using HoyDonde.API.Exceptions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Net;
@@ -28,6 +29,26 @@ namespace HoyDonde.API.Middleware
             try
             {
                 await _next(httpContext);
+            }
+            catch (IdentityNotProvisionedException ex)
+            {
+                // Token válido, pero sin Usuario/Persona aprovisionado en el modelo nuevo
+                // (docs/security-refactor-plan.md §1/§4): comportamiento explícito y único,
+                // centralizado acá para no duplicarlo endpoint por endpoint. El UID sólo se
+                // registra en el log interno; la respuesta HTTP usa un mensaje genérico fijo
+                // (ex.Message ya es genérico, pero no se reenvía tal cual para no acoplar la
+                // respuesta pública al texto de la excepción).
+                _logger.LogWarning(
+                    "Identidad sin aprovisionar intentó una acción autenticada. UID: {ExternalSubjectId} | Ruta: {Path}",
+                    ex.ExternalSubjectId,
+                    httpContext.Request.Path);
+
+                httpContext.Response.ContentType = "application/json";
+                httpContext.Response.StatusCode = (int)HttpStatusCode.Forbidden;
+                var body = JsonSerializer.Serialize(
+                    new { message = "No tenés una identidad aprovisionada para realizar esta acción." },
+                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                await httpContext.Response.WriteAsync(body);
             }
             catch (Exception ex)
             {

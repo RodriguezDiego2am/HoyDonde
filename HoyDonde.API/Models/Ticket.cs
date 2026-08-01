@@ -16,9 +16,7 @@ namespace HoyDonde.API.Models
         public virtual TicketType TicketType { get; set; } = null!;
 
         [Google.Cloud.Firestore.FirestoreProperty]
-        public string ClienteId { get; set; } = string.Empty; 
-        
-        public virtual Cliente Cliente { get; set; } = null!;
+        public string ClientePersonaId { get; set; } = string.Empty;
 
         [Google.Cloud.Firestore.FirestoreProperty]
         public DateTime FechaCompra { get; set; } = DateTime.UtcNow;
@@ -32,9 +30,9 @@ namespace HoyDonde.API.Models
         [Google.Cloud.Firestore.FirestoreProperty]
         public DateTime? FechaUso { get; set; }
 
-        // UID del Control (Firebase) que realizó la validación. Nunca se acepta desde el cliente.
+        // PersonaId del Control que realizó la validación. Nunca se acepta desde el cliente.
         [Google.Cloud.Firestore.FirestoreProperty]
-        public string ValidadoPor { get; set; } = string.Empty;
+        public string ValidadoPorPersonaId { get; set; } = string.Empty;
 
         public enum TicketStatus
         {
