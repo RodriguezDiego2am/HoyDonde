@@ -1,87 +1,136 @@
-﻿using HoyDonde.API.Models;
+using FirebaseAdmin.Auth;
+using HoyDonde.API.Exceptions;
+using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
-using Microsoft.AspNetCore.Identity;
-using ZXing;
-using ZXing.Common;
-using ZXing.QrCode;
-using System;
-using System.Drawing.Imaging;
-using System.Drawing;
+using System.Collections.Generic;
 using System.Threading.Tasks;
+
 namespace HoyDonde.API.Services
 {
     public class UserService : IUserService
     {
         private readonly IUserRepository _userRepository;
-        private readonly RoleManager<IdentityRole> _roleManager;
-        private readonly UserManager<ApplicationUser> _userManager;
+        private readonly IEventService _eventService;
 
-        public UserService(IUserRepository userRepository, RoleManager<IdentityRole> roleManager, UserManager<ApplicationUser> userManager)
+        public UserService(IUserRepository userRepository, IEventService eventService)
         {
             _userRepository = userRepository;
-            _roleManager = roleManager;
-            _userManager = userManager;
+            _eventService = eventService;
         }
 
-        public async Task<IdentityResult> RegisterAdminAsync(string email, string password)
+        // Este endpoint (POST /api/users/admin) requiere rol Admin autenticado (ver UserController).
+        // La creación del primer administrador queda fuera de esta API: es una operación de
+        // bootstrap administrada por separado (p. ej. asignar el custom claim "role"="Admin" y
+        // el documento en Firestore de forma manual/con un script one-off fuera del repo), no un
+        // flujo expuesto por HTTP. Por eso ya no depende de IsAdminCreatedAsync, que era un
+        // placeholder que siempre devolvía false y no protegía nada.
+        public async Task<bool> RegisterAdminAsync(string email, string password)
         {
-            if (await _userRepository.IsAdminCreatedAsync())
-                throw new InvalidOperationException("El administrador ya ha sido creado.");
-
-            var admin = new Admin { UserName = email, Email = email };
-            var result = await _userRepository.CreateUserAsync(admin, password);
-
-            if (result.Succeeded)
+            var userRecordArgs = new UserRecordArgs
             {
-                await _roleManager.CreateAsync(new IdentityRole("Admin"));
-                await _userManager.AddToRoleAsync(admin, "Admin");
-            }
-
-            return result;
-        }
-
-        public async Task<IdentityResult> RegisterOrganizadorAsync(string email, string password)
-        {
-            var organizador = new Organizador { UserName = email, Email = email };
-            var result = await _userRepository.CreateUserAsync(organizador, password);
-
-            if (result.Succeeded)
-                await _userManager.AddToRoleAsync(organizador, "Organizador");
-
-            return result;
-        }
-
-        public async Task<IdentityResult> RegisterClienteAsync(string email, string password, string fullName, string dni, string phoneNumber)
-        {
-        
-
-            var cliente = new Cliente { UserName = email, Email = email, FullName = fullName, DNI = dni, PhoneNumber = phoneNumber};
-            var result = await _userRepository.CreateUserAsync(cliente, password);
-
-            if (result.Succeeded)
-                await _userManager.AddToRoleAsync(cliente, "Cliente");
-
-            return result;
-        }
-
-        public async Task<IdentityResult> RegisterControlAsync(string userName, string password, int eventId, string organizadorId)
-        {
-            var control = new Control
-            {
-                UserName = userName,
-                Email = $"{userName}@control.hoydonde.com", // Puede no requerir email
-                EventId = eventId,
-                OrganizadorId = organizadorId
+                Email = email,
+                Password = password,
             };
 
-            var result = await _userRepository.CreateUserAsync(control, password);
+            var userRecord = await FirebaseAuth.DefaultInstance.CreateUserAsync(userRecordArgs);
+            var claims = new Dictionary<string, object>() { { "role", Roles.Admin } };
+            await FirebaseAuth.DefaultInstance.SetCustomUserClaimsAsync(userRecord.Uid, claims);
 
-            if (result.Succeeded)
-                await _userManager.AddToRoleAsync(control, "Control");
+            var admin = new Admin 
+            { 
+                Id = userRecord.Uid, 
+                UserName = email, 
+                Email = email,
+                Role = Roles.Admin,
+            };
+            await _userRepository.CreateUserAsync(admin);
+            return true;
+        }
 
-            return result;
+        public async Task<bool> RegisterOrganizadorAsync(string email, string password)
+        {
+            var userRecordArgs = new UserRecordArgs
+            {
+                Email = email,
+                Password = password,
+            };
+
+            var userRecord = await FirebaseAuth.DefaultInstance.CreateUserAsync(userRecordArgs);
+            var claims = new Dictionary<string, object>() { { "role", Roles.Organizador } };
+            await FirebaseAuth.DefaultInstance.SetCustomUserClaimsAsync(userRecord.Uid, claims);
+
+            var organizador = new Organizador 
+            { 
+                Id = userRecord.Uid, 
+                UserName = email, 
+                Email = email,
+                Role = Roles.Organizador,
+            };
+            await _userRepository.CreateUserAsync(organizador);
+            return true;
+        }
+
+        public async Task<bool> RegisterClienteAsync(string email, string password, string fullName, string dni, string phoneNumber)
+        {
+            // Phone numbers in Firebase Auth must be cleanly formatted E.164, 
+            // so we set it in Firestore but omit from Auth if not strict.
+            var userRecordArgs = new UserRecordArgs
+            {
+                Email = email,
+                Password = password,
+                DisplayName = fullName
+            };
+
+            var userRecord = await FirebaseAuth.DefaultInstance.CreateUserAsync(userRecordArgs);
+            var claims = new Dictionary<string, object>() { { "role", Roles.Cliente } };
+            await FirebaseAuth.DefaultInstance.SetCustomUserClaimsAsync(userRecord.Uid, claims);
+
+            var cliente = new Cliente 
+            { 
+                Id = userRecord.Uid, 
+                UserName = email, 
+                Email = email, 
+                FullName = fullName, 
+                DNI = dni, 
+                PhoneNumber = phoneNumber,
+                Role = Roles.Cliente,
+            };
+            await _userRepository.CreateUserAsync(cliente);
+            return true;
+        }
+
+        public async Task<bool> RegisterControlAsync(string userName, string password, string eventId, string organizadorId)
+        {
+            // El evento se lee de Firestore y se compara contra el organizadorId del token
+            // (nunca contra un valor enviado por el cliente). Si el evento no existe o
+            // pertenece a otro organizador, no se crea nada en Firebase Auth ni en Firestore.
+            var evento = await _eventService.GetByIdAsync(eventId);
+            if (evento == null) throw new EventNotFoundException(eventId);
+            if (evento.OrganizadorId != organizadorId) throw new EventOwnershipException(eventId, organizadorId);
+
+            var userEmail = $"{userName}@control.hoydonde.com";
+            var userRecordArgs = new UserRecordArgs
+            {
+                Email = userEmail,
+                Password = password,
+                DisplayName = userName
+            };
+
+            var userRecord = await FirebaseAuth.DefaultInstance.CreateUserAsync(userRecordArgs);
+            var claims = new Dictionary<string, object>() { { "role", Roles.Control } };
+            await FirebaseAuth.DefaultInstance.SetCustomUserClaimsAsync(userRecord.Uid, claims);
+
+            var control = new Control
+            {
+                Id = userRecord.Uid,
+                UserName = userName,
+                Email = userEmail,
+                EventId = eventId,
+                OrganizadorId = organizadorId,
+                Role = Roles.Control,
+            };
+            await _userRepository.CreateUserAsync(control);
+            return true;
         }
     }
 }
-
-

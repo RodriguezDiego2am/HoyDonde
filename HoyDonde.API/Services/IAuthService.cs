@@ -6,6 +6,6 @@ namespace HoyDonde.API.Services
 {
     public interface IAuthService
     {
-        Task<(bool Succeeded, string? Token, string? Error, IList<string>? Roles)> LoginAsync(string identifier, string password);
+        Task<ApplicationUser> SyncUserAsync(string uid, string email, string userName);
     }
 }

@@ -1,5 +1,6 @@
 ﻿using HoyDonde.API.Models;
-using Microsoft.AspNetCore.Identity;
+using HoyDonde.API.Repositories;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -7,37 +8,33 @@ namespace HoyDonde.API.Services
 {
     public class AuthService : IAuthService
     {
-        private readonly UserManager<ApplicationUser> _userManager;
-        private readonly SignInManager<ApplicationUser> _signInManager;
-        private readonly IJwtService _jwtService;
+        private readonly IUserRepository _userRepository;
 
-        public AuthService(
-            UserManager<ApplicationUser> userManager,
-            SignInManager<ApplicationUser> signInManager,
-            IJwtService jwtService)
+        public AuthService(IUserRepository userRepository)
         {
-            _userManager = userManager;
-            _signInManager = signInManager;
-            _jwtService = jwtService;
+            _userRepository = userRepository;
         }
 
-        public async Task<(bool Succeeded, string? Token, string? Error, IList<string>? Roles)> LoginAsync(
-            string identifier, string password)
+        public async Task<ApplicationUser> SyncUserAsync(string uid, string email, string userName)
         {
-            var user = await _userManager.FindByEmailAsync(identifier)
-                        ?? await _userManager.FindByNameAsync(identifier);
+            var existingUser = await _userRepository.GetUserByIdAsync(uid);
+            if (existingUser != null)
+            {
+                return existingUser;
+            }
 
-            if (user == null)
-                return (false, null, "Usuario/Email no encontrado", null);
+            // Create new user (defaulting to Organizador for now as most logic assumes it)
+            var newUser = new Organizador
+            {
+                Id = uid,
+                Email = email,
+                UserName = userName,
+                CreatedAt = DateTime.UtcNow,
+                IsActive = true
+            };
 
-            var result = await _signInManager.CheckPasswordSignInAsync(user, password, lockoutOnFailure: false);
-            if (!result.Succeeded)
-                return (false, null, "Contraseña inválida", null);
-
-            var roles = await _userManager.GetRolesAsync(user);
-            var token = _jwtService.GenerateJwtToken(user, roles);
-
-            return (true, token, null, roles);
+            await _userRepository.CreateUserAsync(newUser);
+            return newUser;
         }
     }
 }

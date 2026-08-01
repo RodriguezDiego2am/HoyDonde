@@ -2,7 +2,7 @@
 using HoyDonde.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 
 namespace HoyDonde.API.Controllers
@@ -11,28 +11,36 @@ namespace HoyDonde.API.Controllers
     [ApiController]
     public class AuthController : ControllerBase
     {
-        private readonly AuthService _authService;
+        private readonly IAuthService _authService;
 
-        public AuthController(AuthService authService)
+        public AuthController(IAuthService authService)
         {
             _authService = authService;
         }
 
-        [HttpPost("login")]
-        [AllowAnonymous]
-        public async Task<IActionResult> Login([FromBody] LoginRequestDto loginDto)
+        [HttpPost("sync")]
+        [Authorize]
+        public async Task<IActionResult> SyncUser()
         {
-            var (Succeeded, Token, Error, Roles) = await _authService.LoginAsync(loginDto.Identifier, loginDto.Password);
+            // Firebase token claims
+            var uid = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                      ?? User.FindFirst("user_id")?.Value 
+                      ?? User.FindFirst("sub")?.Value;
+            
+            var email = User.FindFirst(ClaimTypes.Email)?.Value 
+                        ?? User.FindFirst("email")?.Value;
 
-            if (!Succeeded || Token == null)
-                return Unauthorized(new { message = Error });
-
-            return Ok(new AuthResponseDto
+            if (string.IsNullOrEmpty(uid))
             {
-                Token = Token,
-                UserName = loginDto.Identifier,
-                Roles = Roles.ToList()
-            });
+                return BadRequest(new { message = "User Identity (UID) missing from token." });
+            }
+
+            // Fallback for email/name if not present
+            email ??= $"{uid}@placeholder.com"; 
+            var name = User.Identity?.Name ?? email;
+
+            var user = await _authService.SyncUserAsync(uid, email, name);
+            return Ok(user);
         }
     }
 }

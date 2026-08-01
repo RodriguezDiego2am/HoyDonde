@@ -1,11 +1,11 @@
-﻿using HoyDonde.API.Data;
+﻿using FirebaseAdmin;
+using Google.Apis.Auth.OAuth2;
+using Google.Cloud.Firestore;
 using HoyDonde.API.Middleware;
 using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
 using HoyDonde.API.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
@@ -23,41 +23,42 @@ Log.Logger = new LoggerConfiguration()
 
 builder.Host.UseSerilog();
 
-// Configuración de Entity Framework Core y SQL Server
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"))
-);
-
-// Configuración de Identity
-builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
-    .AddEntityFrameworkStores<ApplicationDbContext>()
-    .AddDefaultTokenProviders();
-
-// Configuración de autenticación con JWT
-builder.Services.AddAuthentication(options =>
+// Configuración de Firebase
+var firebaseCredentialsPath = builder.Configuration["Firebase:CredentialsPath"] ?? "firebase-service-account.json";
+if (File.Exists(firebaseCredentialsPath))
 {
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
+    FirebaseApp.Create(new AppOptions
+    {
+        Credential = GoogleCredential.FromFile(firebaseCredentialsPath)
+    });
+}
+else
+{
+    Log.Warning("Firebase credentials file not found at {Path}. App may fail to authenticate.", firebaseCredentialsPath);
+}
+
+// Configuración de Firestore
+builder.Services.AddSingleton<FirestoreDb>(provider =>
+{
+    var projectId = builder.Configuration["Firebase:ProjectId"];
+    if (string.IsNullOrEmpty(projectId)) throw new Exception("Firebase ProjectId is missing in configuration.");
+    return FirestoreDb.Create(projectId);
+});
+
+// Configuración de autenticación con Firebase JWT
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 .AddJwtBearer(options =>
 {
-    options.RequireHttpsMetadata = false;
-    options.SaveToken = true;
-
-    var secretKey = builder.Configuration["JwtSettings:Secret"] ?? "";
-    var issuer = builder.Configuration["JwtSettings:Issuer"] ?? "";
-    var audience = builder.Configuration["JwtSettings:Audience"] ?? "";
-
+    var projectId = builder.Configuration["Firebase:ProjectId"];
+    options.Authority = $"https://securetoken.google.com/{projectId}";
     options.TokenValidationParameters = new TokenValidationParameters
     {
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
         ValidateIssuer = true,
-        ValidIssuer = issuer,
+        ValidIssuer = $"https://securetoken.google.com/{projectId}",
         ValidateAudience = true,
-        ValidAudience = audience,
+        ValidAudience = projectId,
         ValidateLifetime = true,
-        ClockSkew = TimeSpan.Zero
+        RoleClaimType = "role" // Maps Firebase custom claim 'role' to ClaimsIdentity.RoleClaimType
     };
 });
 
@@ -95,13 +96,13 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 // Registrar dependencias para Repositorios y Servicios
-builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
-builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IUserRepository, FirestoreUserRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IJwtService, JwtService>();
-builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<IUserService, UserService>();
-builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
+builder.Services.AddScoped<IEventService, EventService>();
+builder.Services.AddScoped<ITicketValidationStore, FirestoreTicketValidationStore>();
+builder.Services.AddScoped<ITicketService, TicketService>();
+
 
 var app = builder.Build();
 
@@ -125,19 +126,13 @@ app.UseAuthorization();
 app.MapControllers();
 
 // Seeding de Roles
+// Role assignment is now handled by custom logic or Firebase claims management
+/*
 using (var scope = app.Services.CreateScope())
 {
-    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-    var roles = new[] { Roles.Admin, Roles.Organizador, Roles.Cliente, Roles.Control };
-
-    foreach (var role in roles)
-    {
-        if (!await roleManager.RoleExistsAsync(role))
-        {
-            await roleManager.CreateAsync(new IdentityRole(role));
-        }
-    }
+    // Roles seeding removed as Firebase handles usage
 }
+*/
 
 // Iniciar la aplicación y manejo de excepciones en el arranque
 Log.Information("Iniciando HoyDonde API");
@@ -153,3 +148,5 @@ finally
 {
     Log.CloseAndFlush();
 }
+
+public partial class Program { }

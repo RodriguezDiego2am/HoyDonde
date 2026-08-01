@@ -58,7 +58,7 @@ namespace HoyDonde.API.Middleware
                 RequestId = requestId,
                 Message = _environment.IsDevelopment()
                     ? exception.Message
-                    : "Se produjo un error interno en el servidor."
+                    : "Ocurrió un error inesperado. Contactá al soporte indicando el RequestId."
             };
 
             if (_environment.IsDevelopment())

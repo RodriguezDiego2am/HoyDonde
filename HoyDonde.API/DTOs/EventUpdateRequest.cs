@@ -1,18 +1,17 @@
 using System;
-using System.Collections.Generic;
 using HoyDonde.API.Models;
 
 namespace HoyDonde.API.DTOs
 {
-    public class EventResponse
+    // Campos editables por el organizador dueño del evento.
+    // Deliberadamente no incluye Estado ni OrganizadorId: el ciclo de estados
+    // y la propiedad del evento no se tocan en este hotfix.
+    public class EventUpdateRequest
     {
-        public string Id { get; set; } = string.Empty;
         public string Nombre { get; set; } = string.Empty;
         public string Descripcion { get; set; } = string.Empty;
         public DateTime FechaInicio { get; set; }
         public string Ubicacion { get; set; } = string.Empty;
         public Event.EventCategory Categoria { get; set; }
-        public Event.EventStatus Estado { get; set; }
-        public List<TicketGroupDto> TicketGroups { get; set; } = new();
     }
 }

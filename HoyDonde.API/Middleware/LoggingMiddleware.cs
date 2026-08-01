@@ -51,11 +51,6 @@ namespace HoyDonde.API.Middleware
                 userId,
                 requestId);
 
-            // Capturar el cuerpo de la respuesta
-            var originalBodyStream = context.Response.Body;
-            using var responseBodyStream = new MemoryStream();
-            context.Response.Body = responseBodyStream;
-
             try
             {
                 // Continuar con el pipeline
@@ -63,16 +58,6 @@ namespace HoyDonde.API.Middleware
 
                 // Detener el cronómetro
                 stopwatch.Stop();
-
-                // Capturar el cuerpo de la respuesta (si es necesario)
-                var responseBody = string.Empty;
-                if (ShouldLogResponseBody(context))
-                {
-                    responseBodyStream.Seek(0, SeekOrigin.Begin);
-                    using var reader = new StreamReader(responseBodyStream);
-                    responseBody = await reader.ReadToEndAsync();
-                    responseBodyStream.Seek(0, SeekOrigin.Begin);
-                }
 
                 // Registrar la respuesta
                 _logger.LogInformation(
@@ -83,14 +68,11 @@ namespace HoyDonde.API.Middleware
                     context.Request.Path,
                     userId,
                     requestId);
-
-                // Copiar la respuesta al stream original
-                await responseBodyStream.CopyToAsync(originalBodyStream);
             }
             catch (Exception ex)
             {
                 // Detener el cronómetro en caso de error
-                stopwatch.Stop();
+                if (stopwatch.IsRunning) stopwatch.Stop();
 
                 // Registrar la excepción
                 _logger.LogError(
@@ -103,19 +85,7 @@ namespace HoyDonde.API.Middleware
                     stopwatch.ElapsedMilliseconds,
                     requestId);
 
-                // Restaurar el cuerpo original
-                context.Response.Body = originalBodyStream;
-
-                // Devolver una respuesta de error apropiada
-                context.Response.StatusCode = 500;
-                await context.Response.WriteAsync("Se produjo un error interno del servidor.");
-
-                return;
-            }
-            finally
-            {
-                // Asegurarse de restaurar el stream original
-                context.Response.Body = originalBodyStream;
+                throw; // Rethrow to let ExceptionMiddleware or the framework handle it
             }
         }
 
