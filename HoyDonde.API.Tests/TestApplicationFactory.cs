@@ -92,6 +92,22 @@ namespace HoyDonde.API.Tests
                 var ticketValidationStoreDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ITicketValidationStore));
                 if (ticketValidationStoreDescriptor != null) services.Remove(ticketValidationStoreDescriptor);
 
+                // Etapa 2 del refactor de seguridad: IUsuarioRepository/IRolRepository/
+                // IAccionRepository también dependen de FirestoreDb. Nada en IUserService
+                // (mockeado abajo) llega a construir las implementaciones reales en estos tests,
+                // pero ValidateOnBuild igual intentaría resolverlas si quedaran registradas tal
+                // cual. IPermissionService no necesita este tratamiento: sus 3 dependencias son
+                // interfaces que ya quedan mockeadas, así que la implementación real se puede
+                // construir sin tocar Firestore.
+                var usuarioRepositoryDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IUsuarioRepository));
+                if (usuarioRepositoryDescriptor != null) services.Remove(usuarioRepositoryDescriptor);
+
+                var rolRepositoryDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IRolRepository));
+                if (rolRepositoryDescriptor != null) services.Remove(rolRepositoryDescriptor);
+
+                var accionRepositoryDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IAccionRepository));
+                if (accionRepositoryDescriptor != null) services.Remove(accionRepositoryDescriptor);
+
                 // Add Mocks
                 services.AddSingleton(MockEventService.Object);
                 services.AddSingleton(MockUserService.Object);
@@ -99,6 +115,9 @@ namespace HoyDonde.API.Tests
                 services.AddSingleton(MockUserRepository.Object);
                 services.AddSingleton(MockTicketService.Object);
                 services.AddSingleton(Mock.Of<ITicketValidationStore>());
+                services.AddSingleton(Mock.Of<IUsuarioRepository>());
+                services.AddSingleton(Mock.Of<IRolRepository>());
+                services.AddSingleton(Mock.Of<IAccionRepository>());
 
                 // Add Fake Authentication
                 services.AddAuthentication("Test")

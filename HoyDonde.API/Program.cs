@@ -104,6 +104,12 @@ builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<ITicketValidationStore, FirestoreTicketValidationStore>();
 builder.Services.AddScoped<ITicketService, TicketService>();
 
+// Etapa 2 del refactor de seguridad (docs/security-refactor-plan.md §6)
+builder.Services.AddScoped<IRolRepository, FirestoreRolRepository>();
+builder.Services.AddScoped<IAccionRepository, FirestoreAccionRepository>();
+builder.Services.AddScoped<IUsuarioRepository, FirestoreUsuarioRepository>();
+builder.Services.AddScoped<IPermissionService, PermissionService>();
+
 
 var app = builder.Build();
 
