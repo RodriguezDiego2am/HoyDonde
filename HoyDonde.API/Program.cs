@@ -98,6 +98,7 @@ builder.Services.AddSwaggerGen(c =>
 // Registrar dependencias para Repositorios y Servicios
 builder.Services.AddScoped<IUserRepository, FirestoreUserRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IIdentityProvider, FirebaseIdentityProvider>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<ITicketValidationStore, FirestoreTicketValidationStore>();

@@ -16,38 +16,41 @@ namespace HoyDonde.API.Tests
         private const string OrganizadorId = "organizador-1";
         private const string EventId = "event-1";
 
-        private static (UserService sut, Mock<IUserRepository> userRepository, Mock<IEventService> eventService) CreateSut()
+        private static (UserService sut, Mock<IUserRepository> userRepository, Mock<IEventService> eventService, Mock<IIdentityProvider> identityProvider) CreateSut()
         {
             var userRepository = new Mock<IUserRepository>();
             var eventService = new Mock<IEventService>();
-            var sut = new UserService(userRepository.Object, eventService.Object);
-            return (sut, userRepository, eventService);
+            var identityProvider = new Mock<IIdentityProvider>();
+            identityProvider
+                .Setup(p => p.CreateIdentityAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()))
+                .ReturnsAsync(new IdentityCreationResult("control-uid-1", FirebaseIdentityProvider.ProviderName));
+            var sut = new UserService(userRepository.Object, eventService.Object, identityProvider.Object);
+            return (sut, userRepository, eventService, identityProvider);
         }
 
         [Fact]
         public async Task RegisterControlAsync_ForOwnEvent_DoesNotRejectOnOwnership()
         {
-            var (sut, userRepository, eventService) = CreateSut();
+            var (sut, userRepository, eventService, identityProvider) = CreateSut();
             eventService
                 .Setup(s => s.GetByIdAsync(EventId))
                 .ReturnsAsync(new Event { Id = EventId, OrganizadorId = OrganizadorId });
 
-            // La creación real en Firebase Auth no se puede ejercitar en este entorno (no hay
-            // credenciales/emulador: FirebaseAuth.DefaultInstance lanza porque no hay FirebaseApp
-            // inicializada en el proceso de test). Lo que sí podemos probar sin ambigüedad es que
-            // el gate de ownership no rechaza al dueño real del evento, es decir que si falla, falla
-            // por otra razón distinta a "evento no encontrado" o "evento ajeno".
+            // Con IIdentityProvider abstraído (Etapa 0 del refactor de seguridad), la creación de
+            // identidad ya se puede mockear en lugar de depender de que FirebaseAuth.DefaultInstance
+            // falle por falta de credenciales/emulador. El gate de ownership no debe rechazar al
+            // dueño real del evento.
             var ex = await Record.ExceptionAsync(() =>
                 sut.RegisterControlAsync("control1", "Password123!", EventId, OrganizadorId));
 
-            Assert.IsNotType<EventNotFoundException>(ex);
-            Assert.IsNotType<EventOwnershipException>(ex);
+            Assert.Null(ex);
+            userRepository.Verify(r => r.CreateUserAsync(It.Is<ApplicationUser>(u => u.Id == "control-uid-1")), Times.Once);
         }
 
         [Fact]
         public async Task RegisterControlAsync_ForForeignEvent_ThrowsOwnershipException_AndNeverCreatesUser()
         {
-            var (sut, userRepository, eventService) = CreateSut();
+            var (sut, userRepository, eventService, _) = CreateSut();
             eventService
                 .Setup(s => s.GetByIdAsync(EventId))
                 .ReturnsAsync(new Event { Id = EventId, OrganizadorId = "otro-organizador" });
@@ -61,7 +64,7 @@ namespace HoyDonde.API.Tests
         [Fact]
         public async Task RegisterControlAsync_ForNonexistentEvent_ThrowsNotFoundException_AndNeverCreatesUser()
         {
-            var (sut, userRepository, eventService) = CreateSut();
+            var (sut, userRepository, eventService, _) = CreateSut();
             eventService
                 .Setup(s => s.GetByIdAsync(EventId))
                 .ReturnsAsync((Event?)null);
