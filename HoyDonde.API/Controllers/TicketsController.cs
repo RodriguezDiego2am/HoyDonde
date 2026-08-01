@@ -1,6 +1,7 @@
 using System;
 using System.Security.Claims;
 using System.Threading.Tasks;
+using HoyDonde.API.Authorization;
 using HoyDonde.API.DTOs;
 using HoyDonde.API.Models;
 using HoyDonde.API.Services;
@@ -25,7 +26,7 @@ namespace HoyDonde.API.Controllers
         }
 
         [HttpPost("buy")]
-        [Authorize(Roles = Roles.Cliente)]
+        [Authorize(Policy = Acciones.TicketComprar)]
         public async Task<IActionResult> BuyTickets([FromBody] TicketBuyRequest request)
         {
             if (!ModelState.IsValid)
@@ -55,7 +56,7 @@ namespace HoyDonde.API.Controllers
         }
 
         [HttpGet("me")]
-        [Authorize(Roles = Roles.Cliente)]
+        [Authorize(Policy = Acciones.TicketVerPropio)]
         public async Task<IActionResult> GetMyTickets()
         {
             var clienteId = GetAuthenticatedUserId();
@@ -68,7 +69,7 @@ namespace HoyDonde.API.Controllers
         }
 
         [HttpPost("validate")]
-        [Authorize(Roles = Roles.Control)]
+        [Authorize(Policy = Acciones.TicketValidar)]
         public async Task<IActionResult> ValidateTicket([FromQuery] string ticketId, [FromQuery] string eventId)
         {
             if (string.IsNullOrEmpty(ticketId) || string.IsNullOrEmpty(eventId))

@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
+using HoyDonde.API.Authorization;
 using HoyDonde.API.DTOs;
 using HoyDonde.API.Exceptions;
 using HoyDonde.API.Repositories;
@@ -28,6 +29,11 @@ namespace HoyDonde.API.Tests
             });
             // Habilitamos el Fake Auth que creamos en el TestApplicationFactory
             _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Test");
+
+            // Etapa 5 del refactor de seguridad: la autorización real depende de IPermissionService,
+            // no del claim de rol legacy (Test-Role queda como vestigio inofensivo en estos tests).
+            _factory.GrantAccion(ActorUid, "usuario-user-controller-test", "persona-user-controller-test",
+                Acciones.UsuarioCrearAdmin, Acciones.UsuarioCrearOrganizador, Acciones.ControlCrear);
         }
 
         [Fact]
@@ -131,7 +137,9 @@ namespace HoyDonde.API.Tests
                 Content = JsonContent.Create(request)
             };
             reqMessage.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Test");
-            reqMessage.Headers.Add("Test-Role", Models.Roles.Cliente);
+            // Etapa 5: la autorización real depende de la acción CONTROL_CREAR (IPermissionService),
+            // no del claim de rol legacy; un uid sin esa acción concedida sigue dando 403.
+            reqMessage.Headers.Add("Test-Uid", "uid-sin-permiso-user");
 
             var response = await _client.SendAsync(reqMessage);
 
@@ -192,10 +200,8 @@ namespace HoyDonde.API.Tests
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
 
-        [Theory]
-        [InlineData("Cliente")]
-        [InlineData("Organizador")]
-        public async Task RegisterAdmin_WithNonAdminRole_ReturnsForbidden(string role)
+        [Fact]
+        public async Task RegisterAdmin_SinAccionUsuarioCrearAdmin_ReturnsForbidden()
         {
             var request = new RegisterAdminDto { Email = "nuevo-admin@test.com", Password = "Password123!" };
 
@@ -204,7 +210,7 @@ namespace HoyDonde.API.Tests
                 Content = JsonContent.Create(request)
             };
             reqMessage.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Test");
-            reqMessage.Headers.Add("Test-Role", role);
+            reqMessage.Headers.Add("Test-Uid", "uid-sin-permiso-user");
 
             var response = await _client.SendAsync(reqMessage);
 
@@ -270,11 +276,8 @@ namespace HoyDonde.API.Tests
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
 
-        [Theory]
-        [InlineData("Cliente")]
-        [InlineData("Organizador")]
-        [InlineData("Control")]
-        public async Task RegisterOrganizador_WithNonAdminRole_ReturnsForbidden(string role)
+        [Fact]
+        public async Task RegisterOrganizador_SinAccionUsuarioCrearOrganizador_ReturnsForbidden()
         {
             var request = new RegisterOrganizadorDto { Email = "nuevo-organizador@test.com", Password = "Password123!" };
 
@@ -283,7 +286,7 @@ namespace HoyDonde.API.Tests
                 Content = JsonContent.Create(request)
             };
             reqMessage.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Test");
-            reqMessage.Headers.Add("Test-Role", role);
+            reqMessage.Headers.Add("Test-Uid", "uid-sin-permiso-user");
 
             var response = await _client.SendAsync(reqMessage);
 

@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
+using HoyDonde.API.Authorization;
 using HoyDonde.API.DTOs;
 using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
@@ -26,6 +28,15 @@ namespace HoyDonde.API.Tests
                 AllowAutoRedirect = false
             });
             _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test");
+
+            // Etapa 5 del refactor de seguridad: la autorización real depende de IPermissionService,
+            // no del claim de rol legacy. "test-uid-123" (el uid por default de FakeAuthHandler)
+            // recibe acá todas las acciones que este controller necesita para sus tests de
+            // "camino feliz"; los tests de "sin acción" usan un uid distinto (Test-Uid) que nunca
+            // se concede acá.
+            _factory.GrantAccion("test-uid-123", "usuario-events-test", "persona-events-test",
+                Acciones.EventoCrear, Acciones.EventoEditarPropio, Acciones.EventoPublicarPropio,
+                Acciones.EventoCancelarPropio, Acciones.EventoVerPropios);
         }
 
         [Fact]
@@ -246,6 +257,91 @@ namespace HoyDonde.API.Tests
 
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
             Assert.DoesNotContain("test-uid-123", content);
+        }
+
+        // ---- Etapa 5: mapeo de policy por endpoint (sin la acción -> 403) ----
+
+        private static HttpRequestMessage RequestSinAccion(HttpMethod method, string path)
+        {
+            var msg = new HttpRequestMessage(method, path);
+            msg.Headers.Authorization = new AuthenticationHeaderValue("Test");
+            msg.Headers.Add("Test-Uid", "uid-sin-permiso-events");
+            return msg;
+        }
+
+        [Fact]
+        public async Task CreateEvent_SinAccionEventoCrear_ReturnsForbidden()
+        {
+            var request = new EventCreateRequest { Nombre = "X", FechaInicio = DateTime.UtcNow.AddDays(5) };
+            var msg = RequestSinAccion(HttpMethod.Post, "/api/events");
+            msg.Content = JsonContent.Create(request);
+
+            var response = await _client.SendAsync(msg);
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task PublishEvent_SinAccionEventoPublicarPropio_ReturnsForbidden()
+        {
+            var response = await _client.SendAsync(RequestSinAccion(HttpMethod.Post, "/api/events/event-1/publish"));
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task CancelEvent_SinAccionEventoCancelarPropio_ReturnsForbidden()
+        {
+            var response = await _client.SendAsync(RequestSinAccion(HttpMethod.Post, "/api/events/event-1/cancel"));
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task UpdateEvent_SinAccionEventoEditarPropio_ReturnsForbidden()
+        {
+            var request = new EventUpdateRequest { Nombre = "X", FechaInicio = DateTime.UtcNow.AddDays(5) };
+            var msg = RequestSinAccion(HttpMethod.Put, "/api/events/event-1");
+            msg.Content = JsonContent.Create(request);
+
+            var response = await _client.SendAsync(msg);
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GetMyEvents_SinAccionEventoVerPropios_ReturnsForbidden()
+        {
+            var response = await _client.SendAsync(RequestSinAccion(HttpMethod.Get, "/api/events/organizer/me"));
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        // ---- Etapa 5: los endpoints públicos siguen siendo anónimos ----
+
+        [Fact]
+        public async Task GetEvent_Anonymous_ReturnsOkOrNotFound_NeverUnauthorized()
+        {
+            _factory.MockEventService.Setup(s => s.GetByIdAsync("event-publico")).ReturnsAsync((Event?)null);
+
+            var anonClient = _factory.CreateClient(); // sin Authorization header
+            var response = await anonClient.GetAsync("/api/events/event-publico");
+
+            Assert.NotEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+            Assert.NotEqual(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task SearchEvents_Anonymous_ReturnsOk()
+        {
+            _factory.MockEventService
+                .Setup(s => s.SearchEventsAsync(It.IsAny<EventSearchFilterDto>()))
+                .ReturnsAsync(new PagedResponse<Event> { Data = new List<Event>(), HasNextPage = false });
+
+            var anonClient = _factory.CreateClient(); // sin Authorization header
+            var response = await anonClient.GetAsync("/api/events");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
     }
 }

@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
+using HoyDonde.API.Authorization;
 using HoyDonde.API.DTOs;
 using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
@@ -28,6 +29,11 @@ namespace HoyDonde.API.Tests
             // Habilitamos el Fake Auth (actualmente "Organizador", así que para testear rol "Cliente", ajustamos el Handler o usamos Mocks de Auth)
             // Por simplicidad, agregaremos el header default
             _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Test");
+
+            // Etapa 5 del refactor de seguridad: la autorización real depende de IPermissionService,
+            // no del claim de rol legacy (Test-Role queda como vestigio inofensivo en estos tests).
+            _factory.GrantAccion("test-uid-123", "usuario-tickets-test", "persona-tickets-test",
+                Acciones.TicketComprar, Acciones.TicketVerPropio, Acciones.TicketValidar);
         }
 
         [Fact]
@@ -148,10 +154,25 @@ namespace HoyDonde.API.Tests
         }
 
         [Fact]
-        public async Task ValidateTicket_WrongRole_ReturnsForbidden()
+        public async Task ValidateTicket_SinAccionTicketValidar_ReturnsForbidden()
         {
-            // El servicio ni siquiera debería llamarse: [Authorize(Roles=Control)] corta antes.
-            var response = await _client.SendAsync(ValidateRequest("ticket-1", "event-1", Models.Roles.Cliente));
+            // El servicio ni siquiera debería llamarse: la policy TICKET_VALIDAR corta antes.
+            var msg = ValidateRequest("ticket-1", "event-1", Models.Roles.Control);
+            msg.Headers.Add("Test-Uid", "uid-sin-permiso-tickets");
+
+            var response = await _client.SendAsync(msg);
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task BuyTickets_SinAccionTicketComprar_ReturnsForbidden()
+        {
+            var request = new TicketBuyRequest { EventoId = "evento-id-123", TicketTypeId = "ticket-tipo-vip", Cantidad = 2 };
+            var reqMessage = new HttpRequestMessage(HttpMethod.Post, "/api/tickets/buy") { Content = JsonContent.Create(request) };
+            reqMessage.Headers.Add("Test-Uid", "uid-sin-permiso-tickets");
+
+            var response = await _client.SendAsync(reqMessage);
 
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         }

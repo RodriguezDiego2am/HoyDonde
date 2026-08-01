@@ -51,5 +51,17 @@ namespace HoyDonde.API.Tests.Integration
             await Assert.ThrowsAsync<AccionYaExisteException>(() =>
                 _sut.CreateAsync(new Accion { Codigo = _codigo, Descripcion = "Otra" }));
         }
+
+        [FirestoreEmulatorFact]
+        public async Task GetAllAsync_IncludesCreatedAccion_WithCodigoDescripcionYActivo()
+        {
+            await _sut!.CreateAsync(new Accion { Codigo = _codigo, Descripcion = "Accion de prueba" });
+
+            var acciones = await _sut.GetAllAsync();
+
+            var accion = Assert.Single(acciones, a => a.Codigo == _codigo);
+            Assert.Equal("Accion de prueba", accion.Descripcion);
+            Assert.True(accion.Activo);
+        }
     }
 }

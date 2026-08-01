@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Threading.Tasks;
@@ -28,13 +30,22 @@ namespace HoyDonde.API.Tests
             {
                 return Task.FromResult(AuthenticateResult.NoResult());
             }
-            var role = Request.Headers.ContainsKey("Test-Role") 
-                ? Request.Headers["Test-Role"].ToString() 
+            var role = Request.Headers.ContainsKey("Test-Role")
+                ? Request.Headers["Test-Role"].ToString()
                 : Models.Roles.Organizador;
+
+            // Etapa 5 del refactor de seguridad: la autorización real ya no depende de este claim
+            // de rol (ver AccionAuthorizationHandler), solo de IPermissionService resuelto a
+            // partir del UID. "Test-Uid" permite a un test simular un actor SIN ninguna acción
+            // concedida (uid nunca pasado a TestApplicationFactory.GrantAccion) sin tener que
+            // mutar el estado compartido de los mocks de permisos entre tests.
+            var uid = Request.Headers.ContainsKey("Test-Uid")
+                ? Request.Headers["Test-Uid"].ToString()
+                : "test-uid-123";
 
             var claims = new[]
             {
-                new Claim(ClaimTypes.NameIdentifier, "test-uid-123"),
+                new Claim(ClaimTypes.NameIdentifier, uid),
                 new Claim(ClaimTypes.Email, "test@example.com"),
                 new Claim(ClaimTypes.Role, role),
                 new Claim("role", role) // Firebase custom claim mock
@@ -55,6 +66,46 @@ namespace HoyDonde.API.Tests
         public Mock<IAuthService> MockAuthService { get; } = new();
         public Mock<IUserRepository> MockUserRepository { get; } = new();
         public Mock<ITicketService> MockTicketService { get; } = new();
+        public Mock<IUsuarioRepository> MockUsuarioRepository { get; } = new();
+        public Mock<IRolRepository> MockRolRepository { get; } = new();
+        public Mock<IAccionRepository> MockAccionRepository { get; } = new();
+        public Mock<ISecurityAdminService> MockSecurityAdminService { get; } = new();
+
+        // Etapa 5 del refactor de seguridad: concede, para el uid dado, exactamente los
+        // accionCodigos indicados (via un único rol de prueba), dejando MockUsuarioRepository/
+        // MockRolRepository/MockAccionRepository listos para que AccionAuthorizationHandler
+        // resuelva "autorizado" a través de la implementación real de IPermissionService (que
+        // sigue registrada tal cual en el contenedor de test, sin mockear). Pensado para usarse
+        // una vez por uid (constructor de la clase de test); llamar dos veces con el MISMO uid
+        // sobrescribe la asignación de rol anterior.
+        public void GrantAccion(string uid, string usuarioId, string personaId, params string[] accionCodigos)
+        {
+            const string rolCodigo = "ROL_TEST";
+
+            MockUsuarioRepository
+                .Setup(r => r.GetUsuarioIdByExternalSubjectAsync("FIREBASE", uid))
+                .ReturnsAsync(usuarioId);
+            MockUsuarioRepository
+                .Setup(r => r.GetByIdAsync(usuarioId))
+                .ReturnsAsync(new Models.Usuario { Id = usuarioId, PersonaId = personaId, IsActive = true });
+            MockUsuarioRepository
+                .Setup(r => r.GetRolCodigosActivosAsync(usuarioId))
+                .ReturnsAsync(new List<string> { rolCodigo });
+
+            MockRolRepository
+                .Setup(r => r.GetByCodigoAsync(rolCodigo))
+                .ReturnsAsync(new Models.Rol { Codigo = rolCodigo, Nombre = "Rol de prueba", Activo = true });
+            MockRolRepository
+                .Setup(r => r.GetAccionCodigosAsync(rolCodigo))
+                .ReturnsAsync(accionCodigos.ToList());
+
+            foreach (var accionCodigo in accionCodigos)
+            {
+                MockAccionRepository
+                    .Setup(r => r.GetByCodigoAsync(accionCodigo))
+                    .ReturnsAsync(new Models.Accion { Codigo = accionCodigo, Activo = true });
+            }
+        }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -121,16 +172,28 @@ namespace HoyDonde.API.Tests
                 var controlAsignacionRepositoryDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IControlAsignacionRepository));
                 if (controlAsignacionRepositoryDescriptor != null) services.Remove(controlAsignacionRepositoryDescriptor);
 
+                // Etapa 5 del refactor de seguridad: SecurityAdminController se prueba contra
+                // MockSecurityAdminService directamente (mismo patrón que MockEventService), no
+                // contra la implementación real -esa se cubre en tests de servicio/integración
+                // separados-.
+                var securityAdminServiceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ISecurityAdminService));
+                if (securityAdminServiceDescriptor != null) services.Remove(securityAdminServiceDescriptor);
+
                 // Add Mocks
                 services.AddSingleton(MockEventService.Object);
                 services.AddSingleton(MockUserService.Object);
                 services.AddSingleton(MockAuthService.Object);
                 services.AddSingleton(MockUserRepository.Object);
                 services.AddSingleton(MockTicketService.Object);
+                services.AddSingleton(MockSecurityAdminService.Object);
                 services.AddSingleton(Mock.Of<ITicketValidationStore>());
-                services.AddSingleton(Mock.Of<IUsuarioRepository>());
-                services.AddSingleton(Mock.Of<IRolRepository>());
-                services.AddSingleton(Mock.Of<IAccionRepository>());
+                // Etapa 5: estos tres quedan como Mock<T> reales (no Mock.Of<T> anónimos) para que
+                // GrantAccion pueda configurarlos por test y AccionAuthorizationHandler resuelva
+                // autorización real contra la implementación real de IPermissionService (que sigue
+                // registrada tal cual, sin mockear).
+                services.AddSingleton(MockUsuarioRepository.Object);
+                services.AddSingleton(MockRolRepository.Object);
+                services.AddSingleton(MockAccionRepository.Object);
                 services.AddSingleton(Mock.Of<IIdentidadHuerfanaRepository>());
                 services.AddSingleton(Mock.Of<IControlAsignacionRepository>());
 

@@ -1,12 +1,14 @@
 ﻿using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Firestore;
+using HoyDonde.API.Authorization;
 using HoyDonde.API.Commands;
 using HoyDonde.API.Middleware;
 using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
 using HoyDonde.API.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
@@ -63,8 +65,17 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     };
 });
 
-// Agregar servicios de autorización
-builder.Services.AddAuthorization();
+// Agregar servicios de autorización: una policy por cada Accion del catálogo
+// (docs/security-refactor-plan.md §3, Etapa 5). AccionAuthorizationHandler resuelve cada policy
+// exclusivamente contra IPermissionService; el claim legacy "role" no interviene acá.
+builder.Services.AddScoped<IAuthorizationHandler, AccionAuthorizationHandler>();
+builder.Services.AddAuthorization(options =>
+{
+    foreach (var accion in Acciones.Todas)
+    {
+        options.AddPolicy(accion, policy => policy.Requirements.Add(new AccionRequirement(accion)));
+    }
+});
 
 // Agregar controladores
 builder.Services.AddControllers();
@@ -120,6 +131,10 @@ builder.Services.AddScoped<BootstrapAdminCommand>();
 // PersonaId reutilizada por EventService/TicketService/UserService, y asignación Control<->Evento.
 builder.Services.AddScoped<IAuthenticatedPersonaResolver, AuthenticatedPersonaResolver>();
 builder.Services.AddScoped<IControlAsignacionRepository, FirestoreControlAsignacionRepository>();
+
+// Etapa 5 del refactor de seguridad (docs/security-refactor-plan.md §6): administración
+// configurable de roles/acciones/usuarios, con el guard transaccional del último Administrador.
+builder.Services.AddScoped<ISecurityAdminService, SecurityAdminService>();
 
 
 var app = builder.Build();

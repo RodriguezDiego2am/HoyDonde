@@ -1,4 +1,5 @@
 using Google.Cloud.Firestore;
+using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
 using System.Collections.Generic;
 using System.Linq;
@@ -142,6 +143,134 @@ namespace HoyDonde.API.Repositories
                 .Select(usuarioRef => usuarioRef!.Id)
                 .Distinct()
                 .ToList();
+        }
+
+        public Task AsignarRolAsync(string usuarioId, string rolCodigo, string assignedBy, SecurityAudit auditEntry)
+        {
+            var usuarioRef = _firestore.Collection(UsuariosCollection).Document(usuarioId);
+            var usuarioRolRef = usuarioRef.Collection(RolesSubcollectionName).Document(rolCodigo);
+
+            return _firestore.RunTransactionAsync(async transaction =>
+            {
+                var usuarioSnapshot = await transaction.GetSnapshotAsync(usuarioRef);
+                if (!usuarioSnapshot.Exists) throw new UsuarioNoEncontradoException(usuarioId);
+
+                var usuarioRolSnapshot = await transaction.GetSnapshotAsync(usuarioRolRef);
+
+                if (!usuarioRolSnapshot.Exists)
+                {
+                    transaction.Create(usuarioRolRef, new UsuarioRol { RolCodigo = rolCodigo, AssignedBy = assignedBy });
+                }
+                else if (!usuarioRolSnapshot.ConvertTo<UsuarioRol>().Activo)
+                {
+                    transaction.Update(usuarioRolRef, new Dictionary<string, object>
+                    {
+                        { nameof(UsuarioRol.Activo), true },
+                        { nameof(UsuarioRol.AssignedBy), assignedBy },
+                        { nameof(UsuarioRol.AssignedAt), System.DateTime.UtcNow },
+                    });
+                }
+                else
+                {
+                    // No-op idempotente: ya estaba activa. No se toca AssignedAt/AssignedBy ni
+                    // se audita una mutación que no ocurrió.
+                    return;
+                }
+
+                SecurityAuditWriter.Write(_firestore, transaction, auditEntry);
+            });
+        }
+
+        public Task QuitarRolAsync(string usuarioId, string rolCodigo, SecurityAudit auditEntry)
+        {
+            var usuarioRef = _firestore.Collection(UsuariosCollection).Document(usuarioId);
+            var usuarioRolRef = usuarioRef.Collection(RolesSubcollectionName).Document(rolCodigo);
+
+            return _firestore.RunTransactionAsync(async transaction =>
+            {
+                var usuarioSnapshot = await transaction.GetSnapshotAsync(usuarioRef);
+                if (!usuarioSnapshot.Exists) throw new UsuarioNoEncontradoException(usuarioId);
+
+                var usuarioRolSnapshot = await transaction.GetSnapshotAsync(usuarioRolRef);
+                var asignacionActiva = usuarioRolSnapshot.Exists && usuarioRolSnapshot.ConvertTo<UsuarioRol>().Activo;
+
+                // El guard solo tiene sentido si ESTA asignación está activa hoy: si ya estaba
+                // inactiva (o nunca existió), quitarla no reduce ningún conteo de Administradores
+                // efectivos, así que no corresponde evaluar la invariante (evita bloquear
+                // operaciones no relacionadas si, por cualquier motivo ajeno, el conteo global ya
+                // fuera cero).
+                if (!asignacionActiva)
+                {
+                    // No-op idempotente: no existe o ya estaba inactiva. Nada que quitar, nada
+                    // que auditar.
+                    return;
+                }
+
+                if (rolCodigo == UltimoAdministradorGuard.RolAdministrador)
+                {
+                    var efectivos = await UltimoAdministradorGuard.ContarEfectivosAsync(
+                        transaction, _firestore,
+                        usuarioIdConAsignacionForzada: usuarioId, asignacionForzadaActiva: false);
+                    if (efectivos == 0) throw new UltimoAdministradorException();
+                }
+
+                transaction.Update(usuarioRolRef, new Dictionary<string, object> { { nameof(UsuarioRol.Activo), false } });
+                SecurityAuditWriter.Write(_firestore, transaction, auditEntry);
+            });
+        }
+
+        public Task SetActivoAsync(string usuarioId, bool activo, SecurityAudit auditEntry)
+        {
+            var usuarioRef = _firestore.Collection(UsuariosCollection).Document(usuarioId);
+            var administradorRolRef = usuarioRef.Collection(RolesSubcollectionName).Document(UltimoAdministradorGuard.RolAdministrador);
+
+            return _firestore.RunTransactionAsync(async transaction =>
+            {
+                var usuarioSnapshot = await transaction.GetSnapshotAsync(usuarioRef);
+                if (!usuarioSnapshot.Exists) throw new UsuarioNoEncontradoException(usuarioId);
+
+                if (usuarioSnapshot.ConvertTo<Usuario>().IsActive == activo)
+                {
+                    // No-op idempotente: ya está en el estado pedido. No corresponde tocar
+                    // metadata, evaluar el guard del último Administrador, ni auditar.
+                    return;
+                }
+
+                if (!activo)
+                {
+                    var administradorRolSnapshot = await transaction.GetSnapshotAsync(administradorRolRef);
+                    var esAdministradorActivo = administradorRolSnapshot.Exists && administradorRolSnapshot.ConvertTo<UsuarioRol>().Activo;
+
+                    // Igual que en QuitarRolAsync: si este Usuario no tiene hoy una asignación
+                    // ADMINISTRADOR activa, desactivarlo no reduce ningún conteo de
+                    // Administradores efectivos, así que no corresponde evaluar la invariante.
+                    if (esAdministradorActivo)
+                    {
+                        var efectivos = await UltimoAdministradorGuard.ContarEfectivosAsync(
+                            transaction, _firestore,
+                            usuarioIdConEstadoForzado: usuarioId, usuarioForzadoActivo: false);
+                        if (efectivos == 0) throw new UltimoAdministradorException();
+                    }
+                }
+
+                transaction.Update(usuarioRef, new Dictionary<string, object> { { nameof(Usuario.IsActive), activo } });
+                SecurityAuditWriter.Write(_firestore, transaction, auditEntry);
+            });
+        }
+
+        public async Task<IReadOnlyList<UsuarioResumen>> GetAllAsync()
+        {
+            var snapshot = await _firestore.Collection(UsuariosCollection).GetSnapshotAsync();
+            var resultado = new List<UsuarioResumen>();
+
+            foreach (var doc in snapshot.Documents)
+            {
+                var usuario = doc.ConvertTo<Usuario>();
+                var rolesActivos = await GetRolCodigosActivosAsync(usuario.Id);
+                resultado.Add(new UsuarioResumen(usuario.Id, usuario.PersonaId, usuario.Email, usuario.IsActive, rolesActivos));
+            }
+
+            return resultado;
         }
     }
 }

@@ -11,6 +11,11 @@ namespace HoyDonde.API.Services
         Task<bool> TieneAccionAsync(string identityProvider, string externalSubjectId, string accionCodigo);
 
         Task<PermisosEfectivosResult> GetPermisosEfectivosAsync(string identityProvider, string externalSubjectId);
+
+        // Usado por la administración de seguridad (docs/security-refactor-plan.md §6, Etapa 5)
+        // para consultar los permisos efectivos de un Usuario ya conocido por UsuarioId, sin
+        // pasar por una identidad externa. Misma resolución directa sin caché.
+        Task<PermisosEfectivosResult> GetPermisosEfectivosPorUsuarioIdAsync(string usuarioId);
     }
 
     public record PermisosEfectivosResult(

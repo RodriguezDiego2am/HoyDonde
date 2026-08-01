@@ -1,4 +1,5 @@
 using HoyDonde.API.Models;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace HoyDonde.API.Repositories
@@ -11,5 +12,10 @@ namespace HoyDonde.API.Repositories
         Task CreateAsync(Accion accion);
 
         Task<Accion?> GetByCodigoAsync(string codigo);
+
+        // Catálogo completo de Acciones (docs/security-refactor-plan.md §6, Etapa 5), usado por
+        // GET /api/security/acciones para que la administración pueda descubrir los objetivos
+        // disponibles para asignar/quitar de un Rol.
+        Task<IReadOnlyList<Accion>> GetAllAsync();
     }
 }

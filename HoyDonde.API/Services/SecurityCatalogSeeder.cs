@@ -1,3 +1,4 @@
+using HoyDonde.API.Authorization;
 using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
@@ -29,44 +30,44 @@ namespace HoyDonde.API.Services
         private static readonly (string Codigo, string Descripcion)[] AccionesIniciales =
         {
             // Paridad con endpoints existentes
-            ("USUARIO_CREAR_ADMIN", "Crear una cuenta de Administrador."),
-            ("USUARIO_CREAR_ORGANIZADOR", "Crear una cuenta de Organizador."),
-            ("CONTROL_CREAR", "Crear personal de Control para un evento propio."),
-            ("EVENTO_CREAR", "Crear un evento."),
-            ("EVENTO_EDITAR_PROPIO", "Editar un evento propio."),
-            ("EVENTO_PUBLICAR_PROPIO", "Publicar un evento propio."),
-            ("EVENTO_CANCELAR_PROPIO", "Cancelar un evento propio."),
-            ("EVENTO_VER_PROPIOS", "Consultar los eventos propios."),
-            ("TICKET_COMPRAR", "Comprar entradas."),
-            ("TICKET_VER_PROPIO", "Consultar las entradas propias."),
-            ("TICKET_VALIDAR", "Validar una entrada en el acceso a un evento."),
+            (Acciones.UsuarioCrearAdmin, "Crear una cuenta de Administrador."),
+            (Acciones.UsuarioCrearOrganizador, "Crear una cuenta de Organizador."),
+            (Acciones.ControlCrear, "Crear personal de Control para un evento propio."),
+            (Acciones.EventoCrear, "Crear un evento."),
+            (Acciones.EventoEditarPropio, "Editar un evento propio."),
+            (Acciones.EventoPublicarPropio, "Publicar un evento propio."),
+            (Acciones.EventoCancelarPropio, "Cancelar un evento propio."),
+            (Acciones.EventoVerPropios, "Consultar los eventos propios."),
+            (Acciones.TicketComprar, "Comprar entradas."),
+            (Acciones.TicketVerPropio, "Consultar las entradas propias."),
+            (Acciones.TicketValidar, "Validar una entrada en el acceso a un evento."),
             // Administración de roles y acciones
-            ("ROL_CREAR", "Crear un rol."),
-            ("ROL_EDITAR", "Editar nombre/descripción de un rol."),
-            ("ROL_ACTIVAR", "Activar o desactivar un rol."),
-            ("ROL_ASIGNAR_ACCION", "Asignar una acción a un rol."),
-            ("ROL_QUITAR_ACCION", "Quitar una acción de un rol."),
-            ("USUARIO_ASIGNAR_ROL", "Asignar un rol a un usuario."),
-            ("USUARIO_QUITAR_ROL", "Quitar un rol de un usuario."),
-            ("USUARIO_VER_PERMISOS_EFECTIVOS", "Consultar los permisos efectivos de un usuario."),
-            ("USUARIO_DESACTIVAR", "Activar o desactivar un usuario."),
+            (Acciones.RolCrear, "Crear un rol."),
+            (Acciones.RolEditar, "Editar nombre/descripción de un rol."),
+            (Acciones.RolActivar, "Activar o desactivar un rol."),
+            (Acciones.RolAsignarAccion, "Asignar una acción a un rol."),
+            (Acciones.RolQuitarAccion, "Quitar una acción de un rol."),
+            (Acciones.UsuarioAsignarRol, "Asignar un rol a un usuario."),
+            (Acciones.UsuarioQuitarRol, "Quitar un rol de un usuario."),
+            (Acciones.UsuarioVerPermisosEfectivos, "Consultar los permisos efectivos de un usuario."),
+            (Acciones.UsuarioDesactivar, "Activar o desactivar un usuario."),
         };
 
         private static readonly IReadOnlyDictionary<string, string[]> AccionesPorRol = new Dictionary<string, string[]>
         {
             ["ADMINISTRADOR"] = new[]
             {
-                "USUARIO_CREAR_ADMIN", "USUARIO_CREAR_ORGANIZADOR",
-                "ROL_CREAR", "ROL_EDITAR", "ROL_ACTIVAR", "ROL_ASIGNAR_ACCION", "ROL_QUITAR_ACCION",
-                "USUARIO_ASIGNAR_ROL", "USUARIO_QUITAR_ROL", "USUARIO_VER_PERMISOS_EFECTIVOS", "USUARIO_DESACTIVAR",
+                Acciones.UsuarioCrearAdmin, Acciones.UsuarioCrearOrganizador,
+                Acciones.RolCrear, Acciones.RolEditar, Acciones.RolActivar, Acciones.RolAsignarAccion, Acciones.RolQuitarAccion,
+                Acciones.UsuarioAsignarRol, Acciones.UsuarioQuitarRol, Acciones.UsuarioVerPermisosEfectivos, Acciones.UsuarioDesactivar,
             },
             ["ORGANIZADOR"] = new[]
             {
-                "CONTROL_CREAR", "EVENTO_CREAR", "EVENTO_EDITAR_PROPIO",
-                "EVENTO_PUBLICAR_PROPIO", "EVENTO_CANCELAR_PROPIO", "EVENTO_VER_PROPIOS",
+                Acciones.ControlCrear, Acciones.EventoCrear, Acciones.EventoEditarPropio,
+                Acciones.EventoPublicarPropio, Acciones.EventoCancelarPropio, Acciones.EventoVerPropios,
             },
-            ["CLIENTE"] = new[] { "TICKET_COMPRAR", "TICKET_VER_PROPIO" },
-            ["CONTROL"] = new[] { "TICKET_VALIDAR" },
+            ["CLIENTE"] = new[] { Acciones.TicketComprar, Acciones.TicketVerPropio },
+            ["CONTROL"] = new[] { Acciones.TicketValidar },
         };
 
         private readonly IRolRepository _rolRepository;

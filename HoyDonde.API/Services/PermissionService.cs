@@ -37,6 +37,11 @@ namespace HoyDonde.API.Services
                 return new PermisosEfectivosResult(null, null, false, Array.Empty<string>(), Array.Empty<string>());
             }
 
+            return await GetPermisosEfectivosPorUsuarioIdAsync(usuarioId);
+        }
+
+        public async Task<PermisosEfectivosResult> GetPermisosEfectivosPorUsuarioIdAsync(string usuarioId)
+        {
             var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
             if (usuario == null || !usuario.IsActive)
             {

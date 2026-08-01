@@ -2,6 +2,8 @@ using Google.Cloud.Firestore;
 using Grpc.Core;
 using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace HoyDonde.API.Repositories
@@ -39,6 +41,12 @@ namespace HoyDonde.API.Repositories
         {
             var snapshot = await _firestore.Collection(CollectionName).Document(codigo).GetSnapshotAsync();
             return snapshot.Exists ? snapshot.ConvertTo<Accion>() : null;
+        }
+
+        public async Task<IReadOnlyList<Accion>> GetAllAsync()
+        {
+            var snapshot = await _firestore.Collection(CollectionName).GetSnapshotAsync();
+            return snapshot.Documents.Select(d => d.ConvertTo<Accion>()).ToList();
         }
     }
 }

@@ -1,3 +1,4 @@
+using HoyDonde.API.Authorization;
 using HoyDonde.API.DTOs;
 using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
@@ -34,7 +35,7 @@ namespace HoyDonde.API.Controllers
         }
 
         [HttpPost("admin")]
-        [Authorize(Roles = Roles.Admin)]
+        [Authorize(Policy = Acciones.UsuarioCrearAdmin)]
         public async Task<IActionResult> RegisterAdmin([FromBody] RegisterAdminDto request)
         {
             var actor = GetActorExternalSubjectId();
@@ -62,7 +63,7 @@ namespace HoyDonde.API.Controllers
 
         // Los organizadores no pueden autorregistrarse: solo un Admin autenticado puede darlos de alta.
         [HttpPost("organizador")]
-        [Authorize(Roles = Roles.Admin)]
+        [Authorize(Policy = Acciones.UsuarioCrearOrganizador)]
         public async Task<IActionResult> RegisterOrganizador([FromBody] RegisterOrganizadorDto request)
         {
             var actor = GetActorExternalSubjectId();
@@ -89,7 +90,7 @@ namespace HoyDonde.API.Controllers
         }
 
         [HttpPost("control")]
-        [Authorize(Roles = Roles.Organizador)]
+        [Authorize(Policy = Acciones.ControlCrear)]
         public async Task<IActionResult> RegisterControl([FromBody] RegisterControlDto request)
         {
             var actor = GetActorExternalSubjectId();

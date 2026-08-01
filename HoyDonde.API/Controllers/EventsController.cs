@@ -1,3 +1,4 @@
+using HoyDonde.API.Authorization;
 using HoyDonde.API.DTOs;
 using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
@@ -23,7 +24,7 @@ namespace HoyDonde.API.Controllers
         }
 
         [HttpPost]
-        [Authorize(Roles = Roles.Organizador)]
+        [Authorize(Policy = Acciones.EventoCrear)]
         public async Task<IActionResult> CreateEvent([FromBody] EventCreateRequest request)
         {
             var organizerId = GetAuthenticatedUserId();
@@ -48,7 +49,7 @@ namespace HoyDonde.API.Controllers
         }
 
         [HttpPost("{eventId}/publish")]
-        [Authorize(Roles = Roles.Organizador)]
+        [Authorize(Policy = Acciones.EventoPublicarPropio)]
         public async Task<IActionResult> PublishEvent(string eventId)
         {
             var organizerId = GetAuthenticatedUserId();
@@ -81,7 +82,7 @@ namespace HoyDonde.API.Controllers
         }
 
         [HttpPost("{eventId}/cancel")]
-        [Authorize(Roles = Roles.Organizador)]
+        [Authorize(Policy = Acciones.EventoCancelarPropio)]
         public async Task<IActionResult> CancelEvent(string eventId)
         {
             var organizerId = GetAuthenticatedUserId();
@@ -114,7 +115,7 @@ namespace HoyDonde.API.Controllers
         }
 
         [HttpPut("{eventId}")]
-        [Authorize(Roles = Roles.Organizador)]
+        [Authorize(Policy = Acciones.EventoEditarPropio)]
         public async Task<IActionResult> UpdateEvent(string eventId, [FromBody] EventUpdateRequest request)
         {
             var organizerId = GetAuthenticatedUserId();
@@ -164,7 +165,7 @@ namespace HoyDonde.API.Controllers
         }
 
         [HttpGet("organizer/me")]
-        [Authorize(Roles = Roles.Organizador)] // Solo el organizador puede ver su "Panel"
+        [Authorize(Policy = Acciones.EventoVerPropios)] // Solo el organizador puede ver su "Panel"
         public async Task<IActionResult> GetMyEvents()
         {
             var organizerId = GetAuthenticatedUserId();
