@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using FirebaseAdmin.Auth;
+using HoyDonde.API.Exceptions;
 
 namespace HoyDonde.API.Services
 {
@@ -18,8 +19,15 @@ namespace HoyDonde.API.Services
                 DisplayName = displayName
             };
 
-            var userRecord = await FirebaseAuth.DefaultInstance.CreateUserAsync(args);
-            return new IdentityCreationResult(userRecord.Uid, ProviderName);
+            try
+            {
+                var userRecord = await FirebaseAuth.DefaultInstance.CreateUserAsync(args);
+                return new IdentityCreationResult(userRecord.Uid, ProviderName);
+            }
+            catch (FirebaseAuthException ex) when (ex.AuthErrorCode == AuthErrorCode.EmailAlreadyExists)
+            {
+                throw new IdentityEmailAlreadyExistsException(email);
+            }
         }
 
         public Task DeleteIdentityAsync(string externalSubjectId)

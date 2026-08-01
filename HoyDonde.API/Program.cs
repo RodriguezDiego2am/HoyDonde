@@ -1,6 +1,7 @@
 ﻿using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Firestore;
+using HoyDonde.API.Commands;
 using HoyDonde.API.Middleware;
 using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
@@ -109,9 +110,30 @@ builder.Services.AddScoped<IRolRepository, FirestoreRolRepository>();
 builder.Services.AddScoped<IAccionRepository, FirestoreAccionRepository>();
 builder.Services.AddScoped<IUsuarioRepository, FirestoreUsuarioRepository>();
 builder.Services.AddScoped<IPermissionService, PermissionService>();
+builder.Services.AddScoped<SecurityCatalogSeeder>();
+
+// Etapa 3 del refactor de seguridad (docs/security-refactor-plan.md §7)
+builder.Services.AddScoped<IIdentidadHuerfanaRepository, FirestoreIdentidadHuerfanaRepository>();
+builder.Services.AddScoped<BootstrapAdminCommand>();
 
 
 var app = builder.Build();
+
+// Comando explícito de bootstrap del primer Administrador (docs/security-refactor-plan.md §5,
+// Etapa 3): "dotnet run --project HoyDonde.API -- bootstrap-admin <email>". No es un endpoint
+// HTTP y el proceso termina acá mismo, sin levantar el servidor. WebApplicationFactory (tests)
+// invoca este entry point sin argumentos, así que esta rama nunca se activa en la suite de
+// pruebas de integración.
+if (args.Length > 0 && string.Equals(args[0], "bootstrap-admin", StringComparison.OrdinalIgnoreCase))
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var command = scope.ServiceProvider.GetRequiredService<BootstrapAdminCommand>();
+        Environment.ExitCode = await command.RunAsync(args);
+    }
+    Log.CloseAndFlush();
+    return;
+}
 
 // Uso de middlewares personalizados
 app.UseMiddleware<ExceptionMiddleware>();

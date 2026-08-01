@@ -6,10 +6,14 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System;
+using System.Security.Claims;
 using System.Threading.Tasks;
 
 namespace HoyDonde.API.Controllers
 {
+    // Altas privilegiadas (Admin/Organizador/Control) sobre el modelo nuevo (Etapa 3 del
+    // refactor de seguridad, docs/security-refactor-plan.md §2.2). El alta de Cliente vive en
+    // AuthController (POST /api/auth/sync, §2.1), no acá.
     [Route("api/users")]
     [ApiController]
     public class UserController : ControllerBase
@@ -21,14 +25,34 @@ namespace HoyDonde.API.Controllers
             _userService = userService;
         }
 
+        // El actor sale exclusivamente del token, nunca del body.
+        private string? GetActorExternalSubjectId()
+        {
+            return User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? User.FindFirst("user_id")?.Value
+                ?? User.FindFirst("sub")?.Value;
+        }
+
         [HttpPost("admin")]
         [Authorize(Roles = Roles.Admin)]
         public async Task<IActionResult> RegisterAdmin([FromBody] RegisterAdminDto request)
         {
+            var actor = GetActorExternalSubjectId();
+            if (string.IsNullOrEmpty(actor)) return Unauthorized();
+
             try
             {
-                await _userService.RegisterAdminAsync(request.Email, request.Password);
-                return Ok(new { message = "Administrador creado exitosamente." });
+                var result = await _userService.RegisterAdminAsync(actor, request.Email, request.Password);
+                return Ok(new UsuarioProvisioningResponseDto
+                {
+                    Message = "Administrador creado exitosamente.",
+                    UsuarioId = result.UsuarioId,
+                    PersonaId = result.PersonaId,
+                });
+            }
+            catch (IdentityEmailAlreadyExistsException)
+            {
+                return Conflict(new { message = "Ya existe una cuenta con ese email." });
             }
             catch (Exception ex)
             {
@@ -41,25 +65,22 @@ namespace HoyDonde.API.Controllers
         [Authorize(Roles = Roles.Admin)]
         public async Task<IActionResult> RegisterOrganizador([FromBody] RegisterOrganizadorDto request)
         {
-            try
-            {
-                await _userService.RegisterOrganizadorAsync(request.Email, request.Password);
-                return Ok(new { message = "Organizador creado exitosamente." });
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
-        }
+            var actor = GetActorExternalSubjectId();
+            if (string.IsNullOrEmpty(actor)) return Unauthorized();
 
-        [HttpPost("cliente")]
-        [AllowAnonymous]
-        public async Task<IActionResult> RegisterCliente([FromBody] RegisterClienteDto request)
-        {
             try
             {
-                await _userService.RegisterClienteAsync(request.Email, request.Password, request.FullName, request.DNI, request.PhoneNumber);
-                return Ok(new { message = "Cliente creado exitosamente." });
+                var result = await _userService.RegisterOrganizadorAsync(actor, request.Email, request.Password);
+                return Ok(new UsuarioProvisioningResponseDto
+                {
+                    Message = "Organizador creado exitosamente.",
+                    UsuarioId = result.UsuarioId,
+                    PersonaId = result.PersonaId,
+                });
+            }
+            catch (IdentityEmailAlreadyExistsException)
+            {
+                return Conflict(new { message = "Ya existe una cuenta con ese email." });
             }
             catch (Exception ex)
             {
@@ -71,16 +92,18 @@ namespace HoyDonde.API.Controllers
         [Authorize(Roles = Roles.Organizador)]
         public async Task<IActionResult> RegisterControl([FromBody] RegisterControlDto request)
         {
+            var actor = GetActorExternalSubjectId();
+            if (string.IsNullOrEmpty(actor)) return Unauthorized();
+
             try
             {
-                var organizadorId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value 
-                        ?? User.FindFirst("user_id")?.Value
-                        ?? User.FindFirst("sub")?.Value;
-
-                if (string.IsNullOrEmpty(organizadorId)) return Unauthorized();
-
-                await _userService.RegisterControlAsync(request.UserName, request.Password, request.EventId, organizadorId);
-                return Ok(new { message = "Control creado exitosamente." });
+                var result = await _userService.RegisterControlAsync(actor, request.UserName, request.Password, request.EventId);
+                return Ok(new UsuarioProvisioningResponseDto
+                {
+                    Message = "Control creado exitosamente.",
+                    UsuarioId = result.UsuarioId,
+                    PersonaId = result.PersonaId,
+                });
             }
             catch (EventNotFoundException)
             {
@@ -89,6 +112,10 @@ namespace HoyDonde.API.Controllers
             catch (EventOwnershipException)
             {
                 return StatusCode(StatusCodes.Status403Forbidden, new { message = "No tenés permiso sobre este evento." });
+            }
+            catch (IdentityEmailAlreadyExistsException)
+            {
+                return Conflict(new { message = "Ya existe una cuenta con ese email." });
             }
             catch (Exception ex)
             {

@@ -19,6 +19,11 @@ namespace HoyDonde.API.Repositories
         Task<Usuario?> GetByIdAsync(string usuarioId);
 
         Task<IReadOnlyList<string>> GetRolCodigosActivosAsync(string usuarioId);
+
+        // Usados por el bootstrap del primer Administrador (docs/security-refactor-plan.md §5)
+        // para verificar "ya existe un Administrador efectivo" sin conocer de antemano ningún
+        // UsuarioId: recorre la collection group "roles" en vez de partir de una identidad.
+        Task<IReadOnlyList<string>> GetUsuarioIdsConRolActivoAsync(string rolCodigo);
     }
 
     public record UsuarioProvisioningRequest(

@@ -123,5 +123,31 @@ namespace HoyDonde.API.Tests.Integration
 
             Assert.Null(usuario);
         }
+
+        // La colección raíz "roles" (catálogo de Rol, Etapa 1) comparte Id de colección
+        // ("roles") con la subcolección usuarios/{UsuarioId}/roles que usa este método: una
+        // collection group query ingenua sobre "roles" devuelve también los documentos Rol del
+        // catálogo (Codigo == rolCodigo, Activo == true calzan igual). Este test fija ese caso:
+        // un catálogo con el Rol pedido activo, pero ningún Usuario con esa asignación, debe
+        // devolver una lista vacía, nunca lanzar ni confundir el Rol del catálogo con un Usuario.
+        [FirestoreEmulatorFact]
+        public async Task GetUsuarioIdsConRolActivoAsync_IgnoresRootRolesCatalog_AndOnlyMatchesUsuarioAssignments()
+        {
+            var sut = new FirestoreUsuarioRepository(_fixture.Db!);
+            var rolCodigo = $"ROL_TEST_{Guid.NewGuid():N}".ToUpperInvariant();
+
+            await _fixture.Db!.Collection("roles").Document(rolCodigo)
+                .SetAsync(new Rol { Codigo = rolCodigo, Nombre = "Rol de prueba", Activo = true });
+
+            var sinAsignaciones = await sut.GetUsuarioIdsConRolActivoAsync(rolCodigo);
+            Assert.Empty(sinAsignaciones);
+
+            var usuarioId = $"usuario-{Guid.NewGuid():N}";
+            await sut.ProvisionarAsync(NewRequest(
+                $"persona-{Guid.NewGuid():N}", usuarioId, $"uid-{Guid.NewGuid():N}", "rol-test@test.com", rolCodigo));
+
+            var conAsignacion = await sut.GetUsuarioIdsConRolActivoAsync(rolCodigo);
+            Assert.Equal(new[] { usuarioId }, conAsignacion);
+        }
     }
 }

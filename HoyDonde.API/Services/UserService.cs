@@ -1,111 +1,143 @@
 using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace HoyDonde.API.Services
 {
+    // Altas privilegiadas (Admin/Organizador/Control) sobre el modelo nuevo Persona+Usuario+
+    // UsuarioRol+IdentidadExterna (docs/security-refactor-plan.md §2.2, Etapa 3). No escribe
+    // nada en users/user_audits legacy. El alta de Cliente vive en AuthService (POST
+    // /api/auth/sync, §2.1), no acá.
     public class UserService : IUserService
     {
-        private readonly IUserRepository _userRepository;
+        // Ver docs/security-refactor-plan.md §2.1 punto 4 y §2.3: usado por AuthService para el
+        // AssignedBy de las altas de Cliente autoprovisionadas vía /api/auth/sync.
+        public const string SelfRegistrationActor = "SELF_REGISTRATION";
+
+        private const string RolAdministrador = "ADMINISTRADOR";
+        private const string RolOrganizador = "ORGANIZADOR";
+        private const string RolControl = "CONTROL";
+
+        private readonly IUsuarioRepository _usuarioRepository;
+        private readonly IIdentidadHuerfanaRepository _identidadHuerfanaRepository;
         private readonly IEventService _eventService;
         private readonly IIdentityProvider _identityProvider;
+        private readonly ILogger<UserService> _logger;
 
-        public UserService(IUserRepository userRepository, IEventService eventService, IIdentityProvider identityProvider)
+        public UserService(
+            IUsuarioRepository usuarioRepository,
+            IIdentidadHuerfanaRepository identidadHuerfanaRepository,
+            IEventService eventService,
+            IIdentityProvider identityProvider,
+            ILogger<UserService> logger)
         {
-            _userRepository = userRepository;
+            _usuarioRepository = usuarioRepository;
+            _identidadHuerfanaRepository = identidadHuerfanaRepository;
             _eventService = eventService;
             _identityProvider = identityProvider;
+            _logger = logger;
         }
 
-        // Este endpoint (POST /api/users/admin) requiere rol Admin autenticado (ver UserController).
-        // La creación del primer administrador queda fuera de esta API: es una operación de
-        // bootstrap administrada por separado (p. ej. asignar el custom claim "role"="Admin" y
-        // el documento en Firestore de forma manual/con un script one-off fuera del repo), no un
-        // flujo expuesto por HTTP. Por eso ya no depende de IsAdminCreatedAsync, que era un
-        // placeholder que siempre devolvía false y no protegía nada.
-        public async Task<bool> RegisterAdminAsync(string email, string password)
+        public Task<UsuarioProvisioningResult> RegisterAdminAsync(string assignedBy, string email, string password)
         {
-            var identity = await _identityProvider.CreateIdentityAsync(email, password);
-            var claims = new Dictionary<string, object>() { { "role", Roles.Admin } };
-            await _identityProvider.SetTemporaryClaimAsync(identity.ExternalSubjectId, claims);
-
-            var admin = new Admin
-            {
-                Id = identity.ExternalSubjectId,
-                UserName = email,
-                Email = email,
-                Role = Roles.Admin,
-            };
-            await _userRepository.CreateUserAsync(admin);
-            return true;
+            return ProvisionarConCompensacionAsync(email, password, null, RolAdministrador, Roles.Admin, assignedBy);
         }
 
-        public async Task<bool> RegisterOrganizadorAsync(string email, string password)
+        public Task<UsuarioProvisioningResult> RegisterOrganizadorAsync(string assignedBy, string email, string password)
         {
-            var identity = await _identityProvider.CreateIdentityAsync(email, password);
-            var claims = new Dictionary<string, object>() { { "role", Roles.Organizador } };
-            await _identityProvider.SetTemporaryClaimAsync(identity.ExternalSubjectId, claims);
-
-            var organizador = new Organizador
-            {
-                Id = identity.ExternalSubjectId,
-                UserName = email,
-                Email = email,
-                Role = Roles.Organizador,
-            };
-            await _userRepository.CreateUserAsync(organizador);
-            return true;
+            return ProvisionarConCompensacionAsync(email, password, null, RolOrganizador, Roles.Organizador, assignedBy);
         }
 
-        public async Task<bool> RegisterClienteAsync(string email, string password, string fullName, string dni, string phoneNumber)
+        public async Task<UsuarioProvisioningResult> RegisterControlAsync(string assignedBy, string userName, string password, string eventId)
         {
-            // Phone numbers in Firebase Auth must be cleanly formatted E.164,
-            // so we set it in Firestore but omit from Auth if not strict.
-            var identity = await _identityProvider.CreateIdentityAsync(email, password, fullName);
-            var claims = new Dictionary<string, object>() { { "role", Roles.Cliente } };
-            await _identityProvider.SetTemporaryClaimAsync(identity.ExternalSubjectId, claims);
-
-            var cliente = new Cliente
-            {
-                Id = identity.ExternalSubjectId,
-                UserName = email,
-                Email = email,
-                FullName = fullName,
-                DNI = dni,
-                PhoneNumber = phoneNumber,
-                Role = Roles.Cliente,
-            };
-            await _userRepository.CreateUserAsync(cliente);
-            return true;
-        }
-
-        public async Task<bool> RegisterControlAsync(string userName, string password, string eventId, string organizadorId)
-        {
-            // El evento se lee de Firestore y se compara contra el organizadorId del token
-            // (nunca contra un valor enviado por el cliente). Si el evento no existe o
-            // pertenece a otro organizador, no se crea nada en Firebase Auth ni en Firestore.
+            // El evento se lee de Firestore y se compara contra el actor autenticado (nunca
+            // contra un valor enviado por el cliente). Si el evento no existe o pertenece a
+            // otro organizador, no se crea nada en el proveedor de identidad ni en Firestore.
             var evento = await _eventService.GetByIdAsync(eventId);
             if (evento == null) throw new EventNotFoundException(eventId);
-            if (evento.OrganizadorId != organizadorId) throw new EventOwnershipException(eventId, organizadorId);
+            if (evento.OrganizadorId != assignedBy) throw new EventOwnershipException(eventId, assignedBy);
 
-            var userEmail = $"{userName}@control.hoydonde.com";
-            var identity = await _identityProvider.CreateIdentityAsync(userEmail, password, userName);
-            var claims = new Dictionary<string, object>() { { "role", Roles.Control } };
-            await _identityProvider.SetTemporaryClaimAsync(identity.ExternalSubjectId, claims);
+            var email = $"{userName}@control.hoydonde.com";
+            return await ProvisionarConCompensacionAsync(email, password, userName, RolControl, Roles.Control, assignedBy);
+        }
 
-            var control = new Control
+        // Crea la identidad externa y, si eso tiene éxito, provisiona Persona+Usuario+
+        // UsuarioRol+IdentidadExterna en una sola transacción (IUsuarioRepository.ProvisionarAsync,
+        // Etapa 2) más el claim legacy temporal (compatibilidad de código con
+        // [Authorize(Roles=...)], §2.1 punto 7 / §3). Si CreateIdentityAsync lanza
+        // IdentityEmailAlreadyExistsException, se propaga tal cual: no se creó nada en esta
+        // llamada, así que no hay nada que compensar ni ninguna cuenta existente que tocar.
+        private async Task<UsuarioProvisioningResult> ProvisionarConCompensacionAsync(
+            string email, string password, string? displayName,
+            string rolCodigo, string legacyRoleClaim, string assignedBy)
+        {
+            var identity = await _identityProvider.CreateIdentityAsync(email, password, displayName);
+
+            var personaId = Guid.NewGuid().ToString();
+            var usuarioId = Guid.NewGuid().ToString();
+
+            try
             {
-                Id = identity.ExternalSubjectId,
-                UserName = userName,
-                Email = userEmail,
-                EventId = eventId,
-                OrganizadorId = organizadorId,
-                Role = Roles.Control,
-            };
-            await _userRepository.CreateUserAsync(control);
-            return true;
+                var claims = new Dictionary<string, object> { { "role", legacyRoleClaim } };
+                await _identityProvider.SetTemporaryClaimAsync(identity.ExternalSubjectId, claims);
+
+                var request = new UsuarioProvisioningRequest(
+                    personaId, usuarioId, identity.IdentityProvider, identity.ExternalSubjectId,
+                    email, rolCodigo, assignedBy, FullName: displayName);
+
+                return await _usuarioRepository.ProvisionarAsync(request);
+            }
+            catch (Exception original)
+            {
+                await CompensarAsync(identity.ExternalSubjectId, identity.IdentityProvider, email, rolCodigo, original);
+                throw;
+            }
+        }
+
+        // La identidad borrada acá es siempre la que creó esta misma llamada (nunca una
+        // preexistente: ese caso ya terminó en IdentityEmailAlreadyExistsException más arriba,
+        // antes de que exista algo que compensar).
+        private async Task CompensarAsync(string externalSubjectId, string identityProvider, string email, string rolCodigo, Exception original)
+        {
+            try
+            {
+                await _identityProvider.DeleteIdentityAsync(externalSubjectId);
+            }
+            catch (Exception compensationError)
+            {
+                try
+                {
+                    await _identidadHuerfanaRepository.RegistrarAsync(new IdentidadHuerfana
+                    {
+                        IdentityProvider = identityProvider,
+                        ExternalSubjectId = externalSubjectId,
+                        Email = email,
+                        RolCodigoSolicitado = rolCodigo,
+                        ErrorOriginal = original.ToString(),
+                        ErrorCompensacion = compensationError.ToString(),
+                    });
+                }
+                catch (Exception registrationError)
+                {
+                    // Ni siquiera se pudo dejar constancia en identidades_huerfanas: logging
+                    // estructurado con los tres errores para no perder rastro por completo.
+                    _logger.LogError(original,
+                        "Aprovisionamiento fallido sin compensar: identidad {Provider}#{ExternalSubjectId} (rol {RolCodigo}) quedó huérfana y no se pudo borrar ni registrar.",
+                        identityProvider, externalSubjectId, rolCodigo);
+                    _logger.LogError(compensationError,
+                        "Fallo al compensar (DeleteIdentityAsync) la identidad huérfana {Provider}#{ExternalSubjectId}.",
+                        identityProvider, externalSubjectId);
+                    _logger.LogError(registrationError,
+                        "Fallo también al registrar IdentidadHuerfana para {Provider}#{ExternalSubjectId}.",
+                        identityProvider, externalSubjectId);
+                }
+            }
+            // El error original nunca se oculta: siempre se relanza en el catch de
+            // ProvisionarConCompensacionAsync, sin importar el resultado de la compensación.
         }
     }
 }

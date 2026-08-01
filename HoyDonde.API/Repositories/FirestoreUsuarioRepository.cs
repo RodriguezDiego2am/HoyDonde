@@ -117,5 +117,31 @@ namespace HoyDonde.API.Repositories
                 .Select(r => r.RolCodigo)
                 .ToList();
         }
+
+        // Collection group query sobre usuarios/*/roles: el RolCodigo vive únicamente como ID
+        // del documento (no como campo), así que el filtro por rol se aplica del lado del
+        // cliente sobre los resultados ya acotados por Activo == true. El UsuarioId de cada
+        // asignación se obtiene del padre del documento (usuarios/{UsuarioId}/roles/{RolCodigo}).
+        //
+        // OJO: la colección raíz "roles" (catálogo de Rol, Etapa 1) tiene el mismo Id de
+        // colección ("roles") que esta subcolección, así que la collection group query también
+        // devuelve esos documentos (un Rol con Codigo == rolCodigo y Activo == true calza con
+        // ambos filtros). Un documento de esa colección raíz no tiene padre
+        // (Reference.Parent.Parent es null), así que se descarta explícitamente en vez de
+        // asumir que todo resultado viene de usuarios/*/roles.
+        public async Task<IReadOnlyList<string>> GetUsuarioIdsConRolActivoAsync(string rolCodigo)
+        {
+            var snapshot = await _firestore.CollectionGroup(RolesSubcollectionName)
+                .WhereEqualTo(nameof(UsuarioRol.Activo), true)
+                .GetSnapshotAsync();
+
+            return snapshot.Documents
+                .Where(d => d.Id == rolCodigo)
+                .Select(d => d.Reference.Parent.Parent)
+                .Where(usuarioRef => usuarioRef != null && usuarioRef.Parent.Id == UsuariosCollection)
+                .Select(usuarioRef => usuarioRef!.Id)
+                .Distinct()
+                .ToList();
+        }
     }
 }
