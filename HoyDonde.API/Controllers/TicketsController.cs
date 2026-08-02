@@ -1,9 +1,7 @@
-using System;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using HoyDonde.API.Authorization;
 using HoyDonde.API.DTOs;
-using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
 using HoyDonde.API.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -13,6 +11,9 @@ using Microsoft.Extensions.Logging;
 
 namespace HoyDonde.API.Controllers
 {
+    // Controller intencionalmente delgado: las excepciones de dominio se dejan propagar hasta
+    // ExceptionMiddleware (docs/api-mvp-plan.md §5). El único mapeo que vive acá es el switch de
+    // TicketValidationOutcome, que no es una excepción sino el resultado explícito del dominio.
     [ApiController]
     [Route("api/tickets")]
     public class TicketsController : ControllerBase
@@ -30,41 +31,13 @@ namespace HoyDonde.API.Controllers
         [Authorize(Policy = Acciones.TicketComprar)]
         public async Task<IActionResult> BuyTickets([FromBody] TicketBuyRequest request)
         {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
             var clienteId = GetAuthenticatedUserId();
 
             if (string.IsNullOrEmpty(clienteId))
                 return Unauthorized();
 
-            try
-            {
-                var tickets = await _ticketService.BuyTicketsAsync(clienteId, request);
-                return Ok(tickets);
-            }
-            catch (EventNotFoundException)
-            {
-                return NotFound(new { message = "Evento no encontrado." });
-            }
-            catch (EventoNoDisponibleParaCompraException ex)
-            {
-                return Conflict(new { message = ex.Message });
-            }
-            catch (TicketTypeInvalidoException ex)
-            {
-                return NotFound(new { message = ex.Message });
-            }
-            catch (StockInsuficienteException ex)
-            {
-                return Conflict(new { message = ex.Message });
-            }
-            catch (HoyDonde.API.Exceptions.IdentityNotProvisionedException)
-            {
-                // Se deja propagar al middleware: respuesta 403 genérica centralizada, sin
-                // reenviar información interna (docs/security-refactor-plan.md §1/§4).
-                throw;
-            }
+            var tickets = await _ticketService.BuyTicketsAsync(clienteId, request);
+            return Ok(tickets);
         }
 
         [HttpGet("me")]

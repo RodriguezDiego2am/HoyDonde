@@ -1,9 +1,7 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Diagnostics;
-using System.IO;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace HoyDonde.API.Middleware
@@ -33,15 +31,10 @@ namespace HoyDonde.API.Middleware
             // Crear un cronómetro para medir el tiempo de respuesta
             var stopwatch = Stopwatch.StartNew();
 
-            // Capturar el cuerpo de la solicitud (si es necesario)
-            var requestBody = string.Empty;
-            if (ShouldLogRequestBody(context))
-            {
-                context.Request.EnableBuffering();
-                using var reader = new StreamReader(context.Request.Body, Encoding.UTF8, true, 4096, true);
-                requestBody = await reader.ReadToEndAsync();
-                context.Request.Body.Position = 0; // Rebobinar para que otros puedan leerlo
-            }
+            // Nunca se bufferiza ni se lee el cuerpo de la solicitud acá: nada en este
+            // middleware lo loguea, y hacerlo sin usarlo arriesgaría exponer passwords/tokens
+            // en logs (p. ej. RegisterAdminDto/RegisterOrganizadorDto/RegisterControlDto
+            // viajan con Password en el body de POST /api/users/*).
 
             // Registrar la solicitud entrante
             _logger.LogInformation(
@@ -87,21 +80,6 @@ namespace HoyDonde.API.Middleware
 
                 throw; // Rethrow to let ExceptionMiddleware or the framework handle it
             }
-        }
-
-        private bool ShouldLogRequestBody(HttpContext context)
-        {
-            // Solo registrar cuerpos de solicitud para POST, PUT, PATCH
-            return context.Request.Method == "POST" ||
-                   context.Request.Method == "PUT" ||
-                   context.Request.Method == "PATCH";
-        }
-
-        private bool ShouldLogResponseBody(HttpContext context)
-        {
-            // Evitar registrar respuestas que contengan datos sensibles o archivos grandes
-            return context.Response.StatusCode >= 400 && // Solo errores
-                   context.Response.ContentType?.StartsWith("application/json") == true;
         }
     }
 }

@@ -1,15 +1,16 @@
 using HoyDonde.API.Authorization;
 using HoyDonde.API.DTOs;
-using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
 using HoyDonde.API.Services;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
 namespace HoyDonde.API.Controllers
 {
+    // Controller intencionalmente delgado: ninguna excepción de dominio se mapea acá a un
+    // código HTTP. Todas se dejan propagar hasta ExceptionMiddleware, que es el único punto
+    // central de ese mapeo (docs/api-mvp-plan.md §5).
     [ApiController]
     [Route("api/events")]
     public class EventsController : ControllerBase
@@ -32,21 +33,8 @@ namespace HoyDonde.API.Controllers
             var organizerId = GetAuthenticatedUserId();
             if (string.IsNullOrEmpty(organizerId)) return Unauthorized();
 
-            try
-            {
-                var result = await _eventService.CreateEventAsync(request, organizerId);
-                return Ok(result);
-            }
-            catch (EventValidationException ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
-            catch (IdentityNotProvisionedException)
-            {
-                // Se deja propagar al middleware: respuesta 403 genérica centralizada, sin
-                // reenviar información interna (docs/security-refactor-plan.md §1/§4).
-                throw;
-            }
+            var result = await _eventService.CreateEventAsync(request, organizerId);
+            return Ok(result);
         }
 
         [HttpPost("{eventId}/publish")]
@@ -56,33 +44,8 @@ namespace HoyDonde.API.Controllers
             var organizerId = GetAuthenticatedUserId();
             if (string.IsNullOrEmpty(organizerId)) return Unauthorized();
 
-            try
-            {
-                await _eventService.PublishEventAsync(eventId, organizerId);
-                return Ok(new { message = "Evento publicado exitosamente." });
-            }
-            catch (EventNotFoundException)
-            {
-                return NotFound(new { message = "Evento no encontrado." });
-            }
-            catch (EventOwnershipException)
-            {
-                return StatusCode(StatusCodes.Status403Forbidden, new { message = "No tenés permiso sobre este evento." });
-            }
-            catch (EventInvalidTransitionException ex)
-            {
-                return Conflict(new { message = ex.Message });
-            }
-            catch (EventMissingTicketTypesException ex)
-            {
-                return Conflict(new { message = ex.Message });
-            }
-            catch (IdentityNotProvisionedException)
-            {
-                // Se deja propagar al middleware: respuesta 403 genérica centralizada, sin
-                // reenviar información interna (docs/security-refactor-plan.md §1/§4).
-                throw;
-            }
+            await _eventService.PublishEventAsync(eventId, organizerId);
+            return Ok(new { message = "Evento publicado exitosamente." });
         }
 
         [HttpPost("{eventId}/cancel")]
@@ -92,29 +55,8 @@ namespace HoyDonde.API.Controllers
             var organizerId = GetAuthenticatedUserId();
             if (string.IsNullOrEmpty(organizerId)) return Unauthorized();
 
-            try
-            {
-                await _eventService.CancelEventAsync(eventId, organizerId);
-                return Ok(new { message = "Evento cancelado exitosamente." });
-            }
-            catch (EventNotFoundException)
-            {
-                return NotFound(new { message = "Evento no encontrado." });
-            }
-            catch (EventOwnershipException)
-            {
-                return StatusCode(StatusCodes.Status403Forbidden, new { message = "No tenés permiso sobre este evento." });
-            }
-            catch (EventInvalidTransitionException ex)
-            {
-                return Conflict(new { message = ex.Message });
-            }
-            catch (IdentityNotProvisionedException)
-            {
-                // Se deja propagar al middleware: respuesta 403 genérica centralizada, sin
-                // reenviar información interna (docs/security-refactor-plan.md §1/§4).
-                throw;
-            }
+            await _eventService.CancelEventAsync(eventId, organizerId);
+            return Ok(new { message = "Evento cancelado exitosamente." });
         }
 
         [HttpPut("{eventId}")]
@@ -124,33 +66,8 @@ namespace HoyDonde.API.Controllers
             var organizerId = GetAuthenticatedUserId();
             if (string.IsNullOrEmpty(organizerId)) return Unauthorized();
 
-            try
-            {
-                var result = await _eventService.UpdateEventAsync(eventId, organizerId, request);
-                return Ok(result);
-            }
-            catch (EventNotFoundException)
-            {
-                return NotFound(new { message = "Evento no encontrado." });
-            }
-            catch (EventOwnershipException)
-            {
-                return StatusCode(StatusCodes.Status403Forbidden, new { message = "No tenés permiso sobre este evento." });
-            }
-            catch (EventNotEditableException ex)
-            {
-                return Conflict(new { message = ex.Message });
-            }
-            catch (EventValidationException ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
-            catch (IdentityNotProvisionedException)
-            {
-                // Se deja propagar al middleware: respuesta 403 genérica centralizada, sin
-                // reenviar información interna (docs/security-refactor-plan.md §1/§4).
-                throw;
-            }
+            var result = await _eventService.UpdateEventAsync(eventId, organizerId, request);
+            return Ok(result);
         }
 
         [HttpGet("{eventId}")]
@@ -188,25 +105,8 @@ namespace HoyDonde.API.Controllers
             var organizerId = GetAuthenticatedUserId();
             if (string.IsNullOrEmpty(organizerId)) return Unauthorized();
 
-            try
-            {
-                var result = await _eventService.GetOwnedByIdAsync(id, organizerId);
-                return Ok(result);
-            }
-            catch (EventNotFoundException)
-            {
-                return NotFound(new { message = "Evento no encontrado." });
-            }
-            catch (EventOwnershipException)
-            {
-                return StatusCode(StatusCodes.Status403Forbidden, new { message = "No tenés permiso sobre este evento." });
-            }
-            catch (IdentityNotProvisionedException)
-            {
-                // Se deja propagar al middleware: respuesta 403 genérica centralizada, sin
-                // reenviar información interna (docs/security-refactor-plan.md §1/§4).
-                throw;
-            }
+            var result = await _eventService.GetOwnedByIdAsync(id, organizerId);
+            return Ok(result);
         }
 
         // API-MVP 3 (docs/api-mvp-plan.md §4): asigna un Control ya existente a otro evento
@@ -220,43 +120,14 @@ namespace HoyDonde.API.Controllers
             var organizerId = GetAuthenticatedUserId();
             if (string.IsNullOrEmpty(organizerId)) return Unauthorized();
 
-            try
+            var asignacion = await _userService.AsignarControlExistenteAsync(organizerId, eventId, controlPersonaId);
+            return Ok(new ControlAsignacionResponseDto
             {
-                var asignacion = await _userService.AsignarControlExistenteAsync(organizerId, eventId, controlPersonaId);
-                return Ok(new ControlAsignacionResponseDto
-                {
-                    ControlPersonaId = asignacion.ControlPersonaId,
-                    EventId = asignacion.EventId,
-                    AssignedByPersonaId = asignacion.AssignedByPersonaId,
-                    CreatedAt = asignacion.CreatedAt,
-                });
-            }
-            catch (EventNotFoundException)
-            {
-                return NotFound(new { message = "Evento no encontrado." });
-            }
-            catch (ControlInvalidoException ex)
-            {
-                return NotFound(new { message = ex.Message });
-            }
-            catch (EventOwnershipException)
-            {
-                return StatusCode(StatusCodes.Status403Forbidden, new { message = "No tenés permiso sobre este evento." });
-            }
-            catch (ControlAjenoException ex)
-            {
-                return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
-            }
-            catch (EventoNoDisponibleParaAsignacionControlException ex)
-            {
-                return Conflict(new { message = ex.Message });
-            }
-            catch (IdentityNotProvisionedException)
-            {
-                // Se deja propagar al middleware: respuesta 403 genérica centralizada, sin
-                // reenviar información interna (docs/security-refactor-plan.md §1/§4).
-                throw;
-            }
+                ControlPersonaId = asignacion.ControlPersonaId,
+                EventId = asignacion.EventId,
+                AssignedByPersonaId = asignacion.AssignedByPersonaId,
+                CreatedAt = asignacion.CreatedAt,
+            });
         }
 
         // UID tomado exclusivamente del token autenticado (nunca de un campo del body/query).

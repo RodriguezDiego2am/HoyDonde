@@ -9,6 +9,7 @@ using HoyDonde.API.Repositories;
 using HoyDonde.API.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
@@ -78,6 +79,29 @@ builder.Services.AddAuthorization(options =>
 
 // Agregar controladores
 builder.Services.AddControllers();
+
+// Los errores automáticos de ModelState (DataAnnotations/binding) siguen el mismo contrato
+// público de error que ExceptionMiddleware (docs/api-mvp-plan.md §5): Code="VALIDATION_ERROR",
+// TraceId, y Errors con los mensajes por campo. Nunca el ProblemDetails por defecto de ASP.NET.
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+{
+    options.InvalidModelStateResponseFactory = context =>
+    {
+        var errors = context.ModelState
+            .Where(kvp => kvp.Value != null && kvp.Value.Errors.Count > 0)
+            .ToDictionary(
+                kvp => kvp.Key,
+                kvp => kvp.Value!.Errors.Select(e => e.ErrorMessage).ToArray());
+
+        return new BadRequestObjectResult(new
+        {
+            code = "VALIDATION_ERROR",
+            message = "Uno o más campos no son válidos.",
+            traceId = context.HttpContext.Items["RequestId"]?.ToString() ?? context.HttpContext.TraceIdentifier,
+            errors,
+        });
+    };
+});
 
 // Configuración de Swagger/OpenAPI
 builder.Services.AddEndpointsApiExplorer();

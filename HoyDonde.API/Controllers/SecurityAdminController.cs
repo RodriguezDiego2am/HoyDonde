@@ -1,10 +1,8 @@
 using HoyDonde.API.Authorization;
 using HoyDonde.API.DTOs;
-using HoyDonde.API.Exceptions;
 using HoyDonde.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System;
 using System.Security.Claims;
 using System.Threading.Tasks;
 
@@ -15,6 +13,9 @@ namespace HoyDonde.API.Controllers
     // ROL_EDITAR: es la acción de catálogo más cercana al recurso "Rol" (hoy solo la tiene
     // ADMINISTRADOR), y leer es un subconjunto razonable de poder editar -evita sumar una
     // 21ª acción solo para lecturas-.
+    //
+    // Controller intencionalmente delgado: ninguna excepción de dominio se mapea acá a un código
+    // HTTP. Todas se dejan propagar hasta ExceptionMiddleware (docs/api-mvp-plan.md §5).
     [Route("api/security")]
     [ApiController]
     public class SecurityAdminController : ControllerBase
@@ -38,19 +39,8 @@ namespace HoyDonde.API.Controllers
             var actor = GetActorExternalSubjectId();
             if (string.IsNullOrEmpty(actor)) return Unauthorized();
 
-            try
-            {
-                var result = await _service.CrearRolAsync(actor, request);
-                return Ok(result);
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
-            catch (RolYaExisteException)
-            {
-                return Conflict(new { message = "Ya existe un rol con ese código." });
-            }
+            var result = await _service.CrearRolAsync(actor, request);
+            return Ok(result);
         }
 
         [HttpPut("roles/{codigo}")]
@@ -60,19 +50,8 @@ namespace HoyDonde.API.Controllers
             var actor = GetActorExternalSubjectId();
             if (string.IsNullOrEmpty(actor)) return Unauthorized();
 
-            try
-            {
-                var result = await _service.EditarRolAsync(actor, codigo, request);
-                return Ok(result);
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
-            catch (RolNoEncontradoException)
-            {
-                return NotFound(new { message = "Rol no encontrado." });
-            }
+            var result = await _service.EditarRolAsync(actor, codigo, request);
+            return Ok(result);
         }
 
         [HttpPost("roles/{codigo}/activar")]
@@ -88,19 +67,8 @@ namespace HoyDonde.API.Controllers
             var actor = GetActorExternalSubjectId();
             if (string.IsNullOrEmpty(actor)) return Unauthorized();
 
-            try
-            {
-                await _service.SetRolActivoAsync(actor, codigo, activo);
-                return Ok(new { message = activo ? "Rol activado." : "Rol desactivado." });
-            }
-            catch (RolNoEncontradoException)
-            {
-                return NotFound(new { message = "Rol no encontrado." });
-            }
-            catch (UltimoAdministradorException)
-            {
-                return Conflict(new { message = "La operación dejaría el sistema sin ningún Administrador efectivo." });
-            }
+            await _service.SetRolActivoAsync(actor, codigo, activo);
+            return Ok(new { message = activo ? "Rol activado." : "Rol desactivado." });
         }
 
         [HttpGet("roles")]
@@ -115,15 +83,8 @@ namespace HoyDonde.API.Controllers
         [Authorize(Policy = Acciones.RolEditar)]
         public async Task<IActionResult> ObtenerRol(string codigo)
         {
-            try
-            {
-                var rol = await _service.ObtenerRolAsync(codigo);
-                return Ok(rol);
-            }
-            catch (RolNoEncontradoException)
-            {
-                return NotFound(new { message = "Rol no encontrado." });
-            }
+            var rol = await _service.ObtenerRolAsync(codigo);
+            return Ok(rol);
         }
 
         [HttpGet("acciones")]
@@ -141,19 +102,8 @@ namespace HoyDonde.API.Controllers
             var actor = GetActorExternalSubjectId();
             if (string.IsNullOrEmpty(actor)) return Unauthorized();
 
-            try
-            {
-                await _service.AsignarAccionARolAsync(actor, rolCodigo, accionCodigo);
-                return Ok(new { message = "Acción asignada al rol." });
-            }
-            catch (RolNoEncontradoException)
-            {
-                return NotFound(new { message = "Rol no encontrado." });
-            }
-            catch (AccionNoEncontradaException)
-            {
-                return NotFound(new { message = "Acción no encontrada." });
-            }
+            await _service.AsignarAccionARolAsync(actor, rolCodigo, accionCodigo);
+            return Ok(new { message = "Acción asignada al rol." });
         }
 
         [HttpDelete("roles/{rolCodigo}/acciones/{accionCodigo}")]
@@ -163,15 +113,8 @@ namespace HoyDonde.API.Controllers
             var actor = GetActorExternalSubjectId();
             if (string.IsNullOrEmpty(actor)) return Unauthorized();
 
-            try
-            {
-                await _service.QuitarAccionDeRolAsync(actor, rolCodigo, accionCodigo);
-                return Ok(new { message = "Acción quitada del rol." });
-            }
-            catch (RolNoEncontradoException)
-            {
-                return NotFound(new { message = "Rol no encontrado." });
-            }
+            await _service.QuitarAccionDeRolAsync(actor, rolCodigo, accionCodigo);
+            return Ok(new { message = "Acción quitada del rol." });
         }
 
         [HttpPost("usuarios/{usuarioId}/roles/{rolCodigo}")]
@@ -181,19 +124,8 @@ namespace HoyDonde.API.Controllers
             var actor = GetActorExternalSubjectId();
             if (string.IsNullOrEmpty(actor)) return Unauthorized();
 
-            try
-            {
-                await _service.AsignarRolAUsuarioAsync(actor, usuarioId, rolCodigo);
-                return Ok(new { message = "Rol asignado al usuario." });
-            }
-            catch (RolNoEncontradoException)
-            {
-                return NotFound(new { message = "Rol no encontrado." });
-            }
-            catch (UsuarioNoEncontradoException)
-            {
-                return NotFound(new { message = "Usuario no encontrado." });
-            }
+            await _service.AsignarRolAUsuarioAsync(actor, usuarioId, rolCodigo);
+            return Ok(new { message = "Rol asignado al usuario." });
         }
 
         [HttpDelete("usuarios/{usuarioId}/roles/{rolCodigo}")]
@@ -203,23 +135,8 @@ namespace HoyDonde.API.Controllers
             var actor = GetActorExternalSubjectId();
             if (string.IsNullOrEmpty(actor)) return Unauthorized();
 
-            try
-            {
-                await _service.QuitarRolDeUsuarioAsync(actor, usuarioId, rolCodigo);
-                return Ok(new { message = "Rol quitado del usuario." });
-            }
-            catch (RolNoEncontradoException)
-            {
-                return NotFound(new { message = "Rol no encontrado." });
-            }
-            catch (UsuarioNoEncontradoException)
-            {
-                return NotFound(new { message = "Usuario no encontrado." });
-            }
-            catch (UltimoAdministradorException)
-            {
-                return Conflict(new { message = "La operación dejaría el sistema sin ningún Administrador efectivo." });
-            }
+            await _service.QuitarRolDeUsuarioAsync(actor, usuarioId, rolCodigo);
+            return Ok(new { message = "Rol quitado del usuario." });
         }
 
         [HttpGet("usuarios")]
@@ -234,15 +151,8 @@ namespace HoyDonde.API.Controllers
         [Authorize(Policy = Acciones.UsuarioVerPermisosEfectivos)]
         public async Task<IActionResult> PermisosEfectivos(string usuarioId)
         {
-            try
-            {
-                var permisos = await _service.ConsultarPermisosEfectivosAsync(usuarioId);
-                return Ok(permisos);
-            }
-            catch (UsuarioNoEncontradoException)
-            {
-                return NotFound(new { message = "Usuario no encontrado." });
-            }
+            var permisos = await _service.ConsultarPermisosEfectivosAsync(usuarioId);
+            return Ok(permisos);
         }
 
         [HttpPost("usuarios/{usuarioId}/activar")]
@@ -258,19 +168,8 @@ namespace HoyDonde.API.Controllers
             var actor = GetActorExternalSubjectId();
             if (string.IsNullOrEmpty(actor)) return Unauthorized();
 
-            try
-            {
-                await _service.SetUsuarioActivoAsync(actor, usuarioId, activo);
-                return Ok(new { message = activo ? "Usuario activado." : "Usuario desactivado." });
-            }
-            catch (UsuarioNoEncontradoException)
-            {
-                return NotFound(new { message = "Usuario no encontrado." });
-            }
-            catch (UltimoAdministradorException)
-            {
-                return Conflict(new { message = "La operación dejaría el sistema sin ningún Administrador efectivo." });
-            }
+            await _service.SetUsuarioActivoAsync(actor, usuarioId, activo);
+            return Ok(new { message = activo ? "Usuario activado." : "Usuario desactivado." });
         }
     }
 }

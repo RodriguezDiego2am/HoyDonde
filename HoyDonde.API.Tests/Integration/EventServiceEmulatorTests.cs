@@ -125,6 +125,29 @@ namespace HoyDonde.API.Tests.Integration
             Assert.Equal(Event.EventStatus.Borrador, evento.Estado);
         }
 
+        // Contrato de salida de tipos de ticket: EventResponse.TicketGroups usa
+        // TicketTypeResponseDto (con el TicketTypeId real generado por el servidor), nunca el DTO
+        // de entrada TicketGroupDto ni el modelo de persistencia TicketType.
+        [FirestoreEmulatorFact]
+        public async Task CreateEventAsync_TicketTypeResponse_HasServerGeneratedNonEmptyId_MatchingPersistedTicketType()
+        {
+            var uid = $"uid-{Guid.NewGuid():N}";
+            var personaId = $"persona-{Guid.NewGuid():N}";
+            var sut = CreateSut(_fixture, (uid, personaId));
+
+            var response = await sut.CreateEventAsync(ValidCreateRequest(), uid);
+
+            var ticketTypeResponse = Assert.Single(response.TicketGroups);
+            Assert.False(string.IsNullOrEmpty(ticketTypeResponse.Id));
+            Assert.Equal("General", ticketTypeResponse.Nombre);
+            Assert.Equal(100, ticketTypeResponse.Precio);
+            Assert.Equal(10, ticketTypeResponse.CantidadDisponible);
+
+            var snapshot = await _fixture.Db!.Collection("events").Document(response.Id).GetSnapshotAsync();
+            var persistedTicketType = snapshot.ConvertTo<Event>().TicketTypes.Single();
+            Assert.Equal(persistedTicketType.Id, ticketTypeResponse.Id);
+        }
+
         [FirestoreEmulatorFact]
         public async Task CreateEventAsync_EmptyNombre_ThrowsEventValidationException()
         {
@@ -414,12 +437,18 @@ namespace HoyDonde.API.Tests.Integration
 
             Assert.Equal("Evento actualizado", response.Nombre);
             Assert.Equal(2, response.TicketGroups.Count);
+            Assert.All(response.TicketGroups, t => Assert.False(string.IsNullOrEmpty(t.Id)));
+            // Los ids de los tipos de ticket reemplazados son nuevos (reemplazo completo de la
+            // colección, docs/api-mvp-plan.md §2), pero siguen siendo generados por el servidor.
+            Assert.Equal(2, response.TicketGroups.Select(t => t.Id).Distinct().Count());
 
             var snapshot = await _fixture.Db!.Collection("events").Document(eventId).GetSnapshotAsync();
             var persisted = snapshot.ConvertTo<Event>();
             Assert.Equal(2, persisted.TicketTypes.Count);
             Assert.Contains(persisted.TicketTypes, t => t.Nombre == "VIP" && t.CantidadDisponible == 5);
             Assert.Contains(persisted.TicketTypes, t => t.Nombre == "General" && t.CantidadDisponible == 50);
+            Assert.Equal(persisted.TicketTypes.Select(t => t.Id).OrderBy(x => x).ToList(),
+                response.TicketGroups.Select(t => t.Id).OrderBy(x => x).ToList());
         }
 
         [FirestoreEmulatorFact]
@@ -524,6 +553,8 @@ namespace HoyDonde.API.Tests.Integration
 
             Assert.NotNull(response);
             Assert.Equal(Event.EventEffectiveStatus.Publicado, response!.Estado);
+            // Detalle público (GET /api/events/{id}): también expone el TicketTypeId real.
+            Assert.False(string.IsNullOrEmpty(Assert.Single(response.TicketGroups).Id));
         }
 
         [FirestoreEmulatorFact]
@@ -628,6 +659,10 @@ namespace HoyDonde.API.Tests.Integration
             Assert.DoesNotContain(borrador, ids);
             Assert.DoesNotContain(cancelado, ids);
             Assert.DoesNotContain(finalizado, ids);
+
+            // Búsqueda pública (GET /api/events): cada resultado expone el TicketTypeId real de
+            // sus tipos de ticket, nunca una lista vacía de ids ni el modelo Firestore.
+            Assert.All(result.Data, e => Assert.All(e.TicketGroups, t => Assert.False(string.IsNullOrEmpty(t.Id))));
         }
 
         [FirestoreEmulatorFact]
@@ -1009,6 +1044,9 @@ namespace HoyDonde.API.Tests.Integration
             var response = await sut.GetOwnedByIdAsync(eventId, duenoUid);
 
             Assert.Equal(Event.EventEffectiveStatus.Borrador, response.Estado);
+            // Detalle autenticado del organizador (GET /api/events/organizer/{id}): también
+            // expone el TicketTypeId real.
+            Assert.False(string.IsNullOrEmpty(Assert.Single(response.TicketGroups).Id));
         }
 
         [FirestoreEmulatorFact]
@@ -1059,6 +1097,10 @@ namespace HoyDonde.API.Tests.Integration
             Assert.Contains(eventoA1, ids);
             Assert.Contains(eventoA2, ids);
             Assert.DoesNotContain(eventoB1, ids);
+
+            // Lista de eventos propios (GET /api/events/organizer/me): también expone el
+            // TicketTypeId real de cada evento.
+            Assert.All(propios, e => Assert.All(e.TicketGroups, t => Assert.False(string.IsNullOrEmpty(t.Id))));
         }
     }
 }

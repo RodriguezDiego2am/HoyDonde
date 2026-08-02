@@ -18,6 +18,8 @@ namespace HoyDonde.API.DTOs
         // valor persistido siga siendo Publicado.
         public Event.EventEffectiveStatus Estado { get; set; }
 
-        public List<TicketGroupDto> TicketGroups { get; set; } = new();
+        // DTO de salida (TicketTypeResponseDto), no el DTO de entrada TicketGroupDto: incluye el
+        // TicketTypeId real generado por el servidor. Nunca el modelo de persistencia TicketType.
+        public List<TicketTypeResponseDto> TicketGroups { get; set; } = new();
     }
 }

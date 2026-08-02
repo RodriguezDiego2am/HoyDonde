@@ -232,8 +232,9 @@ namespace HoyDonde.API.Services
                 Ubicacion = evento.Ubicacion,
                 Categoria = evento.Categoria,
                 Estado = evento.GetEstadoEfectivo(DateTime.UtcNow),
-                TicketGroups = evento.TicketTypes.Select(t => new TicketGroupDto
+                TicketGroups = evento.TicketTypes.Select(t => new TicketTypeResponseDto
                 {
+                    Id = t.Id,
                     Nombre = t.Nombre,
                     Precio = t.Precio,
                     CantidadDisponible = t.CantidadDisponible

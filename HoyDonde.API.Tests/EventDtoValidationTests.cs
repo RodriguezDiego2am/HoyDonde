@@ -163,4 +163,90 @@ namespace HoyDonde.API.Tests
             Assert.NotEmpty(Validate(group));
         }
     }
+
+    // Contrato de salida de tipos de ticket (corrección previa al cierre de API-MVP 4):
+    // TicketGroupDto es exclusivamente de ENTRADA (EventCreateRequest/EventUpdateRequest);
+    // TicketTypeResponseDto es exclusivamente de SALIDA (EventResponse), con el TicketTypeId real
+    // generado por el servidor. Ningún modelo de persistencia (Event/TicketType) debe quedar
+    // expuesto en ninguno de los dos.
+    public class TicketTypeContractShapeTests
+    {
+        [Fact]
+        public void TicketGroupDto_NeverAcceptsAnIdFromTheClient()
+        {
+            // Un DTO de entrada con un campo "Id" permitiría a un cliente intentar controlar un
+            // identificador persistido; TicketGroupDto no debe tener esa propiedad en absoluto.
+            var idProperty = typeof(TicketGroupDto).GetProperty("Id");
+
+            Assert.Null(idProperty);
+        }
+
+        [Fact]
+        public void EventResponse_TicketGroups_UsesTicketTypeResponseDto_NotTheInputDto()
+        {
+            var ticketGroupsProperty = typeof(EventResponse).GetProperty(nameof(EventResponse.TicketGroups));
+            Assert.NotNull(ticketGroupsProperty);
+
+            var itemType = ticketGroupsProperty!.PropertyType.GetGenericArguments().Single();
+
+            Assert.Equal(typeof(TicketTypeResponseDto), itemType);
+            Assert.NotEqual(typeof(TicketGroupDto), itemType);
+        }
+
+        [Fact]
+        public void TicketTypeResponseDto_ExposesIdNombrePrecioYCantidadDisponible()
+        {
+            var type = typeof(TicketTypeResponseDto);
+
+            Assert.NotNull(type.GetProperty("Id"));
+            Assert.NotNull(type.GetProperty("Nombre"));
+            Assert.NotNull(type.GetProperty("Precio"));
+            Assert.NotNull(type.GetProperty("CantidadDisponible"));
+        }
+
+        [Fact]
+        public void EventCreateRequest_And_EventUpdateRequest_NeverRequireOrAcceptATicketTypeId()
+        {
+            // El request de creación/edición se arma exclusivamente con TicketGroupDto (sin Id);
+            // esto confirma en tiempo de ejecución que ninguno de los dos requests expone -ni
+            // necesita- un campo de id para sus tipos de ticket.
+            var createTicketGroupsType = typeof(EventCreateRequest).GetProperty(nameof(EventCreateRequest.TicketGroups))!
+                .PropertyType.GetGenericArguments().Single();
+            var updateTicketGroupsType = typeof(EventUpdateRequest).GetProperty(nameof(EventUpdateRequest.TicketGroups))!
+                .PropertyType.GetGenericArguments().Single();
+
+            Assert.Equal(typeof(TicketGroupDto), createTicketGroupsType);
+            Assert.Equal(typeof(TicketGroupDto), updateTicketGroupsType);
+            Assert.Null(createTicketGroupsType.GetProperty("Id"));
+            Assert.Null(updateTicketGroupsType.GetProperty("Id"));
+        }
+
+        [Fact]
+        public void EventResponse_And_TicketTypeResponseDto_NeverExposeTheFirestorePersistenceModels()
+        {
+            // Ningún DTO de salida de Event debe tener una propiedad cuyo TIPO sea el modelo de
+            // persistencia (Event/TicketType), ni siquiera indirectamente vía una colección de ese
+            // tipo -eso sería serializar el documento de Firestore tal cual por HTTP.
+            AssertNoPropertyOfType(typeof(EventResponse), typeof(Event));
+            AssertNoPropertyOfType(typeof(EventResponse), typeof(TicketType));
+            AssertNoPropertyOfType(typeof(TicketTypeResponseDto), typeof(Event));
+            AssertNoPropertyOfType(typeof(TicketTypeResponseDto), typeof(TicketType));
+        }
+
+        private static void AssertNoPropertyOfType(Type dtoType, Type forbiddenModelType)
+        {
+            foreach (var property in dtoType.GetProperties())
+            {
+                var propertyType = property.PropertyType;
+                var elementType = propertyType.IsGenericType
+                    ? propertyType.GetGenericArguments().FirstOrDefault()
+                    : null;
+
+                Assert.False(propertyType == forbiddenModelType,
+                    $"{dtoType.Name}.{property.Name} expone el modelo de persistencia {forbiddenModelType.Name} directamente.");
+                Assert.False(elementType == forbiddenModelType,
+                    $"{dtoType.Name}.{property.Name} expone una colección del modelo de persistencia {forbiddenModelType.Name}.");
+            }
+        }
+    }
 }
