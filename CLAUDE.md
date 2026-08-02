@@ -111,6 +111,17 @@ Core concepts and rules:
 
 The project specification also describes payments, temporary reservations, signed QR codes, notifications, organizer analytics, `ValidacionAcceso` audit records, and event state rules. Treat these as requirements or planned capabilities unless the current code and tests demonstrate that they are implemented. Event publication and ticket validation strictness should not be described as more complete than the code/tests show. Never invent missing behavior.
 
+## Event lifecycle (API-MVP 1, implemented and verified — see docs/api-mvp-plan.md §2)
+
+- `Event` persists `FechaInicio`/`FechaFin`, both UTC (replaces the old single `Fecha` field).
+- Persisted `EventStatus`: `Borrador`, `Publicado`, `Cancelado`. `Finalizado` is not persisted — it's a derived effective status (`Event.GetEstadoEfectivo`, exposed as `EventResponse.Estado`) computed as `Publicado && UtcNow > FechaFin`.
+- Valid transitions: `Borrador → Publicado` (requires ≥1 ticket type) and `Borrador`/`Publicado` (not yet `Finalizado`) `→ Cancelado`. Any other transition (double publish/cancel, touching a `Cancelado` or effectively-`Finalizado` event) throws `EventInvalidTransitionException` → HTTP 409; `CancelEventAsync` evaluates the effective status, not just the persisted one, before allowing cancellation.
+- `UpdateEventAsync` only succeeds while `Estado == Borrador` (`EventNotEditableException` → 409 otherwise) and replaces the entire `TicketGroups` collection — no incremental per-ticket-type edit.
+- `GET /api/events/{id}` (`[AllowAnonymous]`) and `SearchEventsAsync` (catalog) only ever show `Publicado && UtcNow <= FechaFin`; anything else is a 404 (never 403, to avoid confirming existence to an anonymous caller). `GET /api/events/organizer/{id}` (`EVENTO_VER_PROPIOS` + ownership check) returns an owned event in any state; `GET /api/events/organizer/me` lists all of the caller's own events, any state.
+- All Event HTTP reads return `EventResponse`/`PagedResponse<EventResponse>`, never the `Event` model.
+- `SearchEventsAsync` pagination is fully server-side: the optional `FechaInicio` filter, the cursor (`StartAfter`), and `Limit` are all part of the same Firestore query — no in-memory post-filtering. Four explicit composite indexes in `firestore.indexes.json` cover the real filter shapes (`Estado`+`FechaFin`+`FechaInicio`, optionally combined with `Categoria` and/or `Ubicacion`). The Firestore Emulator validates query logic only — it does not prove those indexes are deployed against a real production Firestore project.
+- Current verification result: **270 passed, 0 failed, 0 skipped** (full suite, emulator-backed).
+
 ## Tests
 
 - Controller/HTTP tests use `TestApplicationFactory` and `FakeAuthHandler`: the fake authentication identity supplies only UID (`ClaimTypes.NameIdentifier`, overridable per-request via the `Test-Uid` header) and email — nothing role-related. There is no `Test-Role` header and no `ClaimTypes.Role`/`"role"` claim anywhere in test infrastructure.

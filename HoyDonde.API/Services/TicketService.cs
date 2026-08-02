@@ -53,7 +53,7 @@ namespace HoyDonde.API.Services
 
                 var evento = eventSnapshot.ConvertTo<Event>();
 
-                if (evento.Estado != Event.EventStatus.Publicado && evento.Estado != Event.EventStatus.Activo)
+                if (evento.Estado != Event.EventStatus.Publicado)
                     throw new Exception("El evento no admite compra de tickets en este momento.");
 
                 if (evento.TicketTypes == null || !evento.TicketTypes.Any())

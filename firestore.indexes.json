@@ -1,0 +1,45 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "Estado", "order": "ASCENDING" },
+        { "fieldPath": "FechaFin", "order": "ASCENDING" },
+        { "fieldPath": "FechaInicio", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "Estado", "order": "ASCENDING" },
+        { "fieldPath": "Categoria", "order": "ASCENDING" },
+        { "fieldPath": "FechaFin", "order": "ASCENDING" },
+        { "fieldPath": "FechaInicio", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "Estado", "order": "ASCENDING" },
+        { "fieldPath": "Ubicacion", "order": "ASCENDING" },
+        { "fieldPath": "FechaFin", "order": "ASCENDING" },
+        { "fieldPath": "FechaInicio", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "Estado", "order": "ASCENDING" },
+        { "fieldPath": "Categoria", "order": "ASCENDING" },
+        { "fieldPath": "Ubicacion", "order": "ASCENDING" },
+        { "fieldPath": "FechaFin", "order": "ASCENDING" },
+        { "fieldPath": "FechaInicio", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

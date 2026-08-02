@@ -107,7 +107,7 @@ namespace HoyDonde.API.Tests
         {
             var (sut, usuarioRepository, _, eventService, identityProvider, personaResolver, controlAsignacionRepository, _) = CreateSut();
             personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
-            eventService.Setup(s => s.GetByIdAsync(EventId)).ReturnsAsync(new Event { Id = EventId, OrganizadorPersonaId = OrganizadorPersonaId });
+            eventService.Setup(s => s.GetEventEntityByIdAsync(EventId)).ReturnsAsync(new Event { Id = EventId, OrganizadorPersonaId = OrganizadorPersonaId });
             identityProvider
                 .Setup(p => p.CreateIdentityAsync("control1@control.hoydonde.com", "Password123!", "control1"))
                 .ReturnsAsync(new IdentityCreationResult("uid-control", FirebaseIdentityProvider.ProviderName));
@@ -127,7 +127,7 @@ namespace HoyDonde.API.Tests
         {
             var (sut, usuarioRepository, _, eventService, identityProvider, personaResolver, controlAsignacionRepository, _) = CreateSut();
             personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
-            eventService.Setup(s => s.GetByIdAsync(EventId)).ReturnsAsync(new Event { Id = EventId, OrganizadorPersonaId = "otro-organizador-persona" });
+            eventService.Setup(s => s.GetEventEntityByIdAsync(EventId)).ReturnsAsync(new Event { Id = EventId, OrganizadorPersonaId = "otro-organizador-persona" });
 
             await Assert.ThrowsAsync<EventOwnershipException>(() => sut.RegisterControlAsync(ActorUid, "control1", "Password123!", EventId));
 
@@ -141,7 +141,7 @@ namespace HoyDonde.API.Tests
         {
             var (sut, usuarioRepository, _, eventService, identityProvider, personaResolver, controlAsignacionRepository, _) = CreateSut();
             personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
-            eventService.Setup(s => s.GetByIdAsync(EventId)).ReturnsAsync((Event?)null);
+            eventService.Setup(s => s.GetEventEntityByIdAsync(EventId)).ReturnsAsync((Event?)null);
 
             await Assert.ThrowsAsync<EventNotFoundException>(() => sut.RegisterControlAsync(ActorUid, "control1", "Password123!", EventId));
 
@@ -161,7 +161,7 @@ namespace HoyDonde.API.Tests
             await Assert.ThrowsAsync<IdentityNotProvisionedException>(
                 () => sut.RegisterControlAsync(ActorUid, "control1", "Password123!", EventId));
 
-            eventService.Verify(s => s.GetByIdAsync(It.IsAny<string>()), Times.Never);
+            eventService.Verify(s => s.GetEventEntityByIdAsync(It.IsAny<string>()), Times.Never);
             identityProvider.Verify(p => p.CreateIdentityAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
             usuarioRepository.Verify(r => r.ProvisionarAsync(It.IsAny<UsuarioProvisioningRequest>()), Times.Never);
             controlAsignacionRepository.Verify(r => r.AsignarAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);

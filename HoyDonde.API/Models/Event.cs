@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace HoyDonde.API.Models
@@ -16,7 +16,10 @@ namespace HoyDonde.API.Models
         public string Ubicacion { get; set; } = string.Empty;
 
         [Google.Cloud.Firestore.FirestoreProperty]
-        public DateTime Fecha { get; set; }
+        public DateTime FechaInicio { get; set; }
+
+        [Google.Cloud.Firestore.FirestoreProperty]
+        public DateTime FechaFin { get; set; }
 
         [Google.Cloud.Firestore.FirestoreProperty]
         public string Descripcion { get; set; } = string.Empty;
@@ -37,11 +40,23 @@ namespace HoyDonde.API.Models
         public virtual List<Ticket> Asistentes { get; set; } = new();
 
         [Google.Cloud.Firestore.FirestoreProperty]
-        public EventStatus Estado { get; set; } = EventStatus.Activo;
+        public EventStatus Estado { get; set; } = EventStatus.Borrador;
+
+        // Únicos estados persistidos (docs/api-mvp-plan.md §1). "Finalizado" no se persiste: es un
+        // estado efectivo derivado, ver EventEffectiveStatus/GetEstadoEfectivo.
         public enum EventStatus
         {
-            Activo,
-            Pendiente,
+            Borrador,
+            Publicado,
+            Cancelado
+        }
+
+        // Estado expuesto en lecturas (EventResponse.Estado): igual al persistido salvo que el
+        // evento esté Publicado y ya haya pasado FechaFin, en cuyo caso es Finalizado (terminal,
+        // docs/api-mvp-plan.md §0.1/§1).
+        public enum EventEffectiveStatus
+        {
+            Borrador,
             Publicado,
             Cancelado,
             Finalizado
@@ -55,6 +70,25 @@ namespace HoyDonde.API.Models
             Arte,
             Otros
         }
+
+        public EventEffectiveStatus GetEstadoEfectivo(DateTime utcNow)
+        {
+            if (Estado == EventStatus.Publicado && utcNow > FechaFin)
+                return EventEffectiveStatus.Finalizado;
+
+            return Estado switch
+            {
+                EventStatus.Borrador => EventEffectiveStatus.Borrador,
+                EventStatus.Publicado => EventEffectiveStatus.Publicado,
+                EventStatus.Cancelado => EventEffectiveStatus.Cancelado,
+                _ => throw new InvalidOperationException($"Estado de evento no reconocido: {Estado}")
+            };
+        }
+
+        // Vigencia de catálogo/detalle público (docs/api-mvp-plan.md §0.1): un evento Publicado
+        // sigue siendo visible mientras no haya pasado FechaFin (incluye el evento en curso).
+        public bool EsPublicamenteVisible(DateTime utcNow) =>
+            Estado == EventStatus.Publicado && utcNow <= FechaFin;
 
     }
 

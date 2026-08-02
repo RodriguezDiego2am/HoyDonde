@@ -4,7 +4,7 @@ Este documento es el roadmap de implementación posterior al refactor de segurid
 
 Para distinguirlas de las **Etapas** del refactor de seguridad, las etapas de este plan se llaman **API-MVP N**. No reabren ni modifican el módulo de seguridad: reutilizan sus policies, su catálogo de 20 acciones y su mecanismo de autorización tal como están.
 
-Este documento es de planificación. No se implementó código, no se ejecutó la suite de tests, y no se modificaron `CLAUDE.md` ni `API_Documentation.md` al crearlo ni en esta revisión.
+Este documento nació como documento de planificación: no se implementó código ni se ejecutó la suite de tests al crearlo, y no se modificaron `CLAUDE.md` ni `API_Documentation.md` en esa revisión inicial. Esta revisión (2026-08-02) **cierra API-MVP 1**: código implementado y verificado (ver §2, "Estado: implementada y verificada"); `CLAUDE.md` se actualizó con el estado funcional real de `Event`. `API_Documentation.md` sigue sin tocarse — su actualización pertenece a API-MVP 4 (§5), no a este cierre.
 
 ---
 
@@ -61,7 +61,7 @@ Cualquier transición marcada como inválida en la tabla se rechaza mediante una
 
 ---
 
-## 2. API-MVP 1 — Validaciones, estados, privacidad y DTOs de Evento
+## 2. API-MVP 1 — Validaciones, estados, privacidad y DTOs de Evento (implementada y verificada)
 
 ### Objetivo
 Cerrar los huecos de la auditoría sobre creación, validación, transición de estados, edición y exposición pública de `Event`, incorporar `FechaInicio`/`FechaFin`, y unificar todos los endpoints de lectura a DTOs.
@@ -101,6 +101,28 @@ Cerrar los huecos de la auditoría sobre creación, validación, transición de 
 
 ### Criterio verificable de finalización
 Todos los tests anteriores en verde; `EventStatus` persistido tiene solo 3 valores; el modelo persiste `FechaInicio`/`FechaFin`; `CancelEventAsync` evalúa el estado efectivo (no solo el persistido) y rechaza con 409 la cancelación de un evento ya `Finalizado`; ningún controller de eventos retorna `Event` crudo; `dotnet build` sin errores; los tests existentes de la suite de seguridad/ownership de `EventsControllerTests`/`EventServiceEmulatorTests` siguen pasando sin modificación de su intención original.
+
+### Estado: implementada y verificada (cierre, 2026-08-02)
+
+API-MVP 1 está **implementada y verificada** contra el HEAD actual. Resultado final de verificación:
+
+- `dotnet build HoyDonde.sln`: sin errores.
+- Suite completa (unit + controller + integración) contra Firestore Emulator real (`npx firebase-tools@13.35.1 emulators:exec ...`, ver `CLAUDE.md`): **270 passed, 0 failed, 0 skipped**.
+
+Resumen de lo efectivamente implementado:
+
+- `Event` persiste `FechaInicio`/`FechaFin`, ambas UTC, en reemplazo del campo único `Fecha`.
+- Estados persistidos reducidos a `Borrador`/`Publicado`/`Cancelado`; `Finalizado` es exclusivamente un estado efectivo derivado (`Event.GetEstadoEfectivo`), nunca escrito en Firestore.
+- Máquina de estados de §1 implementada tal cual, incluida la evaluación del estado efectivo (no solo el persistido) antes de aceptar una cancelación; toda transición inválida se rechaza con `EventInvalidTransitionException` → 409.
+- Validaciones de esta sección implementadas en dos capas: DTOs (`DataAnnotations`) y servicio (`EventValidationException` → 400) — textos obligatorios, fechas, `TicketGroups` (al menos uno al crear, no exigido al editar) y cada tipo de ticket (`Nombre`/`Precio >= 0`/`CantidadDisponible >= 1`).
+- `UpdateEventAsync` solo opera sobre `Borrador` (`EventNotEditableException` → 409 en cualquier otro estado) y reemplaza la colección **completa** de `TicketGroups`, tal como cerró la decisión 6.
+- `GET /api/events/{id}` y `SearchEventsAsync` respetan la privacidad pública de §0.1: solo `Publicado && UtcNow <= FechaFin`; cualquier otro caso, 404 (nunca 403, para no confirmar existencia a un anónimo).
+- `GET /api/events/organizer/{id}` implementada, protegida con `EVENTO_VER_PROPIOS` + verificación de ownership, devuelve el evento propio en cualquier estado.
+- Los cuatro endpoints de lectura de eventos (`GetEvent`, `SearchEvents`, `GetMyEvents`, `GetOwnedEvent`) devuelven DTOs (`EventResponse`/`PagedResponse<EventResponse>`); ninguno expone el modelo `Event`.
+- `SearchEventsAsync` pagina completamente del lado de Firestore: el filtro opcional `FechaInicio`, el cursor (`StartAfter`) y el `Limit` son parte de la misma consulta — no hay filtrado en memoria en ningún punto de la paginación.
+- Cuatro índices compuestos explícitos en `firestore.indexes.json` cubren las combinaciones reales de filtros de igualdad opcionales (`Categoria`/`Ubicacion`) junto con el rango obligatorio (`Estado`+`FechaFin`+`FechaInicio`). **Nota prudente**: el Firestore Emulator valida la lógica de las consultas, no la existencia de índices — una suite en verde contra el emulador no acredita que estos índices estén efectivamente desplegados en un proyecto de Firestore de producción; eso requiere `firebase deploy --only firestore:indexes` (o equivalente) contra ese proyecto, verificación que queda fuera del alcance de este cierre.
+
+API-MVP 2, 3 y 4 (§3, §4, §5) siguen **pendientes**, sin cambios respecto a lo planificado en este documento.
 
 ### Dependencias
 Ninguna — puede iniciarse de inmediato.

@@ -64,7 +64,7 @@ namespace HoyDonde.API.Services
             // en el proveedor de identidad ni en Firestore.
             var organizadorPersonaId = await _personaResolver.ResolvePersonaIdAsync(assignedBy);
 
-            var evento = await _eventService.GetByIdAsync(eventId);
+            var evento = await _eventService.GetEventEntityByIdAsync(eventId);
             if (evento == null) throw new EventNotFoundException(eventId);
             if (evento.OrganizadorPersonaId != organizadorPersonaId) throw new EventOwnershipException(eventId, assignedBy);
 

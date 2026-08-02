@@ -35,16 +35,15 @@ namespace HoyDonde.API.Controllers
                 var result = await _eventService.CreateEventAsync(request, organizerId);
                 return Ok(result);
             }
+            catch (EventValidationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
             catch (IdentityNotProvisionedException)
             {
                 // Se deja propagar al middleware: respuesta 403 genérica centralizada, sin
                 // reenviar información interna (docs/security-refactor-plan.md §1/§4).
                 throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error al crear evento");
-                return BadRequest(new { message = ex.Message });
             }
         }
 
@@ -68,16 +67,19 @@ namespace HoyDonde.API.Controllers
             {
                 return StatusCode(StatusCodes.Status403Forbidden, new { message = "No tenés permiso sobre este evento." });
             }
+            catch (EventInvalidTransitionException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
+            catch (EventMissingTicketTypesException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
             catch (IdentityNotProvisionedException)
             {
                 // Se deja propagar al middleware: respuesta 403 genérica centralizada, sin
                 // reenviar información interna (docs/security-refactor-plan.md §1/§4).
                 throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error al publicar evento {EventId}", eventId);
-                return BadRequest(new { message = ex.Message });
             }
         }
 
@@ -101,16 +103,15 @@ namespace HoyDonde.API.Controllers
             {
                 return StatusCode(StatusCodes.Status403Forbidden, new { message = "No tenés permiso sobre este evento." });
             }
+            catch (EventInvalidTransitionException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
             catch (IdentityNotProvisionedException)
             {
                 // Se deja propagar al middleware: respuesta 403 genérica centralizada, sin
                 // reenviar información interna (docs/security-refactor-plan.md §1/§4).
                 throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error al cancelar evento {EventId}", eventId);
-                return BadRequest(new { message = ex.Message });
             }
         }
 
@@ -134,16 +135,19 @@ namespace HoyDonde.API.Controllers
             {
                 return StatusCode(StatusCodes.Status403Forbidden, new { message = "No tenés permiso sobre este evento." });
             }
+            catch (EventNotEditableException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
+            catch (EventValidationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
             catch (IdentityNotProvisionedException)
             {
                 // Se deja propagar al middleware: respuesta 403 genérica centralizada, sin
                 // reenviar información interna (docs/security-refactor-plan.md §1/§4).
                 throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error al actualizar evento {EventId}", eventId);
-                return BadRequest(new { message = ex.Message });
             }
         }
 
@@ -173,6 +177,34 @@ namespace HoyDonde.API.Controllers
 
             var events = await _eventService.GetByOrganizerIdAsync(organizerId);
             return Ok(events);
+        }
+
+        [HttpGet("organizer/{id}")]
+        [Authorize(Policy = Acciones.EventoVerPropios)] // Detalle de un evento propio en cualquier estado
+        public async Task<IActionResult> GetOwnedEvent(string id)
+        {
+            var organizerId = GetAuthenticatedUserId();
+            if (string.IsNullOrEmpty(organizerId)) return Unauthorized();
+
+            try
+            {
+                var result = await _eventService.GetOwnedByIdAsync(id, organizerId);
+                return Ok(result);
+            }
+            catch (EventNotFoundException)
+            {
+                return NotFound(new { message = "Evento no encontrado." });
+            }
+            catch (EventOwnershipException)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "No tenés permiso sobre este evento." });
+            }
+            catch (IdentityNotProvisionedException)
+            {
+                // Se deja propagar al middleware: respuesta 403 genérica centralizada, sin
+                // reenviar información interna (docs/security-refactor-plan.md §1/§4).
+                throw;
+            }
         }
 
         // UID tomado exclusivamente del token autenticado (nunca de un campo del body/query).

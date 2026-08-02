@@ -55,7 +55,8 @@ namespace HoyDonde.API.Tests.Integration
             {
                 Id = eventId,
                 Nombre = "Evento con stock",
-                Fecha = DateTime.UtcNow.AddDays(5),
+                FechaInicio = DateTime.UtcNow.AddDays(5),
+                FechaFin = DateTime.UtcNow.AddDays(6),
                 Estado = Event.EventStatus.Publicado,
                 TicketTypes = new System.Collections.Generic.List<TicketType>
                 {
