@@ -6,11 +6,13 @@ HoyDonde? is an event-ticketing platform with two applications:
 
 - `HoyDonde.API/`: ASP.NET Core 8 REST API.
 - `HoyDonde.API.Tests/`: xUnit unit, controller, and Firestore Emulator integration tests.
-- `HoyDonde-frontend/`: Expo 53 / React Native 0.79 client using TypeScript and Expo Router.
+- `HoyDonde-frontend/`: Expo 54 / React Native 0.81 client using TypeScript and Expo Router.
 
 The solution builds the backend and its tests. The frontend is an independent npm workspace.
 
 Persistence is Firebase Firestore. Models use Firestore attributes; there is no active `DbContext` or migrations even though obsolete EF Core packages remain referenced. Do not reintroduce SQL/EF persistence without an explicit migration decision.
+
+Real Firebase project: `hoydonde-f5a05` (`Firebase:ProjectId` in `appsettings.json`). Both Firebase Admin (`FirebaseApp`) and `FirestoreDb` load the same credential file from `Firebase:CredentialsPath` (`HoyDonde.API/firebase-service-account.json`, gitignored, never committed) — no `GOOGLE_APPLICATION_CREDENTIALS` environment variable needs to be set manually. Outside the Firestore Emulator (`FIRESTORE_EMULATOR_HOST` unset), `FirestoreDb` resolution fails fast with a clear error if that credential file is missing; under the emulator it never needs one. `dotnet test` (mocked `TestApplicationFactory`) and the emulator-backed integration tests both replace the `FirestoreDb` DI registration before it's ever resolved, so neither depends on this credential file being present.
 
 ## Commands
 
@@ -34,13 +36,14 @@ From `HoyDonde-frontend/`:
 
 ```bash
 npm install
-npx expo start
-npx eslint .
-npx tsc --noEmit
-npx jest
+npm run start       # expo start
+npm run start:lan   # expo start --lan, for a physical device on the same Wi-Fi
+npm run lint        # eslint .
+npm run typecheck   # tsc --noEmit
+npm test            # jest
 ```
 
-Do not use `npm test`: the current script is a placeholder that always fails.
+For a physical device via Expo Go, set `EXPO_PUBLIC_API_URL` in `HoyDonde-frontend/.env` to your machine's LAN IP (e.g. `http://192.168.1.40:5053/api`), not `localhost`.
 
 Never read, expose, or commit `HoyDonde.API/firebase-service-account.json` or other credentials.
 
@@ -59,7 +62,7 @@ Firebase UID
 → ASP.NET Policy
 ```
 
-- A Firebase ID token proves identity (UID) only — it carries no permissions.
+- A Firebase ID token proves identity (UID) only — it carries no permissions. `HoyDonde.API/Authentication/FirebaseAuthenticationHandler.cs` verifies the `Authorization: Bearer` ID token with the Firebase Admin SDK (`FirebaseAuth.DefaultInstance.VerifyIdTokenAsync`, behind `IFirebaseIdTokenVerifier` for testability), not `AddJwtBearer`/`Authority`. It only ever populates `ClaimTypes.NameIdentifier`/`user_id`/`sub` (UID) and, when present, email — never a role claim.
 - `AccionAuthorizationHandler` resolves every `[Authorize(Policy = "ACCION_CODIGO")]` exclusively against `IPermissionService`, which walks `Usuario → UsuarioRol → Rol → RolAccion → Accion` in Firestore. Nothing reads a claim to authorize.
 - Exactly 20 actions are centralized in `Authorization/Acciones.cs`; a policy exists per action.
 - `Rol` and `Accion` are persistent, administrable Firestore entities, not enums or subclasses. A `Usuario` may hold multiple roles; a `Rol` may grant multiple actions.
@@ -158,7 +161,7 @@ The project specification also describes payments, temporary reservations, signe
 - Three read-only endpoints reuse the existing `CONTROL_CREAR`/`TICKET_VALIDAR` policies (no 21st action): `GET /api/events/organizer/controls` (organizer's own Controls, deduplicated), `GET /api/events/{eventId}/controls` (Controls assigned to one owned event), `GET /api/events/control/me` (events assigned to the authenticated Control, any state).
 - Minimal dedicated DTOs (`ControlResumenResponseDto`, `ControlAsignadoResponseDto`, `EventoAsignadoResponseDto`) — never the Firebase UID, `ExternalSubjectId`, `UsuarioId`, DNI, phone, full roles, or ticket types/price/stock. See `API_Documentation.md` §8.1 for shapes.
 - Ownership/scope resolved the same way as API-MVP 3 (actor → `PersonaId` via `IAuthenticatedPersonaResolver`, re-read from Firestore); related Usuarios/Events resolved in batch (`WhereIn`/`GetAllSnapshotsAsync`), never per-row.
-- **With this closed, the backend functional MVP (API-MVP 1–5) is fully closed.** Current verification result: **391 passed, 0 failed, 0 skipped** (full suite, emulator-backed). Frontend 0–5 (docs/api-mvp-plan.md §7) remain pending.
+- **With this closed, the backend functional MVP (API-MVP 1–5) is fully closed.** Verification result at closure: **391 passed, 0 failed, 0 skipped** (full suite, emulator-backed). Frontend 0 (docs/api-mvp-plan.md §7) is closed — see "Frontend status" below; Frontend 1–5 remain pending.
 
 ## Tests
 
@@ -168,9 +171,21 @@ The project specification also describes payments, temporary reservations, signe
 - Run the narrowest relevant checks first, then the full affected suite (unit/controller, then the emulator-backed integration suite). Report checks that could not run because Firebase credentials or external services are unavailable.
 - Do not claim a requirement is complete unless code and tests support that claim.
 
-## Frontend status (known inconsistency)
+## Frontend status
 
-The frontend is not yet integrated with the final Firebase Auth + `/api/auth/sync` flow described above — do not assume login/registration already work end-to-end in the app. Confirm the intended flow before changing either side, and do not change API contracts without separately coordinating the corresponding frontend update.
+Frontend 0 (docs/api-mvp-plan.md §7, "Fundación") is closed. Expo 54 / React Native 0.81, verified manually on a physical device via Expo Go against the real Firebase project (`hoydonde-f5a05`) and the real API (not the emulator/mocked tests): public catalog reads the real API and renders its empty state, bootstrap-created Administrator logs in and shows email/role, Cliente self-registration works, session persistence/logout/re-login work, and `/api/auth/sync` round-trips against real Firestore with the deployed indexes (including the `roles` collection-group index on `Activo` used by `GetRolCodigosActivosAsync`-style queries — see `firestore.indexes.json`). Frontend 1–5 (docs/api-mvp-plan.md §7) remain pending — do not assume any screen beyond Frontend 0's scope (catalog, login, Cliente registration, profile/logout) works end-to-end yet.
+
+For a physical device via Expo Go on the same Wi-Fi as the backend, run the API bound to all interfaces and start Expo in LAN mode:
+
+```powershell
+dotnet run --project .\HoyDonde.API --urls "http://0.0.0.0:5053"
+```
+
+```bash
+npm run start:lan   # from HoyDonde-frontend/
+```
+
+`EXPO_PUBLIC_API_URL` in `HoyDonde-frontend/.env` must point at the machine's LAN IP (e.g. `http://192.168.1.40:5053/api`), not `localhost`.
 
 ## Working rules
 

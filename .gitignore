@@ -361,3 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Firebase Admin SDK - credencial privada local
+HoyDonde.API/firebase-service-account.json

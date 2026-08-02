@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, TextInput, StyleSheet } from 'react-native';
-import { Colors } from '../constants/Colors';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
+
+import { borderWidth, colors, fonts, radii, spacing } from '../constants/theme';
 
 interface FormInputProps {
   label: string;
@@ -13,15 +14,15 @@ interface FormInputProps {
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
 }
 
-const FormInput: React.FC<FormInputProps> = ({ 
-  label, 
-  value, 
-  onChangeText, 
-  placeholder, 
+const FormInput: React.FC<FormInputProps> = ({
+  label,
+  value,
+  onChangeText,
+  placeholder,
   secureTextEntry = false,
   error,
   keyboardType = 'default',
-  autoCapitalize = 'none'
+  autoCapitalize = 'none',
 }) => {
   return (
     <View style={styles.formGroup}>
@@ -29,11 +30,13 @@ const FormInput: React.FC<FormInputProps> = ({
       <TextInput
         style={[styles.input, error && styles.inputError]}
         placeholder={placeholder}
+        placeholderTextColor={`${colors.ink}80`}
         value={value}
         onChangeText={onChangeText}
         secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
+        accessibilityLabel={label}
       />
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
@@ -42,29 +45,34 @@ const FormInput: React.FC<FormInputProps> = ({
 
 const styles = StyleSheet.create({
   formGroup: {
-    marginBottom: 15,
+    marginBottom: spacing.md,
   },
   label: {
-    fontSize: 16,
-    marginBottom: 5,
-    color: '#333',
+    fontFamily: fonts.semiBold,
+    fontSize: 14,
+    marginBottom: spacing.xs,
+    color: colors.ink,
   },
   input: {
     height: 50,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 15,
+    borderWidth: borderWidth.thin,
+    borderColor: colors.ink,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.md,
+    fontFamily: fonts.regular,
     fontSize: 16,
-    backgroundColor: '#fff',
+    color: colors.ink,
+    backgroundColor: colors.paper,
   },
   inputError: {
-    borderColor: '#ff6b6b',
+    borderColor: colors.error,
+    borderWidth: borderWidth.thick,
   },
   errorText: {
-    color: '#ff6b6b',
-    fontSize: 14,
-    marginTop: 5,
+    fontFamily: fonts.medium,
+    color: colors.error,
+    fontSize: 13,
+    marginTop: spacing.xs,
   },
 });
 

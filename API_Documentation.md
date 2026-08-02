@@ -26,7 +26,7 @@ No hay una URL base de producción documentada en el repositorio: el proyecto de
 
 El backend **nunca** recibe contraseñas de Cliente ni emite sus propios tokens de sesión para ese rol. El flujo es:
 
-1. El cliente (la app, hoy no integrada — ver `CLAUDE.md` "Frontend status") se autentica directamente contra **Firebase Authentication** usando el Firebase Client SDK (login/registro de email+contraseña, o el proveedor que corresponda).
+1. El cliente (app Expo SDK 54, Frontend 0 cerrado — ver `CLAUDE.md` "Frontend status") se autentica directamente contra **Firebase Authentication** usando el Firebase Client SDK (login/registro de email+contraseña, o el proveedor que corresponda).
 2. Firebase devuelve un **ID token** (JWT) al cliente.
 3. El cliente llama a cualquier endpoint autenticado de esta API con:
 
@@ -34,7 +34,7 @@ El backend **nunca** recibe contraseñas de Cliente ni emite sus propios tokens 
    Authorization: Bearer <id-token-de-firebase>
    ```
 
-4. `Program.cs` valida ese JWT contra `https://securetoken.google.com/{Firebase:ProjectId}` (issuer/audience/lifetime) usando `Microsoft.AspNetCore.Authentication.JwtBearer`. La validación de firma/expiración es responsabilidad exclusiva de ese middleware; el resto del pipeline nunca vuelve a tocar el token crudo.
+4. `Program.cs` registra un esquema de autenticación propio (`FirebaseAuthenticationHandler`, `HoyDonde.API/Authentication/`) que verifica ese ID token con el **Firebase Admin SDK** (`FirebaseAuth.DefaultInstance.VerifyIdTokenAsync`, detrás de `IFirebaseIdTokenVerifier` para poder testearlo sin el SDK real) — no con `Microsoft.AspNetCore.Authentication.JwtBearer`/`Authority` contra `securetoken.google.com`, que no resuelve las claves públicas de firma en este entorno. La validación de firma/expiración es responsabilidad exclusiva del Admin SDK; el resto del pipeline nunca vuelve a tocar el token crudo.
 5. De ese token, la API solo lee dos cosas: el **UID** (`ClaimTypes.NameIdentifier`, o los claims alternativos `user_id`/`sub` según cómo Firebase los emita) y, cuando aplica, el **email**. Ningún claim de rol se usa nunca para autorizar (§4).
 
 ### Altas privilegiadas no se autoregistran
@@ -546,7 +546,7 @@ dotnet run --project HoyDonde.API -- bootstrap-admin admin@hoydonde.com
 
 No se requiere `firebase login` ni credenciales reales para el comando de test: `hoydonde-security-refactor-tests` es un ID de proyecto arbitrario que nunca resuelve contra un proyecto Firebase real, y el Firestore Emulator no valida credenciales.
 
-`HoyDonde-frontend/` es un workspace npm independiente (`npm install`, `npx expo start`, `npx eslint .`, `npx tsc --noEmit`, `npx jest`) — no participa de `dotnet build`/`dotnet test`.
+`HoyDonde-frontend/` es un workspace npm independiente (`npm install`, `npm run start`, `npm run start:lan` para un dispositivo físico en la misma Wi-Fi, `npm run lint`, `npm run typecheck`, `npm test`) — no participa de `dotnet build`/`dotnet test`. Para probar desde un dispositivo físico vía Expo Go, la API debe escuchar en todas las interfaces: `dotnet run --project .\HoyDonde.API --urls "http://0.0.0.0:5053"`, con `EXPO_PUBLIC_API_URL` apuntando a la IP LAN de esa máquina (no `localhost`).
 
 ---
 
@@ -564,4 +564,4 @@ Explícitamente no implementadas (`docs/api-mvp-plan.md` §10) — no asumir que
 - Endpoint de "desasignar" un Control de un evento.
 - Edición de un evento después de publicado (ni siquiera parcial).
 - Recuperación de contraseña vía UI del frontend.
-- Integración real del frontend con este flujo de autenticación (ver `CLAUDE.md`, "Frontend status": la app hoy no está conectada a Firebase Auth ni a `/api/auth/sync`).
+- Pantallas más allá del alcance de Frontend 0 (catálogo, login, registro de Cliente, perfil/logout) — Frontend 1–5 (`docs/api-mvp-plan.md` §7) permanecen pendientes; ver `CLAUDE.md`, "Frontend status".

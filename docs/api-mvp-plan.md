@@ -20,7 +20,8 @@ Este archivo evita repetir DTOs completos, inventarios de archivos, pseudocódig
 | API-MVP 4 | Cerrada | Errores uniformes, documentación y recorrido HTTP integral |
 | Puente backend–frontend | Cerrado | Enums textuales y `acciones` en `/api/auth/sync`; suite: 360/360 |
 | API-MVP 5 | Cerrada | Consultas operativas de controles y eventos asignados sin ids copiados a mano; suite: 391/391 |
-| Frontend 0–5 | Pendiente | Aplicación Expo funcional y presentable |
+| Frontend 0 | Cerrada | Expo 54 + Firebase Auth real + `/api/auth/sync`; validado a mano en dispositivo físico; suite: 396/396 |
+| Frontend 1–5 | Pendiente | Aplicación Expo funcional y presentable |
 
 Al cerrar una etapa se actualizan únicamente esta tabla, su breve resultado y la última verificación. No se conserva un diario de implementación dentro de este archivo.
 
@@ -257,6 +258,8 @@ La identidad se aplica durante Frontend 0; no requiere otro documento extenso ni
 
 ### Frontend 0 — Fundación
 
+**Estado: cerrada.** Expo SDK 54 / React Native 0.81. Firebase Authentication real (proyecto `hoydonde-f5a05`) autentica desde el Firebase Client SDK; el backend verifica cada ID token con el Firebase Admin SDK (`FirebaseAuth.DefaultInstance.VerifyIdTokenAsync`, `HoyDonde.API/Authentication/FirebaseAuthenticationHandler.cs`) y solo lee UID/email — nunca un rol del token. `/api/auth/sync` provisiona/recupera Persona+Usuario y devuelve roles/acciones efectivas desde Firestore.
+
 **Alcance**
 
 - Firebase, persistencia, AuthContext y `/api/auth/sync`.
@@ -266,12 +269,17 @@ La identidad se aplica durante Frontend 0; no requiere otro documento extenso ni
 - Tokens visuales y componentes base de “Cartelera urbana”.
 - Adaptación cuidadosa de los cambios frontend preexistentes.
 
-**Cierre**
+**Cierre — validación manual real completada** (dispositivo físico, Expo Go, API y Firestore reales, no emulador):
 
-- Registro/login/persistencia/logout reales.
-- Catálogo accesible sin sesión.
+- Expo Go SDK 54 corre en dispositivo físico contra la API real, arrancada con `dotnet run --project .\HoyDonde.API --urls "http://0.0.0.0:5053"` y Expo en modo LAN (`npm run start:lan`).
+- Cartelera pública consulta la API real y muestra correctamente el estado vacío sin sesión.
+- El bootstrap (`bootstrap-admin`) creó el primer Administrador; su login funciona y la app muestra su email y rol.
+- Registro de Cliente funciona end-to-end contra Firebase real.
+- Persistencia de sesión, logout y un nuevo login vuelven a funcionar sin manipular tokens a mano.
+- Firestore real y los índices desplegados (`firestore.indexes.json`, incluido el índice collection-group `roles.Activo`) resuelven las consultas de `/api/auth/sync` sin error.
 - Ninguna llamada a endpoints legacy.
 - TypeScript, ESLint y Jest verdes.
+- Suite backend completa contra Firestore Emulator: **396 passed, 0 failed, 0 skipped**.
 
 ### Frontend 1 — Cliente
 

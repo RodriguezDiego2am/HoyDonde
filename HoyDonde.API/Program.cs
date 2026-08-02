@@ -1,19 +1,19 @@
 ﻿using FirebaseAdmin;
+using Google.Api.Gax;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Firestore;
+using HoyDonde.API.Authentication;
 using HoyDonde.API.Authorization;
 using HoyDonde.API.Commands;
 using HoyDonde.API.Middleware;
 using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
 using HoyDonde.API.Services;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
-using System.Text;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -28,43 +28,87 @@ Log.Logger = new LoggerConfiguration()
 
 builder.Host.UseSerilog();
 
-// Configuración de Firebase
+// Configuración de Firebase: la credencial se carga una sola vez acá y se reutiliza tanto
+// para Firebase Admin (FirebaseApp) como para Firestore (abajo), en vez de dejar que
+// FirestoreDb dependa de una fuente de credenciales distinta e implícita.
 var firebaseCredentialsPath = builder.Configuration["Firebase:CredentialsPath"] ?? "firebase-service-account.json";
+GoogleCredential? firebaseCredential = null;
 if (File.Exists(firebaseCredentialsPath))
 {
-    FirebaseApp.Create(new AppOptions
+    firebaseCredential = GoogleCredential.FromFile(firebaseCredentialsPath);
+    // WebApplicationFactory<Program> reejecuta este Program.cs una vez por cada instancia de
+    // TestApplicationFactory/EmulatorWebApplicationFactory creada en el mismo proceso xunit, y
+    // xunit corre clases de test en paralelo por default; FirebaseApp.Create solo puede
+    // llamarse una vez por proceso para la app "default" (lanza ArgumentException si ya
+    // existe). Un check-then-act simple (if DefaultInstance == null) no es thread-safe acá:
+    // dos hilos pueden leer null antes de que cualquiera cree la app. El catch de abajo hace
+    // la operación idempotente sin ocultar un ArgumentException real y distinto.
+    try
     {
-        Credential = GoogleCredential.FromFile(firebaseCredentialsPath)
-    });
+        FirebaseApp.Create(new AppOptions
+        {
+            Credential = firebaseCredential
+        });
+    }
+    catch (ArgumentException) when (FirebaseApp.DefaultInstance != null)
+    {
+    }
 }
 else
 {
     Log.Warning("Firebase credentials file not found at {Path}. App may fail to authenticate.", firebaseCredentialsPath);
 }
 
-// Configuración de Firestore
+// Configuración de Firestore: antes usaba FirestoreDb.Create(projectId), que ignora
+// Firebase:CredentialsPath por completo y exige GOOGLE_APPLICATION_CREDENTIALS
+// (Application Default Credentials) para autenticar fuera del emulador -de ahí que hubiera
+// que exportar esa variable a mano en cada sesión-. Ahora reutiliza la misma credencial de
+// archivo que Firebase Admin (arriba) vía FirestoreDbBuilder.GoogleCredential.
+// EmulatorDetection.EmulatorOrProduction preserva el comportamiento contra Firestore
+// Emulator (FIRESTORE_EMULATOR_HOST) sin tocar los fixtures de test: tanto
+// TestApplicationFactory como EmulatorWebApplicationFactory reemplazan este singleton
+// FirestoreDb ANTES de que algo lo resuelva (es un registro AddSingleton con factory
+// lazy), así que el throw de abajo solo puede dispararse en una ejecución real
+// (dotnet run) sin emulador y sin credencial válida - nunca durante `dotnet test`.
 builder.Services.AddSingleton<FirestoreDb>(provider =>
 {
     var projectId = builder.Configuration["Firebase:ProjectId"];
     if (string.IsNullOrEmpty(projectId)) throw new Exception("Firebase ProjectId is missing in configuration.");
-    return FirestoreDb.Create(projectId);
+
+    var usingFirestoreEmulator = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FIRESTORE_EMULATOR_HOST"));
+
+    var firestoreDbBuilder = new FirestoreDbBuilder
+    {
+        ProjectId = projectId,
+        EmulatorDetection = EmulatorDetection.EmulatorOrProduction,
+    };
+
+    if (!usingFirestoreEmulator)
+    {
+        if (firebaseCredential == null)
+        {
+            throw new InvalidOperationException(
+                $"No se encontró la credencial de Firebase en '{firebaseCredentialsPath}' (configuración Firebase:CredentialsPath). " +
+                "Es necesaria para autenticar Firestore fuera del Firestore Emulator. Colocá tu cuenta de servicio en esa ruta, " +
+                "ajustá Firebase:CredentialsPath en appsettings, o configurá FIRESTORE_EMULATOR_HOST para desarrollar contra el emulador.");
+        }
+
+        firestoreDbBuilder.GoogleCredential = firebaseCredential;
+    }
+
+    return firestoreDbBuilder.Build();
 });
 
-// Configuración de autenticación con Firebase JWT
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-.AddJwtBearer(options =>
-{
-    var projectId = builder.Configuration["Firebase:ProjectId"];
-    options.Authority = $"https://securetoken.google.com/{projectId}";
-    options.TokenValidationParameters = new TokenValidationParameters
-    {
-        ValidateIssuer = true,
-        ValidIssuer = $"https://securetoken.google.com/{projectId}",
-        ValidateAudience = true,
-        ValidAudience = projectId,
-        ValidateLifetime = true,
-    };
-});
+// Configuración de autenticación: verifica el ID token de Firebase con el Admin SDK
+// (FirebaseAuth.DefaultInstance.VerifyIdTokenAsync vía IFirebaseIdTokenVerifier), no con
+// AddJwtBearer/Authority contra securetoken.google.com -ese enfoque fallaba con
+// SecurityTokenSignatureKeyNotFoundException (IDX10500) al no resolver las claves públicas-.
+// Solo autentica (UID); la autorización sigue resolviéndose exclusivamente contra Firestore
+// (AccionAuthorizationHandler/IPermissionService), nunca desde un claim del token.
+builder.Services.AddSingleton<IFirebaseIdTokenVerifier, FirebaseIdTokenVerifier>();
+builder.Services.AddAuthentication(FirebaseAuthenticationDefaults.AuthenticationScheme)
+.AddScheme<AuthenticationSchemeOptions, FirebaseAuthenticationHandler>(
+    FirebaseAuthenticationDefaults.AuthenticationScheme, options => { });
 
 // Agregar servicios de autorización: una policy por cada Accion del catálogo
 // (docs/security-refactor-plan.md §3, Etapa 5). AccionAuthorizationHandler resuelve cada policy

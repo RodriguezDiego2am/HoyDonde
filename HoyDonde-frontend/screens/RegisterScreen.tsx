@@ -1,258 +1,188 @@
 import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  StyleSheet, 
-  ScrollView,
-  ActivityIndicator,
-  Alert,
-  SafeAreaView,
-  KeyboardAvoidingView,
-  Platform
-} from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router } from 'expo-router';
+
+import { ActionButton } from '@/components/ui/ActionButton';
+import { AuthShell } from '@/components/ui/AuthShell';
+import { colors, fonts, spacing } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
+import { describeFirebaseAuthError } from '@/utils/firebaseAuthErrors';
 import FormInput from '../components/FormInput';
-import { authService } from '../services/APIService';
-import { StatusBar } from 'expo-status-bar';
+
+interface FormState {
+  email: string;
+  password: string;
+  confirmPassword: string;
+  fullName: string;
+  dni: string;
+  phoneNumber: string;
+}
+
+type FormErrors = Partial<Record<keyof FormState, string>>;
+
+const INITIAL_FORM: FormState = {
+  email: '',
+  password: '',
+  confirmPassword: '',
+  fullName: '',
+  dni: '',
+  phoneNumber: '',
+};
 
 export default function RegisterScreen() {
-  const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-    confirmPassword: '',
-    fullName: '',
-    dni: '',
-    phoneNumber: ''
-  });
-  const [errors, setErrors] = useState<{
-    email?: string;
-    password?: string;
-    confirmPassword?: string;
-    fullName?: string;
-    dni?: string;
-    phoneNumber?: string;
-  }>({});
+  const { registerCliente } = useAuth();
+  const [formData, setFormData] = useState<FormState>(INITIAL_FORM);
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const validate = () => {
-    const newErrors: {
-      email?: string;
-      password?: string;
-      confirmPassword?: string;
-      fullName?: string;
-      dni?: string;
-      phoneNumber?: string;
-    } = {};
-    
-    // Validación email
+  const validate = (): boolean => {
+    const newErrors: FormErrors = {};
+
     if (!formData.email) {
       newErrors.email = 'El email es obligatorio';
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
       newErrors.email = 'Email inválido';
     }
-    
-    // Validación contraseña
+
     if (!formData.password) {
       newErrors.password = 'La contraseña es obligatoria';
     } else if (formData.password.length < 6) {
       newErrors.password = 'La contraseña debe tener al menos 6 caracteres';
     }
-    
-    // Validación confirmación de contraseña
+
     if (formData.password !== formData.confirmPassword) {
       newErrors.confirmPassword = 'Las contraseñas no coinciden';
     }
-    
-    // Validación nombre completo
+
     if (!formData.fullName) {
       newErrors.fullName = 'El nombre completo es obligatorio';
     }
-    
-    // Validación DNI
+
     if (!formData.dni) {
       newErrors.dni = 'El DNI es obligatorio';
     }
-    
-    // Validación número de teléfono
+
     if (!formData.phoneNumber) {
       newErrors.phoneNumber = 'El número de teléfono es obligatorio';
     }
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
+  const handleChange = (name: keyof FormState, value: string) => {
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
   const handleRegister = async () => {
-    if (validate()) {
-      setLoading(true);
-      try {
-        const userData = {
-          email: formData.email,
-          password: formData.password,
-          fullName: formData.fullName,
-          dni: formData.dni,
-          phoneNumber: formData.phoneNumber
-        };
-        
-        await authService.registerCliente(userData);
-        
-        Alert.alert(
-          'Registro exitoso',
-          'Tu cuenta ha sido creada correctamente',
-          [{ text: 'OK', onPress: () => router.push('/login') }]
-        );
-      } catch (error: any) {
-        let errorMessage = 'Error al registrarse';
-        if (error.response && error.response.data) {
-          if (Array.isArray(error.response.data)) {
-            errorMessage = error.response.data.join('\n');
-          } else if (typeof error.response.data === 'string') {
-            errorMessage = error.response.data;
-          } else if (error.response.data.errors) {
-            errorMessage = Object.values(error.response.data.errors).join('\n');
-          }
-        }
-        Alert.alert('Error', errorMessage);
-      } finally {
-        setLoading(false);
-      }
+    setFormError(null);
+    if (!validate()) return;
+
+    setLoading(true);
+    try {
+      await registerCliente({
+        email: formData.email,
+        password: formData.password,
+        fullName: formData.fullName,
+        dni: formData.dni,
+        phoneNumber: formData.phoneNumber,
+      });
+      // La contraseña solo vivió en este estado local; se descarta al navegar.
+      router.replace('/(tabs)');
+    } catch (error) {
+      setFormError(describeFirebaseAuthError(error));
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleChange = (name: string, value: string) => {
-    setFormData(prevState => ({
-      ...prevState,
-      [name]: value
-    }));
-  };
-
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="dark" />
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView contentContainerStyle={styles.scrollContainer}>
-          <Text style={styles.title}>Crear una cuenta</Text>
+    <AuthShell title="Crear cuenta" subtitle="Registrate como Cliente para comprar entradas.">
+      <FormInput
+        label="Email"
+        value={formData.email}
+        onChangeText={(text) => handleChange('email', text)}
+        placeholder="ejemplo@correo.com"
+        error={errors.email}
+        keyboardType="email-address"
+      />
 
-          <FormInput
-            label="Email"
-            value={formData.email}
-            onChangeText={(text) => handleChange('email', text)}
-            placeholder="ejemplo@correo.com"
-            error={errors.email}
-            keyboardType="email-address"
-          />
+      <FormInput
+        label="Contraseña"
+        value={formData.password}
+        onChangeText={(text) => handleChange('password', text)}
+        placeholder="Tu contraseña"
+        secureTextEntry
+        error={errors.password}
+      />
 
-          <FormInput
-            label="Contraseña"
-            value={formData.password}
-            onChangeText={(text) => handleChange('password', text)}
-            placeholder="Tu contraseña"
-            secureTextEntry={true}
-            error={errors.password}
-          />
+      <FormInput
+        label="Confirmar contraseña"
+        value={formData.confirmPassword}
+        onChangeText={(text) => handleChange('confirmPassword', text)}
+        placeholder="Confirmá tu contraseña"
+        secureTextEntry
+        error={errors.confirmPassword}
+      />
 
-          <FormInput
-            label="Confirmar Contraseña"
-            value={formData.confirmPassword}
-            onChangeText={(text) => handleChange('confirmPassword', text)}
-            placeholder="Confirma tu contraseña"
-            secureTextEntry={true}
-            error={errors.confirmPassword}
-          />
+      <FormInput
+        label="Nombre completo"
+        value={formData.fullName}
+        onChangeText={(text) => handleChange('fullName', text)}
+        placeholder="Tu nombre completo"
+        error={errors.fullName}
+        autoCapitalize="words"
+      />
 
-          <FormInput
-            label="Nombre Completo"
-            value={formData.fullName}
-            onChangeText={(text) => handleChange('fullName', text)}
-            placeholder="Tu nombre completo"
-            error={errors.fullName}
-            autoCapitalize="words"
-          />
+      <FormInput
+        label="DNI"
+        value={formData.dni}
+        onChangeText={(text) => handleChange('dni', text)}
+        placeholder="Tu DNI"
+        error={errors.dni}
+        keyboardType="numeric"
+      />
 
-          <FormInput
-            label="DNI"
-            value={formData.dni}
-            onChangeText={(text) => handleChange('dni', text)}
-            placeholder="Tu DNI"
-            error={errors.dni}
-            keyboardType="numeric"
-          />
+      <FormInput
+        label="Número de teléfono"
+        value={formData.phoneNumber}
+        onChangeText={(text) => handleChange('phoneNumber', text)}
+        placeholder="Tu número de teléfono"
+        error={errors.phoneNumber}
+        keyboardType="phone-pad"
+      />
 
-          <FormInput
-            label="Número de Teléfono"
-            value={formData.phoneNumber}
-            onChangeText={(text) => handleChange('phoneNumber', text)}
-            placeholder="Tu número de teléfono"
-            error={errors.phoneNumber}
-            keyboardType="phone-pad"
-          />
+      {formError ? <Text style={styles.formError}>{formError}</Text> : null}
 
-          <TouchableOpacity 
-            style={styles.button} 
-            onPress={handleRegister}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>Registrarse</Text>
-            )}
-          </TouchableOpacity>
+      <View style={styles.buttonContainer}>
+        <ActionButton label="Registrarse" onPress={handleRegister} loading={loading} />
+      </View>
 
-          <TouchableOpacity 
-            style={styles.loginLink}
-            onPress={() => router.push('/login')}
-          >
-            <Text style={styles.loginLinkText}>
-              ¿Ya tienes una cuenta? Iniciar sesión
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      <TouchableOpacity style={styles.loginLink} onPress={() => router.push('/login')}>
+        <Text style={styles.loginLinkText}>¿Ya tenés cuenta? Iniciar sesión</Text>
+      </TouchableOpacity>
+    </AuthShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
+  formError: {
+    fontFamily: fonts.medium,
+    color: colors.error,
+    marginBottom: spacing.md,
   },
-  scrollContainer: {
-    flexGrow: 1,
-    padding: 20,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  button: {
-    backgroundColor: '#007bff',
-    height: 50,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+  buttonContainer: {
+    marginTop: spacing.sm,
   },
   loginLink: {
-    marginTop: 20,
+    marginTop: spacing.xl,
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: spacing.lg,
   },
   loginLinkText: {
-    color: '#007bff',
-    fontSize: 16,
+    fontFamily: fonts.bold,
+    color: colors.cobalt,
+    fontSize: 15,
   },
 });
