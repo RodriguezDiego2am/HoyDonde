@@ -4,8 +4,9 @@ import { StyleSheet, View } from 'react-native';
 
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { borderWidth, colors, fonts } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
 
-type TabIconName = 'ticket.fill' | 'wallet.pass.fill';
+type TabIconName = 'ticket.fill' | 'wallet.pass.fill' | 'qrcode.viewfinder';
 
 /** Insignia circular tipo sello: se rellena de tomate cuando la pestaña está activa, como una entrada validada. */
 function TabIcon({ focused, name }: { focused: boolean; name: TabIconName }) {
@@ -17,6 +18,11 @@ function TabIcon({ focused, name }: { focused: boolean; name: TabIconName }) {
 }
 
 export default function TabLayout() {
+  const { hasAccion } = useAuth();
+  // La pestaña se resuelve por acción efectiva del usuario (nunca por nombre de rol
+  // hardcodeado): href: null la oculta de la barra sin desmontar la ruta.
+  const puedeVerEntradas = hasAccion('TICKET_VER_PROPIO');
+
   return (
     <Tabs
       screenOptions={{
@@ -33,6 +39,14 @@ export default function TabLayout() {
         options={{
           title: 'Cartelera',
           tabBarIcon: ({ focused }) => <TabIcon focused={focused} name="ticket.fill" />,
+        }}
+      />
+      <Tabs.Screen
+        name="tickets"
+        options={{
+          title: 'Mis entradas',
+          href: puedeVerEntradas ? undefined : null,
+          tabBarIcon: ({ focused }) => <TabIcon focused={focused} name="qrcode.viewfinder" />,
         }}
       />
       <Tabs.Screen

@@ -21,6 +21,7 @@ const MAPPING = {
   'chevron.right': 'chevron-right',
   'ticket.fill': 'confirmation-number',
   'wallet.pass.fill': 'badge',
+  'qrcode.viewfinder': 'qr-code-2',
 } as IconMapping;
 
 /**

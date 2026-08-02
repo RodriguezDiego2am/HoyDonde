@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 import { ActionButton } from '@/components/ui/ActionButton';
@@ -7,9 +8,20 @@ import { StatusStamp, eventEstadoTone } from '@/components/ui/StatusStamp';
 import { TicketCard } from '@/components/ui/TicketCard';
 import { colors, fonts, spacing } from '@/constants/theme';
 import { EventResponse, eventService } from '@/services/APIService';
+import { formatPrecio } from '@/utils/format';
 
 const PAGE_SIZE = 10;
 const MESES = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+
+/** Categorías reales del enum Event.EventCategory (HoyDonde.API/Models/Event.cs) — el filtro
+ * nunca inventa valores propios, solo los que la API acepta en `categoria`. */
+const CATEGORIAS: { value: string; label: string }[] = [
+  { value: 'Musica', label: 'Música' },
+  { value: 'Deportes', label: 'Deportes' },
+  { value: 'Tecnologia', label: 'Tecnología' },
+  { value: 'Arte', label: 'Arte' },
+  { value: 'Otros', label: 'Otros' },
+];
 
 function splitFecha(iso: string): { day: string; month: string; time: string } {
   const date = new Date(iso);
@@ -33,6 +45,12 @@ function ediciónDeHoy(): string {
   return `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
+/** Combina una página nueva con la lista actual sin duplicar ids (reintentos/reconexión). */
+function mergeSinDuplicados(prev: EventResponse[], next: EventResponse[]): EventResponse[] {
+  const seen = new Set(prev.map((e) => e.id));
+  return [...prev, ...next.filter((e) => !seen.has(e.id))];
+}
+
 export default function CarteleraScreen() {
   const [events, setEvents] = useState<EventResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,12 +59,20 @@ export default function CarteleraScreen() {
   const [error, setError] = useState<string | null>(null);
   const [hasNextPage, setHasNextPage] = useState(false);
   const [lastEventId, setLastEventId] = useState<string | undefined>(undefined);
+  const [categoria, setCategoria] = useState<string | undefined>(undefined);
+
+  // Cerrojo síncrono adicional a los estados de loading: onEndReached puede dispararse más de
+  // una vez antes de que el re-render con loadingMore=true se aplique, y esto evita una segunda
+  // request concurrente en esa ventana.
+  const fetchInFlight = useRef(false);
 
   const fetchEvents = useCallback(
-    async (mode: 'initial' | 'refresh' | 'more' = 'initial') => {
+    async (mode: 'initial' | 'refresh' | 'more', categoriaFiltro: string | undefined, cursor: string | undefined) => {
+      if (fetchInFlight.current) return;
+      fetchInFlight.current = true;
+
       if (mode === 'initial') {
         setLoading(true);
-        setError(null);
       } else if (mode === 'more') {
         setLoadingMore(true);
       }
@@ -54,12 +80,16 @@ export default function CarteleraScreen() {
       try {
         const data = await eventService.search({
           limit: PAGE_SIZE,
-          lastEventId: mode === 'more' ? lastEventId : undefined,
+          lastEventId: mode === 'more' ? cursor : undefined,
+          categoria: categoriaFiltro,
         });
 
-        setEvents((prev) => (mode === 'more' ? [...prev, ...data.data] : data.data));
+        setEvents((prev) => (mode === 'more' ? mergeSinDuplicados(prev, data.data) : data.data));
         setHasNextPage(data.hasNextPage);
         setLastEventId(data.lastDocumentId);
+        if (mode !== 'more') {
+          setError(null);
+        }
       } catch {
         if (mode !== 'more') {
           setError('No se pudieron cargar los eventos. Verificá tu conexión.');
@@ -68,26 +98,38 @@ export default function CarteleraScreen() {
         setLoading(false);
         setRefreshing(false);
         setLoadingMore(false);
+        fetchInFlight.current = false;
       }
     },
-    [lastEventId]
+    []
   );
 
   useEffect(() => {
-    fetchEvents('initial');
-    // Solo en el montaje inicial: paginar/refrescar se dispara desde los handlers.
+    fetchEvents('initial', categoria, undefined);
+    // Se dispara al montar y cada vez que cambia el filtro de categoría; paginar/refrescar
+    // se dispara desde los handlers de abajo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [categoria]);
 
   const onRefresh = () => {
+    if (fetchInFlight.current) return;
     setRefreshing(true);
-    fetchEvents('refresh');
+    fetchEvents('refresh', categoria, undefined);
   };
 
   const loadMore = () => {
-    if (hasNextPage && !loadingMore && !loading && !refreshing) {
-      fetchEvents('more');
+    if (hasNextPage && !fetchInFlight.current) {
+      fetchEvents('more', categoria, lastEventId);
     }
+  };
+
+  const onToggleCategoria = (value: string) => {
+    if (fetchInFlight.current) return;
+    setCategoria((prev) => (prev === value ? undefined : value));
+  };
+
+  const openEvent = (id: string) => {
+    router.push({ pathname: '/events/[id]', params: { id } });
   };
 
   const renderItem = ({ item }: { item: EventResponse }) => {
@@ -95,41 +137,48 @@ export default function CarteleraScreen() {
     const precio = precioDesde(item);
 
     return (
-      <TicketCard
-        style={styles.card}
-        stub={
-          <>
-            <Text style={styles.stubDay}>{day}</Text>
-            <Text style={styles.stubMonth}>{month}</Text>
-            <Text style={styles.stubTime}>{time}</Text>
-          </>
-        }
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Ver detalle de ${item.nombre}`}
+        onPress={() => openEvent(item.id)}
+        style={({ pressed }) => pressed && styles.cardPressed}
       >
-        <View style={styles.cardHeader}>
-          <Text style={styles.eventName}>{item.nombre}</Text>
-          <StatusStamp label={item.estado} tone={eventEstadoTone(item.estado)} />
-        </View>
-
-        <View style={styles.metaRow}>
-          <Text style={styles.categoriaTag}>{item.categoria}</Text>
-          <View style={styles.locationRow}>
-            <MaterialIcons name="place" size={14} color={colors.inkSoft} />
-            <Text style={styles.eventLocation}>{item.ubicacion}</Text>
+        <TicketCard
+          style={styles.card}
+          stub={
+            <>
+              <Text style={styles.stubDay}>{day}</Text>
+              <Text style={styles.stubMonth}>{month}</Text>
+              <Text style={styles.stubTime}>{time}</Text>
+            </>
+          }
+        >
+          <View style={styles.cardHeader}>
+            <Text style={styles.eventName}>{item.nombre}</Text>
+            <StatusStamp label={item.estado} tone={eventEstadoTone(item.estado)} />
           </View>
-        </View>
 
-        {item.descripcion ? (
-          <Text numberOfLines={2} style={styles.eventDescription}>
-            {item.descripcion}
-          </Text>
-        ) : null}
-
-        {precio !== null ? (
-          <View style={styles.priceTag}>
-            <Text style={styles.priceLabel}>DESDE ${precio}</Text>
+          <View style={styles.metaRow}>
+            <Text style={styles.categoriaTag}>{item.categoria}</Text>
+            <View style={styles.locationRow}>
+              <MaterialIcons name="place" size={14} color={colors.inkSoft} />
+              <Text style={styles.eventLocation}>{item.ubicacion}</Text>
+            </View>
           </View>
-        ) : null}
-      </TicketCard>
+
+          {item.descripcion ? (
+            <Text numberOfLines={2} style={styles.eventDescription}>
+              {item.descripcion}
+            </Text>
+          ) : null}
+
+          {precio !== null ? (
+            <View style={styles.priceTag}>
+              <Text style={styles.priceLabel}>DESDE {formatPrecio(precio)}</Text>
+            </View>
+          ) : null}
+        </TicketCard>
+      </Pressable>
     );
   };
 
@@ -154,6 +203,29 @@ export default function CarteleraScreen() {
         <View style={styles.hairline} />
         <Text style={styles.title}>Cartelera</Text>
         <Text style={styles.subtitle}>Eventos publicados</Text>
+
+        <FlatList
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          data={CATEGORIAS}
+          keyExtractor={(item) => item.value}
+          style={styles.filterRow}
+          contentContainerStyle={styles.filterRowContent}
+          renderItem={({ item }) => {
+            const active = categoria === item.value;
+            return (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`Filtrar por ${item.label}`}
+                onPress={() => onToggleCategoria(item.value)}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+              >
+                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{item.label}</Text>
+              </Pressable>
+            );
+          }}
+        />
       </View>
 
       {loading ? (
@@ -180,9 +252,11 @@ export default function CarteleraScreen() {
             }
           >
             <MaterialIcons name="campaign" size={40} color={colors.ink} style={styles.emptyIcon} />
-            <Text style={styles.emptyText}>No hay eventos disponibles por el momento.</Text>
+            <Text style={styles.emptyText}>
+              {categoria ? 'No hay eventos en esta categoría por el momento.' : 'No hay eventos disponibles por el momento.'}
+            </Text>
             <Text style={styles.emptyHint}>
-              Los organizadores todavía no publicaron nada. Volvé a mirar más tarde o actualizá la cartelera.
+              Los organizadores todavía no publicaron nada acá. Volvé a mirar más tarde o actualizá la cartelera.
             </Text>
             <View style={styles.emptyButton}>
               <ActionButton label="Actualizar cartelera" onPress={onRefresh} />
@@ -191,6 +265,7 @@ export default function CarteleraScreen() {
         </View>
       ) : (
         <FlatList
+          testID="cartelera-list"
           data={events}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
@@ -275,6 +350,32 @@ const styles = StyleSheet.create({
     color: colors.inkSoft,
     marginTop: 2,
   },
+  filterRow: {
+    marginTop: spacing.md,
+  },
+  filterRowContent: {
+    gap: spacing.sm,
+    paddingRight: spacing.lg,
+  },
+  filterChip: {
+    borderWidth: 1,
+    borderColor: colors.ink,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  filterChipActive: {
+    backgroundColor: colors.ink,
+  },
+  filterChipText: {
+    fontFamily: fonts.bold,
+    fontSize: 12,
+    letterSpacing: 0.5,
+    color: colors.ink,
+    textTransform: 'uppercase',
+  },
+  filterChipTextActive: {
+    color: colors.paper,
+  },
   center: {
     flex: 1,
     justifyContent: 'center',
@@ -324,6 +425,9 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: spacing.md,
+  },
+  cardPressed: {
+    opacity: 0.85,
   },
   stubDay: {
     fontFamily: fonts.black,

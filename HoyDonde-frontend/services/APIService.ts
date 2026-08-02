@@ -143,4 +143,44 @@ export const eventService = {
   },
 };
 
+/** Estado histórico/persistido del ticket (nunca reescrito por una cancelación de evento). */
+export type TicketEstado = 'Emitido' | 'Usado' | 'Anulado';
+
+/** Motivo por el que un ticket utilizable == false; null cuando utilizable == true. */
+export type TicketMotivoNoUtilizable = 'Usado' | 'Anulado' | 'EventoCancelado' | 'EventoFinalizado' | null;
+
+export interface TicketResponse {
+  id: string;
+  eventoId: string;
+  ticketTypeId: string;
+  clientePersonaId: string;
+  fechaCompra: string;
+  estado: TicketEstado;
+  utilizable: boolean;
+  motivoNoUtilizable: TicketMotivoNoUtilizable;
+  eventoNombre: string;
+  ticketTypeNombre: string;
+  precioPagado: number;
+  fechaInicio: string;
+  fechaFin: string;
+}
+
+export interface TicketBuyRequest {
+  eventoId: string;
+  ticketTypeId: string;
+  cantidad: number;
+}
+
+export const ticketService = {
+  buy: async (payload: TicketBuyRequest): Promise<TicketResponse[]> => {
+    const response = await apiClient.post<TicketResponse[]>('/tickets/buy', payload);
+    return response.data;
+  },
+
+  getMine: async (): Promise<TicketResponse[]> => {
+    const response = await apiClient.get<TicketResponse[]>('/tickets/me');
+    return response.data;
+  },
+};
+
 export default apiClient;
