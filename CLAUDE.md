@@ -131,6 +131,18 @@ The project specification also describes payments, temporary reservations, signe
 - `GetTicketsByClienteIdAsync` groups the client's tickets by distinct `EventoId` and resolves those events with a single batch read (`FirestoreDb.GetAllSnapshotsAsync`) — never one read per ticket.
 - Current verification result: **291 passed, 0 failed, 0 skipped** (full suite, emulator-backed).
 
+## Control assignment (API-MVP 3, implemented and verified — see docs/api-mvp-plan.md §4)
+
+- `POST /api/events/{eventId}/controls/{controlPersonaId}` (`EventsController.AssignControl`) assigns an already-provisioned Control to another event owned by the authenticated organizer. Protected by the **existing** `CONTROL_CREAR` policy — no new action was added to the 20-action catalog.
+- Ownership: `Event.OrganizadorPersonaId` (re-read from Firestore) must equal the actor's resolved `PersonaId` (`EventOwnershipException` → 403); an unknown event is `EventNotFoundException` → 404.
+- Allowed event states: `Borrador`, `Publicado` not yet started, and `Publicado` in progress. Rejected with `EventoNoDisponibleParaAsignacionControlException` → 409 when the event is `Cancelado`, or `Publicado` with effective status `Finalizado` (`UtcNow > FechaFin`), same effective-status evaluation as `CancelEventAsync`.
+- Control eligibility (`UserService.AsignarControlExistenteAsync`): the `controlPersonaId` must resolve (`IUsuarioRepository.GetByPersonaIdAsync`) to a `Usuario` that is `IsActive == true` and holds an active `CONTROL` role. All three rejection reasons (Persona doesn't exist, Usuario inactive, no active CONTROL role) collapse into one public `ControlInvalidoException` → HTTP 404, whose message deliberately never distinguishes which of the three applies, so the response can't be used to probe whether a given `PersonaId` exists.
+- Scope check: the Control must already have at least one `ControlAsignacion` (to any event) created by this same organizer (`IControlAsignacionRepository.ExisteAsignacionPorAsignadorAsync`, two equality filters + `Limit(1)`, no composite index needed) before it can be assigned to a new one. Otherwise `ControlAjenoException` → 403 — an organizer can never appropriate a Control administered exclusively by another organizer.
+- Idempotency: reuses `IControlAsignacionRepository.AsignarAsync` (already transactional at the repository level). Calling the endpoint twice for the same `(controlPersonaId, eventId)` is a no-op success; `GetAsignacionAsync` always returns `AssignedByPersonaId`/`CreatedAt` from the **first** assignment, verified under 8 concurrent calls for the same pair both at the repository level and at the `UserService` level against the real emulator.
+- No new Firebase identity, `Persona`, `Usuario`, or `UsuarioRol` is ever created by this endpoint — it only links an already-provisioned Control to an additional event.
+- Response is the bounded `ControlAsignacionResponseDto` (`ControlPersonaId`, `EventId`, `AssignedByPersonaId`, `CreatedAt`) — never the Firebase UID, `UsuarioId`, or any identity-provider data.
+- Current verification result: **327 passed, 0 failed, 0 skipped** (full suite, emulator-backed).
+
 ## Tests
 
 - Controller/HTTP tests use `TestApplicationFactory` and `FakeAuthHandler`: the fake authentication identity supplies only UID (`ClaimTypes.NameIdentifier`, overridable per-request via the `Test-Uid` header) and email — nothing role-related. There is no `Test-Role` header and no `ClaimTypes.Role`/`"role"` claim anywhere in test infrastructure.

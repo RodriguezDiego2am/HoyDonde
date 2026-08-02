@@ -49,5 +49,24 @@ namespace HoyDonde.API.Repositories
             var snapshot = await _firestore.Collection(CollectionName).Document(BuildId(controlPersonaId, eventId)).GetSnapshotAsync();
             return snapshot.Exists;
         }
+
+        // Dos filtros de igualdad sobre campos distintos: Firestore los resuelve con los
+        // índices de campo simple que ya existen por defecto, sin requerir un índice compuesto
+        // adicional en firestore.indexes.json.
+        public async Task<bool> ExisteAsignacionPorAsignadorAsync(string controlPersonaId, string assignedByPersonaId)
+        {
+            var snapshot = await _firestore.Collection(CollectionName)
+                .WhereEqualTo(nameof(ControlAsignacion.ControlPersonaId), controlPersonaId)
+                .WhereEqualTo(nameof(ControlAsignacion.AssignedByPersonaId), assignedByPersonaId)
+                .Limit(1)
+                .GetSnapshotAsync();
+            return snapshot.Documents.Count > 0;
+        }
+
+        public async Task<ControlAsignacion?> GetAsignacionAsync(string controlPersonaId, string eventId)
+        {
+            var snapshot = await _firestore.Collection(CollectionName).Document(BuildId(controlPersonaId, eventId)).GetSnapshotAsync();
+            return snapshot.Exists ? snapshot.ConvertTo<ControlAsignacion>() : null;
+        }
     }
 }

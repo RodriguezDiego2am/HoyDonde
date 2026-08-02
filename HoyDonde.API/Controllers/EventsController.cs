@@ -15,11 +15,13 @@ namespace HoyDonde.API.Controllers
     public class EventsController : ControllerBase
     {
         private readonly IEventService _eventService;
+        private readonly IUserService _userService;
         private readonly ILogger<EventsController> _logger;
 
-        public EventsController(IEventService eventService, ILogger<EventsController> logger)
+        public EventsController(IEventService eventService, IUserService userService, ILogger<EventsController> logger)
         {
             _eventService = eventService;
+            _userService = userService;
             _logger = logger;
         }
 
@@ -198,6 +200,56 @@ namespace HoyDonde.API.Controllers
             catch (EventOwnershipException)
             {
                 return StatusCode(StatusCodes.Status403Forbidden, new { message = "No tenés permiso sobre este evento." });
+            }
+            catch (IdentityNotProvisionedException)
+            {
+                // Se deja propagar al middleware: respuesta 403 genérica centralizada, sin
+                // reenviar información interna (docs/security-refactor-plan.md §1/§4).
+                throw;
+            }
+        }
+
+        // API-MVP 3 (docs/api-mvp-plan.md §4): asigna un Control ya existente a otro evento
+        // propio del organizador autenticado. Reutiliza CONTROL_CREAR (sin acción nueva); la
+        // ruta cuelga de /api/events, no de /api/users, porque la operación es sobre el
+        // evento destino. No crea ninguna cuenta nueva.
+        [HttpPost("{eventId}/controls/{controlPersonaId}")]
+        [Authorize(Policy = Acciones.ControlCrear)]
+        public async Task<IActionResult> AssignControl(string eventId, string controlPersonaId)
+        {
+            var organizerId = GetAuthenticatedUserId();
+            if (string.IsNullOrEmpty(organizerId)) return Unauthorized();
+
+            try
+            {
+                var asignacion = await _userService.AsignarControlExistenteAsync(organizerId, eventId, controlPersonaId);
+                return Ok(new ControlAsignacionResponseDto
+                {
+                    ControlPersonaId = asignacion.ControlPersonaId,
+                    EventId = asignacion.EventId,
+                    AssignedByPersonaId = asignacion.AssignedByPersonaId,
+                    CreatedAt = asignacion.CreatedAt,
+                });
+            }
+            catch (EventNotFoundException)
+            {
+                return NotFound(new { message = "Evento no encontrado." });
+            }
+            catch (ControlInvalidoException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (EventOwnershipException)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "No tenés permiso sobre este evento." });
+            }
+            catch (ControlAjenoException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+            }
+            catch (EventoNoDisponibleParaAsignacionControlException ex)
+            {
+                return Conflict(new { message = ex.Message });
             }
             catch (IdentityNotProvisionedException)
             {

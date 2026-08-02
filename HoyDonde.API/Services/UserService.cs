@@ -3,6 +3,7 @@ using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace HoyDonde.API.Services
@@ -74,6 +75,50 @@ namespace HoyDonde.API.Services
             await _controlAsignacionRepository.AsignarAsync(result.PersonaId, eventId, organizadorPersonaId);
 
             return result;
+        }
+
+        // API-MVP 3 (docs/api-mvp-plan.md §4). No crea ninguna identidad ni cuenta nueva: solo
+        // valida ownership del evento destino, elegibilidad del Control y ámbito del
+        // organizador, y reutiliza IControlAsignacionRepository.AsignarAsync (ya idempotente y
+        // transaccional a nivel repositorio).
+        public async Task<ControlAsignacion> AsignarControlExistenteAsync(string actorUid, string eventId, string controlPersonaId)
+        {
+            var organizadorPersonaId = await _personaResolver.ResolvePersonaIdAsync(actorUid);
+
+            var evento = await _eventService.GetEventEntityByIdAsync(eventId);
+            if (evento == null) throw new EventNotFoundException(eventId);
+            if (evento.OrganizadorPersonaId != organizadorPersonaId) throw new EventOwnershipException(eventId, actorUid);
+
+            // No se puede asignar a un evento Cancelado ni a uno Publicado ya Finalizado
+            // (estado efectivo). Borrador, Publicado en curso y Publicado no iniciado sí admiten
+            // asignación.
+            if (evento.Estado == Event.EventStatus.Cancelado ||
+                evento.GetEstadoEfectivo(DateTime.UtcNow) == Event.EventEffectiveStatus.Finalizado)
+            {
+                throw new EventoNoDisponibleParaAsignacionControlException(eventId);
+            }
+
+            var usuarioControl = await _usuarioRepository.GetByPersonaIdAsync(controlPersonaId);
+            if (usuarioControl == null || !usuarioControl.IsActive)
+                throw new ControlInvalidoException(controlPersonaId);
+
+            var rolesActivos = await _usuarioRepository.GetRolCodigosActivosAsync(usuarioControl.Id);
+            if (!rolesActivos.Contains(RolControl))
+                throw new ControlInvalidoException(controlPersonaId);
+
+            // Ámbito del organizador: el Control debe tener ya al menos una asignación (a
+            // cualquier evento) creada por este mismo organizador. Evita que un organizador se
+            // apropie de un Control administrado exclusivamente por otro.
+            var perteneceAlOrganizador = await _controlAsignacionRepository.ExisteAsignacionPorAsignadorAsync(controlPersonaId, organizadorPersonaId);
+            if (!perteneceAlOrganizador)
+                throw new ControlAjenoException(controlPersonaId);
+
+            await _controlAsignacionRepository.AsignarAsync(controlPersonaId, eventId, organizadorPersonaId);
+
+            // Lectura posterior: si la asignación ya existía (no-op idempotente), esto devuelve
+            // AssignedByPersonaId/CreatedAt de la primera asignación, no del intento actual.
+            var asignacion = await _controlAsignacionRepository.GetAsignacionAsync(controlPersonaId, eventId);
+            return asignacion!;
         }
 
         // Crea la identidad externa y, si eso tiene éxito, provisiona Persona+Usuario+

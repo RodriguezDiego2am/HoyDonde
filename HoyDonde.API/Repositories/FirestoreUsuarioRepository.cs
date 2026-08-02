@@ -108,6 +108,15 @@ namespace HoyDonde.API.Repositories
             return snapshot.Exists ? snapshot.ConvertTo<Usuario>() : null;
         }
 
+        public async Task<Usuario?> GetByPersonaIdAsync(string personaId)
+        {
+            var snapshot = await _firestore.Collection(UsuariosCollection)
+                .WhereEqualTo(nameof(Usuario.PersonaId), personaId)
+                .Limit(1)
+                .GetSnapshotAsync();
+            return snapshot.Documents.Count > 0 ? snapshot.Documents[0].ConvertTo<Usuario>() : null;
+        }
+
         public async Task<IReadOnlyList<string>> GetRolCodigosActivosAsync(string usuarioId)
         {
             var snapshot = await _firestore.Collection(UsuariosCollection).Document(usuarioId)

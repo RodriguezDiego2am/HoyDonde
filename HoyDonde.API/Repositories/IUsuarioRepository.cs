@@ -18,6 +18,11 @@ namespace HoyDonde.API.Repositories
 
         Task<Usuario?> GetByIdAsync(string usuarioId);
 
+        // Resuelve el Usuario dueño de una PersonaId dada (p. ej. el controlPersonaId recibido
+        // en POST /api/events/{eventId}/controls/{controlPersonaId}). null si ninguna Usuario
+        // tiene esa PersonaId.
+        Task<Usuario?> GetByPersonaIdAsync(string personaId);
+
         Task<IReadOnlyList<string>> GetRolCodigosActivosAsync(string usuarioId);
 
         // Usados por el bootstrap del primer Administrador (docs/security-refactor-plan.md §5)

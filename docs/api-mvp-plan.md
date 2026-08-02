@@ -4,7 +4,7 @@ Este documento es el roadmap de implementación posterior al refactor de segurid
 
 Para distinguirlas de las **Etapas** del refactor de seguridad, las etapas de este plan se llaman **API-MVP N**. No reabren ni modifican el módulo de seguridad: reutilizan sus policies, su catálogo de 20 acciones y su mecanismo de autorización tal como están.
 
-Este documento nació como documento de planificación: no se implementó código ni se ejecutó la suite de tests al crearlo, y no se modificaron `CLAUDE.md` ni `API_Documentation.md` en esa revisión inicial. La revisión del 2026-08-02 **cerró API-MVP 1**: código implementado y verificado (ver §2, "Estado: implementada y verificada"); `CLAUDE.md` se actualizó con el estado funcional real de `Event`. Esta revisión (2026-08-02) **cierra además API-MVP 2**: compra, validación y consulta de tickets implementadas y verificadas (ver §3, "Estado: implementada y verificada"); `CLAUDE.md` se actualizó con el estado funcional real del flujo de `Ticket`. `API_Documentation.md` sigue sin tocarse — su actualización pertenece a API-MVP 4 (§5), no a estos cierres.
+Este documento nació como documento de planificación: no se implementó código ni se ejecutó la suite de tests al crearlo, y no se modificaron `CLAUDE.md` ni `API_Documentation.md` en esa revisión inicial. La revisión del 2026-08-02 **cerró API-MVP 1**: código implementado y verificado (ver §2, "Estado: implementada y verificada"); `CLAUDE.md` se actualizó con el estado funcional real de `Event`. Esa misma revisión **cerró además API-MVP 2**: compra, validación y consulta de tickets implementadas y verificadas (ver §3, "Estado: implementada y verificada"); `CLAUDE.md` se actualizó con el estado funcional real del flujo de `Ticket`. Esta revisión (2026-08-02) **cierra además API-MVP 3**: asignación de un Control existente a otro evento propio implementada y verificada (ver §4, "Estado: implementada y verificada"); `CLAUDE.md` se actualizó con el contrato y las reglas reales de esta asignación. `API_Documentation.md` sigue sin tocarse — su actualización pertenece a API-MVP 4 (§5), no a estos cierres.
 
 ---
 
@@ -122,7 +122,7 @@ Resumen de lo efectivamente implementado:
 - `SearchEventsAsync` pagina completamente del lado de Firestore: el filtro opcional `FechaInicio`, el cursor (`StartAfter`) y el `Limit` son parte de la misma consulta — no hay filtrado en memoria en ningún punto de la paginación.
 - Cuatro índices compuestos explícitos en `firestore.indexes.json` cubren las combinaciones reales de filtros de igualdad opcionales (`Categoria`/`Ubicacion`) junto con el rango obligatorio (`Estado`+`FechaFin`+`FechaInicio`). **Nota prudente**: el Firestore Emulator valida la lógica de las consultas, no la existencia de índices — una suite en verde contra el emulador no acredita que estos índices estén efectivamente desplegados en un proyecto de Firestore de producción; eso requiere `firebase deploy --only firestore:indexes` (o equivalente) contra ese proyecto, verificación que queda fuera del alcance de este cierre.
 
-API-MVP 2 (§3) está **cerrada** (ver su propia sección "Estado: implementada y verificada"). API-MVP 3 y 4 (§4, §5) siguen **pendientes**, sin cambios respecto a lo planificado en este documento.
+API-MVP 2 (§3) y API-MVP 3 (§4) están **cerradas** (ver sus propias secciones "Estado: implementada y verificada"). API-MVP 4 (§5) sigue **pendiente**, sin cambios respecto a lo planificado en este documento.
 
 ### Dependencias
 Ninguna — puede iniciarse de inmediato.
@@ -194,7 +194,7 @@ Resumen de lo efectivamente implementado:
 
 **Riesgo no bloqueante**: durante una corrida de la suite completa en paralelo, `BuyTicketsAsync_ConcurrentPurchases_StockOne_OnlyOneSucceeds` falló una vez con `Grpc.Core.RpcException: Aborted — Transaction lock timeout` por contención real del Firestore Emulator bajo ejecución concurrente de múltiples clases de test a la vez; en aislamiento y en las corridas subsiguientes de la suite completa pasó sin problemas (291 passed, 0 failed, 0 skipped). No se considera un defecto del código de producción — es contención del emulador local bajo carga de test paralela, no reproducida contra una sola transacción real de negocio. Revisar la paralelización de la suite de integración (por ejemplo, desactivar el paralelismo de xUnit entre clases que comparten el emulador) solo si esta falla vuelve a repetirse.
 
-API-MVP 3 y 4 (§4, §5) siguen **pendientes**, sin cambios respecto a lo planificado en este documento.
+API-MVP 3 (§4) está **cerrada** (ver su propia sección "Estado: implementada y verificada"). API-MVP 4 (§5) sigue **pendiente**, sin cambios respecto a lo planificado en este documento.
 
 ---
 
@@ -228,6 +228,26 @@ Ninguna estructural respecto a API-MVP 1/2; se ubica en tercer lugar para no toc
 
 ### Fuera de alcance
 Endpoint de "desasignar" un Control de un evento; listar las asignaciones de un Control; que un Control se autoasigne o cambie de evento sin intervención del organizador.
+
+### Estado: implementada y verificada (cierre, 2026-08-02)
+
+API-MVP 3 está **implementada y verificada** contra el HEAD actual. Resultado final de verificación:
+
+- `dotnet build HoyDonde.sln`: sin errores.
+- Suite completa (unit + controller + integración) contra Firestore Emulator real (`npx firebase-tools@13.35.1 emulators:exec ...`, ver `CLAUDE.md`): **327 passed, 0 failed, 0 skipped** (291 antes de este cierre; 36 tests nuevos).
+
+Resumen de lo efectivamente implementado:
+
+- Ruta cerrada `POST /api/events/{eventId}/controls/{controlPersonaId}`, protegida con la policy **ya existente** `CONTROL_CREAR` (`EventsController.AssignControl`); no se agregó ninguna acción 21 ni se tocó el catálogo de 20 acciones.
+- El actor autenticado se resuelve exclusivamente en servidor (`IAuthenticatedPersonaResolver`, UID de token → `PersonaId`), nunca desde un campo del body/query; se compara contra `Event.OrganizadorPersonaId` re-leído de Firestore antes de cualquier otra validación (`EventOwnershipException` → 403 si no coincide, `EventNotFoundException` → 404 si el evento no existe).
+- Estados admitidos y rechazados: se permite asignar mientras el evento está en `Borrador`, `Publicado` (no iniciado) o `Publicado` en curso; se rechaza con `EventoNoDisponibleParaAsignacionControlException` → 409 si el evento está `Cancelado`, o si es `Publicado` con estado efectivo `Finalizado` (`UtcNow > FechaFin`). La verificación evalúa el estado efectivo, igual que `CancelEventAsync` (API-MVP 1).
+- Validación uniforme del Control destino (`UserService.AsignarControlExistenteAsync`): la `PersonaId` recibida debe corresponder a un `Usuario` existente (`IUsuarioRepository.GetByPersonaIdAsync`, nuevo), con `IsActive == true`, y con el rol `CONTROL` activo (`GetRolCodigosActivosAsync`). Los tres motivos de rechazo (Persona inexistente, Usuario inactivo, sin rol CONTROL activo) colapsan en una única excepción pública `ControlInvalidoException` → HTTP 404, con un mensaje que nunca distingue cuál de los tres aplica, para no filtrar si una `PersonaId` dada existe o no en el sistema.
+- Pertenencia previa al mismo organizador (ámbito, nuevo método `IControlAsignacionRepository.ExisteAsignacionPorAsignadorAsync`): antes de asignar a un evento nuevo, el Control debe tener ya al menos una `ControlAsignacion` (a cualquier evento) creada por ese mismo organizador; de lo contrario `ControlAjenoException` → HTTP 403. Esto impide que un organizador se apropie de un Control administrado exclusivamente por otro. La consulta usa dos filtros de igualdad + `Limit(1)`, sin cargar la colección completa en memoria y sin requerir un índice compuesto nuevo (Firestore resuelve igualdad+igualdad con los índices de campo simple por defecto).
+- Idempotencia y concurrencia: la asignación reutiliza `IControlAsignacionRepository.AsignarAsync` (ya transaccional a nivel repositorio desde API-MVP/Etapa 4 de seguridad); se agregó `GetAsignacionAsync` para leer el documento resultante y devolver siempre `AssignedByPersonaId`/`CreatedAt` de la **primera** asignación, incluso en una repetición del mismo par `(controlPersonaId, eventId)`. Verificado con llamadas concurrentes tanto a nivel repositorio (test preexistente) como a nivel `UserService` contra el emulador real (`UserServiceControlAssignmentEmulatorTests.AsignarControlExistenteAsync_CalledConcurrently_ForSamePair_NoneFail_AndOnlyOneAssignmentSurvives`, 8 llamadas concurrentes para el mismo par).
+- No se crea ninguna cuenta Firebase, `Persona`, `Usuario` ni `UsuarioRol` nuevos: la asignación opera exclusivamente sobre un Control ya aprovisionado. Verificado explícitamente (`identityProvider.Verify(... CreateIdentityAsync ..., Times.Never)` y `usuarioRepository.Verify(... ProvisionarAsync ..., Times.Never)` en los tests de servicio, tanto con mocks como contra el emulador real).
+- Contrato público acotado: `ControlAsignacionResponseDto` expone únicamente `ControlPersonaId`, `EventId`, `AssignedByPersonaId` y `CreatedAt`; nunca el UID de Firebase, el `UsuarioId` ni ningún dato del proveedor de identidad. Verificado con un test HTTP que confirma que la respuesta no contiene el UID del actor ni las cadenas `"ExternalSubjectId"`/`"UsuarioId"`.
+
+API-MVP 4 (§5) sigue **pendiente**, sin cambios respecto a lo planificado en este documento. El frontend (§6/§7) tampoco se tocó en este cierre.
 
 ---
 

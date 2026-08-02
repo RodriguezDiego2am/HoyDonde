@@ -116,5 +116,72 @@ namespace HoyDonde.API.Tests.Integration
             Assert.True(await sut.ExisteAsignacionAsync(controlPersonaId, eventoA));
             Assert.True(await sut.ExisteAsignacionAsync(controlPersonaId, eventoB));
         }
+
+        // ---- API-MVP 3: ámbito del organizador y lectura puntual de metadata ----
+
+        [FirestoreEmulatorFact]
+        public async Task ExisteAsignacionPorAsignadorAsync_ReturnsTrue_WhenControlWasAssignedByThatOrganizerToAnyEvent()
+        {
+            var sut = new FirestoreControlAsignacionRepository(_fixture.Db!);
+            var controlPersonaId = $"control-persona-{Guid.NewGuid():N}";
+            var eventoA = $"event-a-{Guid.NewGuid():N}";
+            var organizadorPersonaId = $"organizador-persona-{Guid.NewGuid():N}";
+
+            await sut.AsignarAsync(controlPersonaId, eventoA, organizadorPersonaId);
+
+            Assert.True(await sut.ExisteAsignacionPorAsignadorAsync(controlPersonaId, organizadorPersonaId));
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task ExisteAsignacionPorAsignadorAsync_ReturnsFalse_WhenControlOnlyAssignedByAnotherOrganizer()
+        {
+            var sut = new FirestoreControlAsignacionRepository(_fixture.Db!);
+            var controlPersonaId = $"control-persona-{Guid.NewGuid():N}";
+            var eventoA = $"event-a-{Guid.NewGuid():N}";
+
+            await sut.AsignarAsync(controlPersonaId, eventoA, "organizador-persona-dueno");
+
+            Assert.False(await sut.ExisteAsignacionPorAsignadorAsync(controlPersonaId, "organizador-persona-otro"));
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task ExisteAsignacionPorAsignadorAsync_ReturnsFalse_WhenNeverAssigned()
+        {
+            var sut = new FirestoreControlAsignacionRepository(_fixture.Db!);
+
+            var existe = await sut.ExisteAsignacionPorAsignadorAsync(
+                $"control-persona-{Guid.NewGuid():N}", $"organizador-persona-{Guid.NewGuid():N}");
+
+            Assert.False(existe);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task GetAsignacionAsync_ReturnsNull_WhenNeverAssigned()
+        {
+            var sut = new FirestoreControlAsignacionRepository(_fixture.Db!);
+
+            var asignacion = await sut.GetAsignacionAsync($"control-persona-{Guid.NewGuid():N}", $"event-{Guid.NewGuid():N}");
+
+            Assert.Null(asignacion);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task GetAsignacionAsync_AfterRepeatedAsignarAsync_PreservesOriginalMetadata()
+        {
+            var sut = new FirestoreControlAsignacionRepository(_fixture.Db!);
+            var controlPersonaId = $"control-persona-{Guid.NewGuid():N}";
+            var eventId = $"event-{Guid.NewGuid():N}";
+
+            await sut.AsignarAsync(controlPersonaId, eventId, "organizador-persona-original");
+            var original = await sut.GetAsignacionAsync(controlPersonaId, eventId);
+            Assert.NotNull(original);
+
+            await sut.AsignarAsync(controlPersonaId, eventId, "organizador-persona-tardio");
+            var final = await sut.GetAsignacionAsync(controlPersonaId, eventId);
+
+            Assert.NotNull(final);
+            Assert.Equal("organizador-persona-original", final!.AssignedByPersonaId);
+            Assert.Equal(original!.CreatedAt, final.CreatedAt);
+        }
     }
 }

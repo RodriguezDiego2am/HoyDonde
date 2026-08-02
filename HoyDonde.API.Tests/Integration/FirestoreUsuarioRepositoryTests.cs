@@ -124,6 +124,34 @@ namespace HoyDonde.API.Tests.Integration
             Assert.Null(usuario);
         }
 
+        // API-MVP 3 (docs/api-mvp-plan.md §4): POST /api/events/{eventId}/controls/{controlPersonaId}
+        // recibe una PersonaId, no una UsuarioId; esta es la resolución inversa que lo habilita.
+        [FirestoreEmulatorFact]
+        public async Task GetByPersonaIdAsync_ReturnsUsuario_WhenPersonaHasOne()
+        {
+            var sut = new FirestoreUsuarioRepository(_fixture.Db!);
+            var personaId = $"persona-{Guid.NewGuid():N}";
+            var usuarioId = $"usuario-{Guid.NewGuid():N}";
+
+            await sut.ProvisionarAsync(NewRequest(personaId, usuarioId, $"uid-{Guid.NewGuid():N}", "control@test.com", "CONTROL"));
+
+            var usuario = await sut.GetByPersonaIdAsync(personaId);
+
+            Assert.NotNull(usuario);
+            Assert.Equal(usuarioId, usuario!.Id);
+            Assert.Equal(personaId, usuario.PersonaId);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task GetByPersonaIdAsync_ReturnsNull_WhenNoUsuarioHasThatPersonaId()
+        {
+            var sut = new FirestoreUsuarioRepository(_fixture.Db!);
+
+            var usuario = await sut.GetByPersonaIdAsync($"persona-inexistente-{Guid.NewGuid():N}");
+
+            Assert.Null(usuario);
+        }
+
         // La colección raíz "roles" (catálogo de Rol, Etapa 1) comparte Id de colección
         // ("roles") con la subcolección usuarios/{UsuarioId}/roles que usa este método: una
         // collection group query ingenua sobre "roles" devuelve también los documentos Rol del

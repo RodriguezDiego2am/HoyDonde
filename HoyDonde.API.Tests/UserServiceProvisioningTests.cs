@@ -167,6 +167,206 @@ namespace HoyDonde.API.Tests
             controlAsignacionRepository.Verify(r => r.AsignarAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         }
 
+        // ---- API-MVP 3: asignación de un Control existente a otro evento propio ----
+
+        private const string ControlPersonaId = "control-persona-existente";
+        private const string SecondEventId = "event-2";
+
+        private static Usuario ActiveControlUsuario(string usuarioId = "usuario-control-1") =>
+            new Usuario { Id = usuarioId, PersonaId = ControlPersonaId, IsActive = true };
+
+        [Fact]
+        public async Task AsignarControlExistenteAsync_ForSecondOwnEvent_Succeeds_AndReturnsAsignacion_WithoutTouchingIdentityProviderOrProvisioning()
+        {
+            var (sut, usuarioRepository, _, eventService, identityProvider, personaResolver, controlAsignacionRepository, _) = CreateSut();
+            personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
+            eventService.Setup(s => s.GetEventEntityByIdAsync(SecondEventId))
+                .ReturnsAsync(new Event { Id = SecondEventId, OrganizadorPersonaId = OrganizadorPersonaId });
+            usuarioRepository.Setup(r => r.GetByPersonaIdAsync(ControlPersonaId)).ReturnsAsync(ActiveControlUsuario());
+            usuarioRepository.Setup(r => r.GetRolCodigosActivosAsync("usuario-control-1")).ReturnsAsync(new[] { "CONTROL" });
+            controlAsignacionRepository.Setup(r => r.ExisteAsignacionPorAsignadorAsync(ControlPersonaId, OrganizadorPersonaId)).ReturnsAsync(true);
+            var expected = new ControlAsignacion
+            {
+                Id = $"{ControlPersonaId}_{SecondEventId}",
+                ControlPersonaId = ControlPersonaId,
+                EventId = SecondEventId,
+                AssignedByPersonaId = OrganizadorPersonaId,
+                CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            };
+            controlAsignacionRepository.Setup(r => r.GetAsignacionAsync(ControlPersonaId, SecondEventId)).ReturnsAsync(expected);
+
+            var result = await sut.AsignarControlExistenteAsync(ActorUid, SecondEventId, ControlPersonaId);
+
+            Assert.Equal(ControlPersonaId, result.ControlPersonaId);
+            Assert.Equal(SecondEventId, result.EventId);
+            Assert.Equal(OrganizadorPersonaId, result.AssignedByPersonaId);
+            controlAsignacionRepository.Verify(r => r.AsignarAsync(ControlPersonaId, SecondEventId, OrganizadorPersonaId), Times.Once);
+            identityProvider.Verify(p => p.CreateIdentityAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
+            usuarioRepository.Verify(r => r.ProvisionarAsync(It.IsAny<UsuarioProvisioningRequest>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task AsignarControlExistenteAsync_CalledTwice_IsIdempotent_AndReturnsOriginalMetadata()
+        {
+            var (sut, usuarioRepository, _, eventService, _, personaResolver, controlAsignacionRepository, _) = CreateSut();
+            personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
+            eventService.Setup(s => s.GetEventEntityByIdAsync(SecondEventId))
+                .ReturnsAsync(new Event { Id = SecondEventId, OrganizadorPersonaId = OrganizadorPersonaId });
+            usuarioRepository.Setup(r => r.GetByPersonaIdAsync(ControlPersonaId)).ReturnsAsync(ActiveControlUsuario());
+            usuarioRepository.Setup(r => r.GetRolCodigosActivosAsync("usuario-control-1")).ReturnsAsync(new[] { "CONTROL" });
+            controlAsignacionRepository.Setup(r => r.ExisteAsignacionPorAsignadorAsync(ControlPersonaId, OrganizadorPersonaId)).ReturnsAsync(true);
+            var original = new ControlAsignacion
+            {
+                Id = $"{ControlPersonaId}_{SecondEventId}",
+                ControlPersonaId = ControlPersonaId,
+                EventId = SecondEventId,
+                AssignedByPersonaId = OrganizadorPersonaId,
+                CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            };
+            controlAsignacionRepository.Setup(r => r.GetAsignacionAsync(ControlPersonaId, SecondEventId)).ReturnsAsync(original);
+
+            var primero = await sut.AsignarControlExistenteAsync(ActorUid, SecondEventId, ControlPersonaId);
+            var segundo = await sut.AsignarControlExistenteAsync(ActorUid, SecondEventId, ControlPersonaId);
+
+            Assert.Equal(primero.AssignedByPersonaId, segundo.AssignedByPersonaId);
+            Assert.Equal(primero.CreatedAt, segundo.CreatedAt);
+            controlAsignacionRepository.Verify(r => r.AsignarAsync(ControlPersonaId, SecondEventId, OrganizadorPersonaId), Times.Exactly(2));
+        }
+
+        [Fact]
+        public async Task AsignarControlExistenteAsync_ForForeignEvent_ThrowsOwnershipException_AndNeverAssigns()
+        {
+            var (sut, _, _, eventService, _, personaResolver, controlAsignacionRepository, _) = CreateSut();
+            personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
+            eventService.Setup(s => s.GetEventEntityByIdAsync(SecondEventId))
+                .ReturnsAsync(new Event { Id = SecondEventId, OrganizadorPersonaId = "otro-organizador-persona" });
+
+            await Assert.ThrowsAsync<EventOwnershipException>(() => sut.AsignarControlExistenteAsync(ActorUid, SecondEventId, ControlPersonaId));
+
+            controlAsignacionRepository.Verify(r => r.AsignarAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task AsignarControlExistenteAsync_ForNonexistentEvent_ThrowsNotFoundException()
+        {
+            var (sut, _, _, eventService, _, personaResolver, controlAsignacionRepository, _) = CreateSut();
+            personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
+            eventService.Setup(s => s.GetEventEntityByIdAsync(SecondEventId)).ReturnsAsync((Event?)null);
+
+            await Assert.ThrowsAsync<EventNotFoundException>(() => sut.AsignarControlExistenteAsync(ActorUid, SecondEventId, ControlPersonaId));
+
+            controlAsignacionRepository.Verify(r => r.AsignarAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task AsignarControlExistenteAsync_EventoCancelado_ThrowsEventoNoDisponibleException()
+        {
+            var (sut, _, _, eventService, _, personaResolver, controlAsignacionRepository, _) = CreateSut();
+            personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
+            eventService.Setup(s => s.GetEventEntityByIdAsync(SecondEventId))
+                .ReturnsAsync(new Event { Id = SecondEventId, OrganizadorPersonaId = OrganizadorPersonaId, Estado = Event.EventStatus.Cancelado });
+
+            await Assert.ThrowsAsync<EventoNoDisponibleParaAsignacionControlException>(
+                () => sut.AsignarControlExistenteAsync(ActorUid, SecondEventId, ControlPersonaId));
+
+            controlAsignacionRepository.Verify(r => r.AsignarAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task AsignarControlExistenteAsync_EventoFinalizado_ThrowsEventoNoDisponibleException()
+        {
+            var (sut, _, _, eventService, _, personaResolver, controlAsignacionRepository, _) = CreateSut();
+            personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
+            eventService.Setup(s => s.GetEventEntityByIdAsync(SecondEventId))
+                .ReturnsAsync(new Event
+                {
+                    Id = SecondEventId,
+                    OrganizadorPersonaId = OrganizadorPersonaId,
+                    Estado = Event.EventStatus.Publicado,
+                    FechaInicio = DateTime.UtcNow.AddDays(-2),
+                    FechaFin = DateTime.UtcNow.AddDays(-1),
+                });
+
+            await Assert.ThrowsAsync<EventoNoDisponibleParaAsignacionControlException>(
+                () => sut.AsignarControlExistenteAsync(ActorUid, SecondEventId, ControlPersonaId));
+
+            controlAsignacionRepository.Verify(r => r.AsignarAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task AsignarControlExistenteAsync_PersonaInexistente_ThrowsControlInvalidoException()
+        {
+            var (sut, usuarioRepository, _, eventService, _, personaResolver, controlAsignacionRepository, _) = CreateSut();
+            personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
+            eventService.Setup(s => s.GetEventEntityByIdAsync(SecondEventId))
+                .ReturnsAsync(new Event { Id = SecondEventId, OrganizadorPersonaId = OrganizadorPersonaId });
+            usuarioRepository.Setup(r => r.GetByPersonaIdAsync(ControlPersonaId)).ReturnsAsync((Usuario?)null);
+
+            await Assert.ThrowsAsync<ControlInvalidoException>(() => sut.AsignarControlExistenteAsync(ActorUid, SecondEventId, ControlPersonaId));
+
+            controlAsignacionRepository.Verify(r => r.AsignarAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task AsignarControlExistenteAsync_UsuarioInactivo_ThrowsControlInvalidoException()
+        {
+            var (sut, usuarioRepository, _, eventService, _, personaResolver, controlAsignacionRepository, _) = CreateSut();
+            personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
+            eventService.Setup(s => s.GetEventEntityByIdAsync(SecondEventId))
+                .ReturnsAsync(new Event { Id = SecondEventId, OrganizadorPersonaId = OrganizadorPersonaId });
+            usuarioRepository.Setup(r => r.GetByPersonaIdAsync(ControlPersonaId))
+                .ReturnsAsync(new Usuario { Id = "usuario-control-1", PersonaId = ControlPersonaId, IsActive = false });
+
+            await Assert.ThrowsAsync<ControlInvalidoException>(() => sut.AsignarControlExistenteAsync(ActorUid, SecondEventId, ControlPersonaId));
+
+            controlAsignacionRepository.Verify(r => r.AsignarAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task AsignarControlExistenteAsync_SinRolControlActivo_ThrowsControlInvalidoException()
+        {
+            var (sut, usuarioRepository, _, eventService, _, personaResolver, controlAsignacionRepository, _) = CreateSut();
+            personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
+            eventService.Setup(s => s.GetEventEntityByIdAsync(SecondEventId))
+                .ReturnsAsync(new Event { Id = SecondEventId, OrganizadorPersonaId = OrganizadorPersonaId });
+            usuarioRepository.Setup(r => r.GetByPersonaIdAsync(ControlPersonaId)).ReturnsAsync(ActiveControlUsuario());
+            usuarioRepository.Setup(r => r.GetRolCodigosActivosAsync("usuario-control-1")).ReturnsAsync(Array.Empty<string>());
+
+            await Assert.ThrowsAsync<ControlInvalidoException>(() => sut.AsignarControlExistenteAsync(ActorUid, SecondEventId, ControlPersonaId));
+
+            controlAsignacionRepository.Verify(r => r.AsignarAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task AsignarControlExistenteAsync_ControlAdministradoPorOtroOrganizador_ThrowsControlAjenoException()
+        {
+            var (sut, usuarioRepository, _, eventService, _, personaResolver, controlAsignacionRepository, _) = CreateSut();
+            personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ReturnsAsync(OrganizadorPersonaId);
+            eventService.Setup(s => s.GetEventEntityByIdAsync(SecondEventId))
+                .ReturnsAsync(new Event { Id = SecondEventId, OrganizadorPersonaId = OrganizadorPersonaId });
+            usuarioRepository.Setup(r => r.GetByPersonaIdAsync(ControlPersonaId)).ReturnsAsync(ActiveControlUsuario());
+            usuarioRepository.Setup(r => r.GetRolCodigosActivosAsync("usuario-control-1")).ReturnsAsync(new[] { "CONTROL" });
+            controlAsignacionRepository.Setup(r => r.ExisteAsignacionPorAsignadorAsync(ControlPersonaId, OrganizadorPersonaId)).ReturnsAsync(false);
+
+            await Assert.ThrowsAsync<ControlAjenoException>(() => sut.AsignarControlExistenteAsync(ActorUid, SecondEventId, ControlPersonaId));
+
+            controlAsignacionRepository.Verify(r => r.AsignarAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task AsignarControlExistenteAsync_WhenActorNotProvisioned_PropagatesException_AndNeverTouchesEventOrRepositories()
+        {
+            var (sut, usuarioRepository, _, eventService, _, personaResolver, controlAsignacionRepository, _) = CreateSut();
+            personaResolver.Setup(r => r.ResolvePersonaIdAsync(ActorUid)).ThrowsAsync(new IdentityNotProvisionedException(ActorUid));
+
+            await Assert.ThrowsAsync<IdentityNotProvisionedException>(
+                () => sut.AsignarControlExistenteAsync(ActorUid, SecondEventId, ControlPersonaId));
+
+            eventService.Verify(s => s.GetEventEntityByIdAsync(It.IsAny<string>()), Times.Never);
+            usuarioRepository.Verify(r => r.GetByPersonaIdAsync(It.IsAny<string>()), Times.Never);
+            controlAsignacionRepository.Verify(r => r.AsignarAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        }
+
         // ---- Email ya existe: 409 sin compensar, sin tocar Firestore ----
 
         [Fact]

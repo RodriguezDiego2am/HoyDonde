@@ -36,7 +36,7 @@ namespace HoyDonde.API.Tests
             // se concede acá.
             _factory.GrantAccion("test-uid-123", "usuario-events-test", "persona-events-test",
                 Acciones.EventoCrear, Acciones.EventoEditarPropio, Acciones.EventoPublicarPropio,
-                Acciones.EventoCancelarPropio, Acciones.EventoVerPropios);
+                Acciones.EventoCancelarPropio, Acciones.EventoVerPropios, Acciones.ControlCrear);
         }
 
         private static EventCreateRequest ValidCreateRequest() => new EventCreateRequest
@@ -497,6 +497,119 @@ namespace HoyDonde.API.Tests
             var response = await _client.GetAsync("/api/events/organizer/event-inexistente");
 
             Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        // ---- POST /api/events/{eventId}/controls/{controlPersonaId} (API-MVP 3) ----
+
+        [Fact]
+        public async Task AssignControl_OwnEvent_ReturnsOk_WithBoundedDto_NeverLeakingUidOrExternalSubjectId()
+        {
+            var asignacion = new ControlAsignacion
+            {
+                Id = "control-persona-1_event-2",
+                ControlPersonaId = "control-persona-1",
+                EventId = "event-2",
+                AssignedByPersonaId = "persona-events-test",
+                CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            };
+            _factory.MockUserService
+                .Setup(s => s.AsignarControlExistenteAsync("test-uid-123", "event-2", "control-persona-1"))
+                .ReturnsAsync(asignacion);
+
+            var response = await _client.PostAsync("/api/events/event-2/controls/control-persona-1", null);
+            var content = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var result = await response.Content.ReadFromJsonAsync<ControlAsignacionResponseDto>();
+            Assert.NotNull(result);
+            Assert.Equal("control-persona-1", result!.ControlPersonaId);
+            Assert.Equal("event-2", result.EventId);
+            Assert.Equal("persona-events-test", result.AssignedByPersonaId);
+            Assert.DoesNotContain("test-uid-123", content);
+            Assert.DoesNotContain("ExternalSubjectId", content);
+            Assert.DoesNotContain("UsuarioId", content);
+        }
+
+        [Fact]
+        public async Task AssignControl_ForeignEvent_ReturnsForbidden()
+        {
+            _factory.MockUserService
+                .Setup(s => s.AsignarControlExistenteAsync("test-uid-123", "event-ajeno", "control-persona-1"))
+                .ThrowsAsync(new EventOwnershipException("event-ajeno", "test-uid-123"));
+
+            var response = await _client.PostAsync("/api/events/event-ajeno/controls/control-persona-1", null);
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task AssignControl_NonexistentEvent_ReturnsNotFound()
+        {
+            _factory.MockUserService
+                .Setup(s => s.AsignarControlExistenteAsync("test-uid-123", "event-inexistente", "control-persona-1"))
+                .ThrowsAsync(new EventNotFoundException("event-inexistente"));
+
+            var response = await _client.PostAsync("/api/events/event-inexistente/controls/control-persona-1", null);
+
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task AssignControl_ControlInvalido_ReturnsNotFound()
+        {
+            _factory.MockUserService
+                .Setup(s => s.AsignarControlExistenteAsync("test-uid-123", "event-2", "persona-no-control"))
+                .ThrowsAsync(new ControlInvalidoException("persona-no-control"));
+
+            var response = await _client.PostAsync("/api/events/event-2/controls/persona-no-control", null);
+
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task AssignControl_ControlAjeno_ReturnsForbidden()
+        {
+            _factory.MockUserService
+                .Setup(s => s.AsignarControlExistenteAsync("test-uid-123", "event-2", "control-de-otro-organizador"))
+                .ThrowsAsync(new ControlAjenoException("control-de-otro-organizador"));
+
+            var response = await _client.PostAsync("/api/events/event-2/controls/control-de-otro-organizador", null);
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task AssignControl_EventoCanceladoOFinalizado_ReturnsConflict()
+        {
+            _factory.MockUserService
+                .Setup(s => s.AsignarControlExistenteAsync("test-uid-123", "event-terminal", "control-persona-1"))
+                .ThrowsAsync(new EventoNoDisponibleParaAsignacionControlException("event-terminal"));
+
+            var response = await _client.PostAsync("/api/events/event-terminal/controls/control-persona-1", null);
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task AssignControl_SinAccionControlCrear_ReturnsForbidden()
+        {
+            var response = await _client.SendAsync(RequestSinAccion(HttpMethod.Post, "/api/events/event-2/controls/control-persona-1"));
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task AssignControl_ActorNotProvisioned_ReturnsForbidden_WithoutLeakingUid()
+        {
+            _factory.MockUserService
+                .Setup(s => s.AsignarControlExistenteAsync("test-uid-123", "event-2", "control-persona-1"))
+                .ThrowsAsync(new IdentityNotProvisionedException("test-uid-123"));
+
+            var response = await _client.PostAsync("/api/events/event-2/controls/control-persona-1", null);
+            var content = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.DoesNotContain("test-uid-123", content);
         }
     }
 }
