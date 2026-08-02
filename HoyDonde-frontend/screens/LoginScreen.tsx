@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import type { Href } from 'expo-router';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 import { ActionButton } from '@/components/ui/ActionButton';
 import { AuthShell } from '@/components/ui/AuthShell';
@@ -75,8 +76,9 @@ export default function LoginScreen() {
 
       <View style={styles.registerContainer}>
         <Text style={styles.registerText}>¿No tenés cuenta? </Text>
-        <TouchableOpacity onPress={() => router.push('/register')}>
+        <TouchableOpacity style={styles.registerLinkRow} onPress={() => router.push('/register')}>
           <Text style={styles.registerLink}>Registrate</Text>
+          <MaterialIcons name="north-east" size={14} color={colors.cobalt} />
         </TouchableOpacity>
       </View>
     </AuthShell>
@@ -101,8 +103,14 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     color: colors.ink,
   },
+  registerLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   registerLink: {
     fontFamily: fonts.bold,
     color: colors.cobalt,
+    textDecorationLine: 'underline',
   },
 });

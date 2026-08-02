@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router } from 'expo-router';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 import { ActionButton } from '@/components/ui/ActionButton';
 import { AuthShell } from '@/components/ui/AuthShell';
+import { SectionDivider } from '@/components/ui/SectionDivider';
 import { colors, fonts, spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { describeFirebaseAuthError } from '@/utils/firebaseAuthErrors';
@@ -99,6 +101,8 @@ export default function RegisterScreen() {
 
   return (
     <AuthShell title="Crear cuenta" subtitle="Registrate como Cliente para comprar entradas.">
+      <SectionDivider index="01" label="Acceso" style={styles.firstDivider} />
+
       <FormInput
         label="Email"
         value={formData.email}
@@ -125,6 +129,8 @@ export default function RegisterScreen() {
         secureTextEntry
         error={errors.confirmPassword}
       />
+
+      <SectionDivider index="02" label="Tus datos" />
 
       <FormInput
         label="Nombre completo"
@@ -161,12 +167,16 @@ export default function RegisterScreen() {
 
       <TouchableOpacity style={styles.loginLink} onPress={() => router.push('/login')}>
         <Text style={styles.loginLinkText}>¿Ya tenés cuenta? Iniciar sesión</Text>
+        <MaterialIcons name="north-east" size={14} color={colors.cobalt} />
       </TouchableOpacity>
     </AuthShell>
   );
 }
 
 const styles = StyleSheet.create({
+  firstDivider: {
+    marginTop: 0,
+  },
   formError: {
     fontFamily: fonts.medium,
     color: colors.error,
@@ -177,12 +187,16 @@ const styles = StyleSheet.create({
   },
   loginLink: {
     marginTop: spacing.xl,
-    alignItems: 'center',
     marginBottom: spacing.lg,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
   },
   loginLinkText: {
     fontFamily: fonts.bold,
     color: colors.cobalt,
     fontSize: 15,
+    textDecorationLine: 'underline',
   },
 });

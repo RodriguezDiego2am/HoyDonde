@@ -19,6 +19,8 @@ const MAPPING = {
   'person.fill': 'person',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
+  'ticket.fill': 'confirmation-number',
+  'wallet.pass.fill': 'badge',
 } as IconMapping;
 
 /**

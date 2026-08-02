@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { borderWidth, colors, fonts, radii, spacing } from '../constants/theme';
@@ -24,15 +24,19 @@ const FormInput: React.FC<FormInputProps> = ({
   keyboardType = 'default',
   autoCapitalize = 'none',
 }) => {
+  const [isFocused, setIsFocused] = useState(false);
+
   return (
     <View style={styles.formGroup}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
-        style={[styles.input, error && styles.inputError]}
+        style={[styles.input, isFocused && styles.inputFocused, error && styles.inputError]}
         placeholder={placeholder}
-        placeholderTextColor={`${colors.ink}80`}
+        placeholderTextColor={colors.inkSoft}
         value={value}
         onChangeText={onChangeText}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
         secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
@@ -48,10 +52,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   label: {
-    fontFamily: fonts.semiBold,
-    fontSize: 14,
+    fontFamily: fonts.bold,
+    fontSize: 12,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
     marginBottom: spacing.xs,
-    color: colors.ink,
+    color: colors.inkSoft,
   },
   input: {
     height: 50,
@@ -63,6 +69,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.ink,
     backgroundColor: colors.paper,
+  },
+  inputFocused: {
+    borderColor: colors.cobalt,
+    borderWidth: borderWidth.thick,
   },
   inputError: {
     borderColor: colors.error,

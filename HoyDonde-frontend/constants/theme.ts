@@ -13,6 +13,8 @@ export const colors = {
   sand: '#D8CDBB',
   success: '#167A50',
   error: '#C83737',
+  /** Tinta atenuada para texto secundario: reemplaza el uso de opacity, mejor contraste sobre paper/sand. */
+  inkSoft: '#6B6357',
 } as const;
 
 export const spacing = {

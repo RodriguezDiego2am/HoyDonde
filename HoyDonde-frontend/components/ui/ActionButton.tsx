@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, PressableProps, StyleSheet, Text } from '
 
 import { borderWidth, colors, fonts, radii, spacing } from '@/constants/theme';
 
-type ActionButtonVariant = 'primary' | 'secondary' | 'danger';
+type ActionButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
 interface ActionButtonProps extends Omit<PressableProps, 'style'> {
   label: string;
@@ -15,12 +15,14 @@ const VARIANT_PALETTE: Record<ActionButtonVariant, { background: string; text: s
   primary: { background: colors.tomato, text: colors.paper, border: colors.ink },
   secondary: { background: colors.paper, text: colors.ink, border: colors.ink },
   danger: { background: colors.error, text: colors.paper, border: colors.ink },
+  ghost: { background: 'transparent', text: colors.error, border: 'transparent' },
 };
 
-/** Botón de tinta con desplazamiento corto al presionar (docs/api-mvp-plan.md §6). */
+/** Botón de tinta con desplazamiento corto al presionar (docs/api-mvp-plan.md §6). 'ghost' es texto subrayado sin relleno, para acciones secundarias/destructivas que no deben competir con el CTA principal. */
 export function ActionButton({ label, variant = 'primary', loading = false, disabled, ...rest }: ActionButtonProps) {
   const palette = VARIANT_PALETTE[variant];
   const isDisabled = disabled || loading;
+  const isGhost = variant === 'ghost';
 
   return (
     <Pressable
@@ -28,9 +30,9 @@ export function ActionButton({ label, variant = 'primary', loading = false, disa
       accessibilityState={{ disabled: isDisabled, busy: loading }}
       disabled={isDisabled}
       style={({ pressed }) => [
-        styles.base,
-        { backgroundColor: palette.background, borderColor: palette.border },
-        pressed && !isDisabled && styles.pressed,
+        isGhost ? styles.ghostBase : styles.base,
+        !isGhost && { backgroundColor: palette.background, borderColor: palette.border },
+        pressed && !isDisabled && (isGhost ? styles.ghostPressed : styles.pressed),
         isDisabled && styles.disabled,
       ]}
       {...rest}
@@ -38,7 +40,7 @@ export function ActionButton({ label, variant = 'primary', loading = false, disa
       {loading ? (
         <ActivityIndicator color={palette.text} />
       ) : (
-        <Text style={[styles.label, { color: palette.text }]}>{label}</Text>
+        <Text style={[isGhost ? styles.ghostLabel : styles.label, { color: palette.text }]}>{label}</Text>
       )}
     </Pressable>
   );
@@ -64,5 +66,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
+  },
+  ghostBase: {
+    alignSelf: 'center',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  ghostPressed: {
+    opacity: 0.6,
+  },
+  ghostLabel: {
+    fontFamily: fonts.semiBold,
+    fontSize: 14,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+    textDecorationLine: 'underline',
   },
 });
