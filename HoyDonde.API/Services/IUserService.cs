@@ -1,5 +1,7 @@
+using HoyDonde.API.DTOs;
 using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace HoyDonde.API.Services
@@ -23,5 +25,20 @@ namespace HoyDonde.API.Services
         // Idempotente: repetir el mismo (eventId, controlPersonaId) no falla y conserva
         // AssignedByPersonaId/CreatedAt de la primera asignación.
         Task<ControlAsignacion> AsignarControlExistenteAsync(string actorUid, string eventId, string controlPersonaId);
+
+        // ---- API-MVP 5 (docs/api-mvp-plan.md §6): consultas operativas de solo lectura ----
+
+        // Controles distintos que el organizador autenticado asignó alguna vez, a cualquiera de
+        // sus eventos. No excluye Controles inactivos (Activo == false se refleja tal cual).
+        Task<IReadOnlyList<ControlResumenResponseDto>> ListarControlesDelOrganizadorAsync(string actorUid);
+
+        // Controles asignados a un evento propio del organizador autenticado. Lanza
+        // EventNotFoundException/EventOwnershipException con el mismo criterio que
+        // AsignarControlExistenteAsync.
+        Task<IReadOnlyList<ControlAsignadoResponseDto>> ListarControlesDelEventoAsync(string actorUid, string eventId);
+
+        // Eventos a los que el Control autenticado fue asignado, en cualquier estado
+        // persistido/efectivo.
+        Task<IReadOnlyList<EventoAsignadoResponseDto>> ListarEventosAsignadosAsync(string actorUid);
     }
 }

@@ -307,6 +307,61 @@ Respuesta `200 OK` (`ControlAsignacionResponseDto`) — nunca expone el UID de F
 }
 ```
 
+### 8.1. Consultas operativas (API-MVP 5)
+
+Tres endpoints de solo lectura para que Organizador y Control elijan Control/evento desde una lista real, sin copiar `PersonaId`/`EventId` a mano. Ninguno crea, modifica ni elimina una `ControlAsignacion`; ninguno agrega una acción nueva (reutilizan `CONTROL_CREAR`/`TICKET_VALIDAR`).
+
+#### `GET /api/events/organizer/controls` — Policy: `CONTROL_CREAR`
+
+Controles distintos que el organizador autenticado asignó alguna vez, a cualquiera de sus eventos (sin duplicados, orden determinístico). `200 OK` → `ControlResumenResponseDto[]`:
+
+```json
+[
+  { "controlPersonaId": "persona-control-...", "userName": "control_puerta_norte", "activo": true }
+]
+```
+
+`200 []` si el organizador nunca asignó ningún Control (nunca 404). Un Control desactivado sigue apareciendo, con `activo: false`.
+
+#### `GET /api/events/{eventId}/controls` — Policy: `CONTROL_CREAR`
+
+Controles asignados a un evento propio. Mismo criterio de ownership que §8: 403 (`EVENT_OWNERSHIP`) si el evento es de otro organizador, 404 (`EVENT_NOT_FOUND`) si no existe. `200 OK` → `ControlAsignadoResponseDto[]`:
+
+```json
+[
+  {
+    "controlPersonaId": "persona-control-...",
+    "userName": "control_puerta_norte",
+    "activo": true,
+    "assignedByPersonaId": "persona-organizador-...",
+    "createdAt": "2026-08-02T15:00:00Z"
+  }
+]
+```
+
+`200 []` si el evento no tiene controles asignados.
+
+#### `GET /api/events/control/me` — Policy: `TICKET_VALIDAR`
+
+Eventos a los que el Control autenticado fue asignado, en cualquier estado persistido/efectivo — la UI decide qué habilitar; la validación (§9) sigue aplicando sus propias reglas de vigencia. `200 OK` → `EventoAsignadoResponseDto[]`:
+
+```json
+[
+  {
+    "eventId": "evento-...",
+    "nombre": "Festival de Verano",
+    "ubicacion": "Parque Central",
+    "fechaInicio": "2026-12-01T22:00:00Z",
+    "fechaFin": "2026-12-02T04:00:00Z",
+    "estado": "Publicado"
+  }
+]
+```
+
+`200 []` si el Control no tiene asignaciones.
+
+Los tres DTOs nunca incluyen UID de Firebase, `ExternalSubjectId`, `UsuarioId`, DNI, teléfono, roles/acciones completos, ni tipos de ticket/precio/stock. `userName` se deriva del email sintético del Control (`{userName}@control.hoydonde.com`, §6). Usuarios y Eventos relacionados se resuelven siempre en batch (`WhereIn`/lectura batch), nunca con una consulta por fila.
+
 ---
 
 ## 9. Tickets (`/api/tickets`)

@@ -151,7 +151,14 @@ The project specification also describes payments, temporary reservations, signe
 - `EventResponse.TicketGroups` uses the output-only `TicketTypeResponseDto` (`Id`/`Nombre`/`Precio`/`CantidadDisponible`), not `TicketGroupDto` — `TicketGroupDto` stays input-only (`EventCreateRequest`/`EventUpdateRequest`), with no `Id` ever accepted from the client. All six Event read/write endpoints (create, update, public detail, public search, organizer list, organizer detail) return the real server-generated `TicketTypeId`, so a real client can resolve what to buy (`POST /api/tickets/buy`) from the HTTP response alone.
 - `HoyDonde.API.Tests/Integration/FullJourneyEmulatorTests.cs` chains, over a real HTTP pipeline and real controllers/services/repositories against the Firestore Emulator (only the auth scheme is substituted): Organizador creates event → publishes → Cliente buys (resolving `eventId`/`ticketTypeId` solely from the HTTP response) → assigned Control validates → second validation rejected, then verifies stock/photograph/`ClientePersonaId`/`ValidadoPorPersonaId`/`Estado == Usado` in Firestore. The same file also verifies a deactivated `Usuario` gets a real 403 on `POST /api/events`.
 - `API_Documentation.md` is the current, rewritten-from-scratch API reference (routes, policies, DTOs, error contract, examples) — prefer it over inferring the contract from code when documenting or discussing the HTTP surface.
-- Current verification result: **347 passed, 0 failed, 0 skipped** (full suite, emulator-backed). **API-MVP 1–4 are implemented and verified — the backend functional MVP is closed.** Frontend 1/Frontend 2 (docs/api-mvp-plan.md §6/§7) and the Entrega/preparation stage (§8) remain pending.
+- Current verification result: **347 passed, 0 failed, 0 skipped** (full suite, emulator-backed). **API-MVP 1–4 are implemented and verified — the backend functional MVP is closed.**
+
+## Operational control queries (API-MVP 5, implemented and verified — see docs/api-mvp-plan.md §4)
+
+- Three read-only endpoints reuse the existing `CONTROL_CREAR`/`TICKET_VALIDAR` policies (no 21st action): `GET /api/events/organizer/controls` (organizer's own Controls, deduplicated), `GET /api/events/{eventId}/controls` (Controls assigned to one owned event), `GET /api/events/control/me` (events assigned to the authenticated Control, any state).
+- Minimal dedicated DTOs (`ControlResumenResponseDto`, `ControlAsignadoResponseDto`, `EventoAsignadoResponseDto`) — never the Firebase UID, `ExternalSubjectId`, `UsuarioId`, DNI, phone, full roles, or ticket types/price/stock. See `API_Documentation.md` §8.1 for shapes.
+- Ownership/scope resolved the same way as API-MVP 3 (actor → `PersonaId` via `IAuthenticatedPersonaResolver`, re-read from Firestore); related Usuarios/Events resolved in batch (`WhereIn`/`GetAllSnapshotsAsync`), never per-row.
+- **With this closed, the backend functional MVP (API-MVP 1–5) is fully closed.** Current verification result: **391 passed, 0 failed, 0 skipped** (full suite, emulator-backed). Frontend 0–5 (docs/api-mvp-plan.md §7) remain pending.
 
 ## Tests
 

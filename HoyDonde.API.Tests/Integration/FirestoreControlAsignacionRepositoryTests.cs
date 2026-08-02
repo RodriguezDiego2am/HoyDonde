@@ -183,5 +183,97 @@ namespace HoyDonde.API.Tests.Integration
             Assert.Equal("organizador-persona-original", final!.AssignedByPersonaId);
             Assert.Equal(original!.CreatedAt, final.CreatedAt);
         }
+
+        // ---- API-MVP 5: consultas operativas de solo lectura (docs/api-mvp-plan.md §6) ----
+
+        [FirestoreEmulatorFact]
+        public async Task ListarPorAsignadorAsync_ReturnsAllAsignaciones_ForThatOrganizer_AcrossEvents()
+        {
+            var sut = new FirestoreControlAsignacionRepository(_fixture.Db!);
+            var organizadorPersonaId = $"organizador-persona-{Guid.NewGuid():N}";
+            var controlA = $"control-persona-{Guid.NewGuid():N}";
+            var controlB = $"control-persona-{Guid.NewGuid():N}";
+            var eventoA = $"event-a-{Guid.NewGuid():N}";
+            var eventoB = $"event-b-{Guid.NewGuid():N}";
+
+            await sut.AsignarAsync(controlA, eventoA, organizadorPersonaId);
+            await sut.AsignarAsync(controlB, eventoB, organizadorPersonaId);
+            await sut.AsignarAsync(controlA, eventoB, "otro-organizador");
+
+            var resultado = await sut.ListarPorAsignadorAsync(organizadorPersonaId);
+
+            Assert.Equal(2, resultado.Count);
+            Assert.Contains(resultado, a => a.ControlPersonaId == controlA && a.EventId == eventoA);
+            Assert.Contains(resultado, a => a.ControlPersonaId == controlB && a.EventId == eventoB);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task ListarPorAsignadorAsync_ReturnsEmpty_WhenOrganizerNeverAssignedAnyControl()
+        {
+            var sut = new FirestoreControlAsignacionRepository(_fixture.Db!);
+
+            var resultado = await sut.ListarPorAsignadorAsync($"organizador-persona-{Guid.NewGuid():N}");
+
+            Assert.Empty(resultado);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task ListarPorEventoAsync_ReturnsOnlyAsignacionesForThatEvent()
+        {
+            var sut = new FirestoreControlAsignacionRepository(_fixture.Db!);
+            var eventoA = $"event-a-{Guid.NewGuid():N}";
+            var eventoB = $"event-b-{Guid.NewGuid():N}";
+            var controlA = $"control-persona-{Guid.NewGuid():N}";
+            var controlB = $"control-persona-{Guid.NewGuid():N}";
+
+            await sut.AsignarAsync(controlA, eventoA, "organizador-1");
+            await sut.AsignarAsync(controlB, eventoA, "organizador-1");
+            await sut.AsignarAsync(controlA, eventoB, "organizador-1");
+
+            var resultado = await sut.ListarPorEventoAsync(eventoA);
+
+            Assert.Equal(2, resultado.Count);
+            Assert.All(resultado, a => Assert.Equal(eventoA, a.EventId));
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task ListarPorEventoAsync_ReturnsEmpty_WhenEventHasNoControls()
+        {
+            var sut = new FirestoreControlAsignacionRepository(_fixture.Db!);
+
+            var resultado = await sut.ListarPorEventoAsync($"event-{Guid.NewGuid():N}");
+
+            Assert.Empty(resultado);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task ListarPorControlAsync_ReturnsAllEventsAssignedToThatControl()
+        {
+            var sut = new FirestoreControlAsignacionRepository(_fixture.Db!);
+            var controlPersonaId = $"control-persona-{Guid.NewGuid():N}";
+            var otroControl = $"control-persona-{Guid.NewGuid():N}";
+            var eventoA = $"event-a-{Guid.NewGuid():N}";
+            var eventoB = $"event-b-{Guid.NewGuid():N}";
+            var eventoC = $"event-c-{Guid.NewGuid():N}";
+
+            await sut.AsignarAsync(controlPersonaId, eventoA, "organizador-1");
+            await sut.AsignarAsync(controlPersonaId, eventoB, "organizador-1");
+            await sut.AsignarAsync(otroControl, eventoC, "organizador-1");
+
+            var resultado = await sut.ListarPorControlAsync(controlPersonaId);
+
+            Assert.Equal(2, resultado.Count);
+            Assert.All(resultado, a => Assert.Equal(controlPersonaId, a.ControlPersonaId));
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task ListarPorControlAsync_ReturnsEmpty_WhenControlHasNoAsignaciones()
+        {
+            var sut = new FirestoreControlAsignacionRepository(_fixture.Db!);
+
+            var resultado = await sut.ListarPorControlAsync($"control-persona-{Guid.NewGuid():N}");
+
+            Assert.Empty(resultado);
+        }
     }
 }

@@ -23,6 +23,13 @@ namespace HoyDonde.API.Repositories
         // tiene esa PersonaId.
         Task<Usuario?> GetByPersonaIdAsync(string personaId);
 
+        // Resolución batch de varios Usuario por PersonaId (API-MVP 5, docs/api-mvp-plan.md §6):
+        // evita una lectura individual por Control al listar los Controles del ámbito de un
+        // Organizador o los asignados a un evento. Firestore WhereIn admite hasta 30 valores por
+        // consulta; el volumen esperado del MVP (decenas de asignaciones, no miles) queda
+        // cubierto sin paginar.
+        Task<IReadOnlyList<Usuario>> GetByPersonaIdsAsync(IEnumerable<string> personaIds);
+
         Task<IReadOnlyList<string>> GetRolCodigosActivosAsync(string usuarioId);
 
         // Usados por el bootstrap del primer Administrador (docs/security-refactor-plan.md §5)

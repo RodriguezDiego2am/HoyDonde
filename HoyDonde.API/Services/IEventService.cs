@@ -10,6 +10,12 @@ namespace HoyDonde.API.Services
         // estado). No usar desde un controller público.
         Task<Event?> GetEventEntityByIdAsync(string id);
 
+        // Resolución batch de varios eventos por Id (API-MVP 5, docs/api-mvp-plan.md §6): usada
+        // por UserService.ListarEventosAsignadosAsync para resolver los eventos asignados a un
+        // Control con una única lectura, nunca una por evento. Sin filtro de visibilidad ni
+        // ownership, igual que GetEventEntityByIdAsync — no usar desde un controller público.
+        Task<IReadOnlyDictionary<string, Event>> GetEntitiesByIdsAsync(IEnumerable<string> ids);
+
         // GET /api/events/{id}, público: null salvo que el evento esté Publicado y no Finalizado
         // (docs/api-mvp-plan.md §0.1/§2).
         Task<EventResponse?> GetByIdAsync(string id);

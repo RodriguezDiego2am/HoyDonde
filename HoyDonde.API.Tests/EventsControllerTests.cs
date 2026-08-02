@@ -49,7 +49,8 @@ namespace HoyDonde.API.Tests
             // se concede acá.
             _factory.GrantAccion("test-uid-123", "usuario-events-test", "persona-events-test",
                 Acciones.EventoCrear, Acciones.EventoEditarPropio, Acciones.EventoPublicarPropio,
-                Acciones.EventoCancelarPropio, Acciones.EventoVerPropios, Acciones.ControlCrear);
+                Acciones.EventoCancelarPropio, Acciones.EventoVerPropios, Acciones.ControlCrear,
+                Acciones.TicketValidar);
         }
 
         private static EventCreateRequest ValidCreateRequest() => new EventCreateRequest
@@ -623,6 +624,191 @@ namespace HoyDonde.API.Tests
 
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
             Assert.DoesNotContain("test-uid-123", content);
+        }
+
+        // ---- GET /api/events/organizer/controls (API-MVP 5) ----
+
+        [Fact]
+        public async Task GetMyControls_ReturnsOk_WithBoundedDto_NeverLeakingUidOrUsuarioId()
+        {
+            var controles = new List<ControlResumenResponseDto>
+            {
+                new() { ControlPersonaId = "control-persona-1", UserName = "control-uno", Activo = true },
+            };
+            _factory.MockUserService
+                .Setup(s => s.ListarControlesDelOrganizadorAsync("test-uid-123"))
+                .ReturnsAsync(controles);
+
+            var response = await _client.GetAsync("/api/events/organizer/controls");
+            var content = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var result = await response.Content.ReadFromJsonAsync<List<ControlResumenResponseDto>>();
+            Assert.NotNull(result);
+            Assert.Single(result!);
+            Assert.Equal("control-persona-1", result[0].ControlPersonaId);
+            Assert.Equal("control-uno", result[0].UserName);
+            Assert.DoesNotContain("test-uid-123", content);
+            Assert.DoesNotContain("ExternalSubjectId", content);
+            Assert.DoesNotContain("UsuarioId", content);
+        }
+
+        [Fact]
+        public async Task GetMyControls_ReturnsEmptyList_WhenOrganizerNeverAssignedAnyControl()
+        {
+            _factory.MockUserService
+                .Setup(s => s.ListarControlesDelOrganizadorAsync("test-uid-123"))
+                .ReturnsAsync(new List<ControlResumenResponseDto>());
+
+            var response = await _client.GetAsync("/api/events/organizer/controls");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var result = await response.Content.ReadFromJsonAsync<List<ControlResumenResponseDto>>();
+            Assert.NotNull(result);
+            Assert.Empty(result!);
+        }
+
+        [Fact]
+        public async Task GetMyControls_SinAccionControlCrear_ReturnsForbidden()
+        {
+            var response = await _client.SendAsync(RequestSinAccion(HttpMethod.Get, "/api/events/organizer/controls"));
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        // ---- GET /api/events/{eventId}/controls (API-MVP 5) ----
+
+        [Fact]
+        public async Task GetEventControls_OwnEvent_ReturnsOk_WithAssignmentMetadata()
+        {
+            var controles = new List<ControlAsignadoResponseDto>
+            {
+                new()
+                {
+                    ControlPersonaId = "control-persona-1",
+                    UserName = "control-uno",
+                    Activo = true,
+                    AssignedByPersonaId = "persona-events-test",
+                    CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                },
+            };
+            _factory.MockUserService
+                .Setup(s => s.ListarControlesDelEventoAsync("test-uid-123", "event-2"))
+                .ReturnsAsync(controles);
+
+            var response = await _client.GetAsync("/api/events/event-2/controls");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var result = await response.Content.ReadFromJsonAsync<List<ControlAsignadoResponseDto>>();
+            Assert.NotNull(result);
+            Assert.Single(result!);
+            Assert.Equal("control-persona-1", result[0].ControlPersonaId);
+            Assert.Equal("persona-events-test", result[0].AssignedByPersonaId);
+        }
+
+        [Fact]
+        public async Task GetEventControls_EventWithNoControls_ReturnsEmptyList()
+        {
+            _factory.MockUserService
+                .Setup(s => s.ListarControlesDelEventoAsync("test-uid-123", "event-2"))
+                .ReturnsAsync(new List<ControlAsignadoResponseDto>());
+
+            var response = await _client.GetAsync("/api/events/event-2/controls");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var result = await response.Content.ReadFromJsonAsync<List<ControlAsignadoResponseDto>>();
+            Assert.NotNull(result);
+            Assert.Empty(result!);
+        }
+
+        [Fact]
+        public async Task GetEventControls_ForeignEvent_ReturnsForbidden()
+        {
+            _factory.MockUserService
+                .Setup(s => s.ListarControlesDelEventoAsync("test-uid-123", "event-ajeno"))
+                .ThrowsAsync(new EventOwnershipException("event-ajeno", "test-uid-123"));
+
+            var response = await _client.GetAsync("/api/events/event-ajeno/controls");
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GetEventControls_NonexistentEvent_ReturnsNotFound()
+        {
+            _factory.MockUserService
+                .Setup(s => s.ListarControlesDelEventoAsync("test-uid-123", "event-inexistente"))
+                .ThrowsAsync(new EventNotFoundException("event-inexistente"));
+
+            var response = await _client.GetAsync("/api/events/event-inexistente/controls");
+
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GetEventControls_SinAccionControlCrear_ReturnsForbidden()
+        {
+            var response = await _client.SendAsync(RequestSinAccion(HttpMethod.Get, "/api/events/event-2/controls"));
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        // ---- GET /api/events/control/me (API-MVP 5) ----
+
+        [Fact]
+        public async Task GetMyAssignedEvents_ReturnsOk_WithoutTicketTypesOrPrices()
+        {
+            var eventos = new List<EventoAsignadoResponseDto>
+            {
+                new()
+                {
+                    EventId = "event-1",
+                    Nombre = "Festival",
+                    Ubicacion = "La Plaza",
+                    FechaInicio = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc),
+                    FechaFin = new DateTime(2026, 3, 2, 0, 0, 0, DateTimeKind.Utc),
+                    Estado = Event.EventEffectiveStatus.Publicado,
+                },
+            };
+            _factory.MockUserService
+                .Setup(s => s.ListarEventosAsignadosAsync("test-uid-123"))
+                .ReturnsAsync(eventos);
+
+            var response = await _client.GetAsync("/api/events/control/me");
+            var content = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var result = await response.Content.ReadFromJsonAsync<List<EventoAsignadoResponseDto>>(EnumAwareJson);
+            Assert.NotNull(result);
+            Assert.Single(result!);
+            Assert.Equal("event-1", result[0].EventId);
+            Assert.Equal(Event.EventEffectiveStatus.Publicado, result[0].Estado);
+            Assert.DoesNotContain("TicketGroups", content);
+            Assert.DoesNotContain("Precio", content);
+            Assert.DoesNotContain("CantidadDisponible", content);
+        }
+
+        [Fact]
+        public async Task GetMyAssignedEvents_ReturnsEmptyList_WhenControlHasNoAsignaciones()
+        {
+            _factory.MockUserService
+                .Setup(s => s.ListarEventosAsignadosAsync("test-uid-123"))
+                .ReturnsAsync(new List<EventoAsignadoResponseDto>());
+
+            var response = await _client.GetAsync("/api/events/control/me");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var result = await response.Content.ReadFromJsonAsync<List<EventoAsignadoResponseDto>>();
+            Assert.NotNull(result);
+            Assert.Empty(result!);
+        }
+
+        [Fact]
+        public async Task GetMyAssignedEvents_SinAccionTicketValidar_ReturnsForbidden()
+        {
+            var response = await _client.SendAsync(RequestSinAccion(HttpMethod.Get, "/api/events/control/me"));
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         }
     }
 }

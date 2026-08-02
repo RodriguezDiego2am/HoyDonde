@@ -1,8 +1,10 @@
+using HoyDonde.API.DTOs;
 using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -20,6 +22,12 @@ namespace HoyDonde.API.Services
         private const string RolAdministrador = "ADMINISTRADOR";
         private const string RolOrganizador = "ORGANIZADOR";
         private const string RolControl = "CONTROL";
+
+        // Sufijo de la identidad sintética de Control (docs/security-refactor-plan.md §2.2):
+        // Control no tiene email real propio, así que RegisterControlAsync arma uno a partir del
+        // userName elegido. API-MVP 5 (docs/api-mvp-plan.md §6) reutiliza el mismo sufijo para
+        // derivar de vuelta el identificador visible (UserName) a partir de Usuario.Email.
+        private const string ControlEmailDomain = "@control.hoydonde.com";
 
         private readonly IUsuarioRepository _usuarioRepository;
         private readonly IIdentidadHuerfanaRepository _identidadHuerfanaRepository;
@@ -69,7 +77,7 @@ namespace HoyDonde.API.Services
             if (evento == null) throw new EventNotFoundException(eventId);
             if (evento.OrganizadorPersonaId != organizadorPersonaId) throw new EventOwnershipException(eventId, assignedBy);
 
-            var email = $"{userName}@control.hoydonde.com";
+            var email = $"{userName}{ControlEmailDomain}";
             var result = await ProvisionarConCompensacionAsync(email, password, userName, RolControl, assignedBy);
 
             await _controlAsignacionRepository.AsignarAsync(result.PersonaId, eventId, organizadorPersonaId);
@@ -120,6 +128,104 @@ namespace HoyDonde.API.Services
             var asignacion = await _controlAsignacionRepository.GetAsignacionAsync(controlPersonaId, eventId);
             return asignacion!;
         }
+
+        // API-MVP 5 (docs/api-mvp-plan.md §6). Controles distintos que el organizador
+        // autenticado asignó alguna vez, a cualquiera de sus eventos. Un Control inactivo no se
+        // excluye: su asignación histórica sigue siendo visible, con Activo == false.
+        public async Task<IReadOnlyList<ControlResumenResponseDto>> ListarControlesDelOrganizadorAsync(string actorUid)
+        {
+            var organizadorPersonaId = await _personaResolver.ResolvePersonaIdAsync(actorUid);
+
+            var asignaciones = await _controlAsignacionRepository.ListarPorAsignadorAsync(organizadorPersonaId);
+            var controlPersonaIds = asignaciones.Select(a => a.ControlPersonaId).Distinct().ToList();
+
+            var usuarios = await _usuarioRepository.GetByPersonaIdsAsync(controlPersonaIds);
+
+            return usuarios
+                .Select(u => new ControlResumenResponseDto
+                {
+                    ControlPersonaId = u.PersonaId,
+                    UserName = DeriveControlUserName(u.Email),
+                    Activo = u.IsActive,
+                })
+                .OrderBy(c => c.UserName, StringComparer.Ordinal)
+                .ThenBy(c => c.ControlPersonaId, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        // API-MVP 5. Controles asignados a un evento propio del organizador autenticado; mismo
+        // criterio de ownership que AsignarControlExistenteAsync (evento re-leído de Firestore,
+        // nunca confiado del cliente).
+        public async Task<IReadOnlyList<ControlAsignadoResponseDto>> ListarControlesDelEventoAsync(string actorUid, string eventId)
+        {
+            var organizadorPersonaId = await _personaResolver.ResolvePersonaIdAsync(actorUid);
+
+            var evento = await _eventService.GetEventEntityByIdAsync(eventId);
+            if (evento == null) throw new EventNotFoundException(eventId);
+            if (evento.OrganizadorPersonaId != organizadorPersonaId) throw new EventOwnershipException(eventId, actorUid);
+
+            var asignaciones = await _controlAsignacionRepository.ListarPorEventoAsync(eventId);
+            var controlPersonaIds = asignaciones.Select(a => a.ControlPersonaId).Distinct().ToList();
+            var usuariosPorPersonaId = (await _usuarioRepository.GetByPersonaIdsAsync(controlPersonaIds))
+                .ToDictionary(u => u.PersonaId);
+
+            return asignaciones
+                .Where(a => usuariosPorPersonaId.ContainsKey(a.ControlPersonaId))
+                .Select(a =>
+                {
+                    var usuario = usuariosPorPersonaId[a.ControlPersonaId];
+                    return new ControlAsignadoResponseDto
+                    {
+                        ControlPersonaId = a.ControlPersonaId,
+                        UserName = DeriveControlUserName(usuario.Email),
+                        Activo = usuario.IsActive,
+                        AssignedByPersonaId = a.AssignedByPersonaId,
+                        CreatedAt = a.CreatedAt,
+                    };
+                })
+                .OrderBy(c => c.UserName, StringComparer.Ordinal)
+                .ThenBy(c => c.ControlPersonaId, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        // API-MVP 5. Eventos a los que el Control autenticado fue asignado, en cualquier estado
+        // persistido/efectivo: la UI decide qué habilitar, la validación (TicketService) sigue
+        // aplicando sus propias reglas de vigencia (docs/api-mvp-plan.md §0.1).
+        public async Task<IReadOnlyList<EventoAsignadoResponseDto>> ListarEventosAsignadosAsync(string actorUid)
+        {
+            var controlPersonaId = await _personaResolver.ResolvePersonaIdAsync(actorUid);
+
+            var asignaciones = await _controlAsignacionRepository.ListarPorControlAsync(controlPersonaId);
+            var eventIds = asignaciones.Select(a => a.EventId).Distinct().ToList();
+
+            var eventosPorId = await _eventService.GetEntitiesByIdsAsync(eventIds);
+            var utcNow = DateTime.UtcNow;
+
+            return eventIds
+                .Select(id => eventosPorId.GetValueOrDefault(id))
+                .Where(e => e != null)
+                .Select(e => new EventoAsignadoResponseDto
+                {
+                    EventId = e!.Id,
+                    Nombre = e.Nombre,
+                    Ubicacion = e.Ubicacion,
+                    FechaInicio = e.FechaInicio,
+                    FechaFin = e.FechaFin,
+                    Estado = e.GetEstadoEfectivo(utcNow),
+                })
+                .OrderBy(e => e.FechaInicio)
+                .ThenBy(e => e.EventId, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        // Control no tiene email real propio: RegisterControlAsync arma uno sintético
+        // "{userName}@control.hoydonde.com". Acá se deriva de vuelta el identificador visible; si
+        // por algún motivo el email no tuviera ese sufijo (dato preexistente inconsistente), se
+        // devuelve el email completo en vez de fallar.
+        private static string DeriveControlUserName(string email) =>
+            email.EndsWith(ControlEmailDomain, StringComparison.OrdinalIgnoreCase)
+                ? email[..^ControlEmailDomain.Length]
+                : email;
 
         // Crea la identidad externa y, si eso tiene éxito, provisiona Persona+Usuario+
         // UsuarioRol+IdentidadExterna en una sola transacción (IUsuarioRepository.ProvisionarAsync,

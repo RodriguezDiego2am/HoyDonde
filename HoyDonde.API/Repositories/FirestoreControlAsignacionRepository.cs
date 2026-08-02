@@ -1,5 +1,7 @@
 using Google.Cloud.Firestore;
 using HoyDonde.API.Models;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace HoyDonde.API.Repositories
@@ -67,6 +69,30 @@ namespace HoyDonde.API.Repositories
         {
             var snapshot = await _firestore.Collection(CollectionName).Document(BuildId(controlPersonaId, eventId)).GetSnapshotAsync();
             return snapshot.Exists ? snapshot.ConvertTo<ControlAsignacion>() : null;
+        }
+
+        public async Task<IReadOnlyList<ControlAsignacion>> ListarPorAsignadorAsync(string assignedByPersonaId)
+        {
+            var snapshot = await _firestore.Collection(CollectionName)
+                .WhereEqualTo(nameof(ControlAsignacion.AssignedByPersonaId), assignedByPersonaId)
+                .GetSnapshotAsync();
+            return snapshot.Documents.Select(d => d.ConvertTo<ControlAsignacion>()).ToList();
+        }
+
+        public async Task<IReadOnlyList<ControlAsignacion>> ListarPorEventoAsync(string eventId)
+        {
+            var snapshot = await _firestore.Collection(CollectionName)
+                .WhereEqualTo(nameof(ControlAsignacion.EventId), eventId)
+                .GetSnapshotAsync();
+            return snapshot.Documents.Select(d => d.ConvertTo<ControlAsignacion>()).ToList();
+        }
+
+        public async Task<IReadOnlyList<ControlAsignacion>> ListarPorControlAsync(string controlPersonaId)
+        {
+            var snapshot = await _firestore.Collection(CollectionName)
+                .WhereEqualTo(nameof(ControlAsignacion.ControlPersonaId), controlPersonaId)
+                .GetSnapshotAsync();
+            return snapshot.Documents.Select(d => d.ConvertTo<ControlAsignacion>()).ToList();
         }
     }
 }

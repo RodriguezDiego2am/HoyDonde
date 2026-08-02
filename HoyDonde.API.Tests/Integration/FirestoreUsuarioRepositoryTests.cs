@@ -152,6 +152,37 @@ namespace HoyDonde.API.Tests.Integration
             Assert.Null(usuario);
         }
 
+        // API-MVP 5 (docs/api-mvp-plan.md §6): resolución batch usada al listar los Controles del
+        // ámbito de un Organizador o asignados a un evento, en vez de una lectura por Control.
+        [FirestoreEmulatorFact]
+        public async Task GetByPersonaIdsAsync_ReturnsOnlyMatchingUsuarios_DeduplicatedAndIgnoringUnknownIds()
+        {
+            var sut = new FirestoreUsuarioRepository(_fixture.Db!);
+            var personaIdA = $"persona-{Guid.NewGuid():N}";
+            var personaIdB = $"persona-{Guid.NewGuid():N}";
+            await sut.ProvisionarAsync(NewRequest(personaIdA, $"usuario-{Guid.NewGuid():N}", $"uid-{Guid.NewGuid():N}", "control-a@test.com", "CONTROL"));
+            await sut.ProvisionarAsync(NewRequest(personaIdB, $"usuario-{Guid.NewGuid():N}", $"uid-{Guid.NewGuid():N}", "control-b@test.com", "CONTROL"));
+
+            var resultado = await sut.GetByPersonaIdsAsync(new[]
+            {
+                personaIdA, personaIdA, personaIdB, $"persona-inexistente-{Guid.NewGuid():N}"
+            });
+
+            Assert.Equal(2, resultado.Count);
+            Assert.Contains(resultado, u => u.PersonaId == personaIdA);
+            Assert.Contains(resultado, u => u.PersonaId == personaIdB);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task GetByPersonaIdsAsync_ReturnsEmpty_WhenNoIdsGiven()
+        {
+            var sut = new FirestoreUsuarioRepository(_fixture.Db!);
+
+            var resultado = await sut.GetByPersonaIdsAsync(Array.Empty<string>());
+
+            Assert.Empty(resultado);
+        }
+
         // La colección raíz "roles" (catálogo de Rol, Etapa 1) comparte Id de colección
         // ("roles") con la subcolección usuarios/{UsuarioId}/roles que usa este método: una
         // collection group query ingenua sobre "roles" devuelve también los documentos Rol del

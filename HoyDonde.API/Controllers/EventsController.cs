@@ -130,6 +130,45 @@ namespace HoyDonde.API.Controllers
             });
         }
 
+        // API-MVP 5 (docs/api-mvp-plan.md §6): Controles del ámbito del organizador autenticado
+        // (los que asignó alguna vez, a cualquiera de sus eventos), sin duplicados. Reutiliza
+        // CONTROL_CREAR (sin acción nueva).
+        [HttpGet("organizer/controls")]
+        [Authorize(Policy = Acciones.ControlCrear)]
+        public async Task<IActionResult> GetMyControls()
+        {
+            var organizerId = GetAuthenticatedUserId();
+            if (string.IsNullOrEmpty(organizerId)) return Unauthorized();
+
+            var controles = await _userService.ListarControlesDelOrganizadorAsync(organizerId);
+            return Ok(controles);
+        }
+
+        // API-MVP 5: Controles asignados a un evento propio del organizador autenticado.
+        [HttpGet("{eventId}/controls")]
+        [Authorize(Policy = Acciones.ControlCrear)]
+        public async Task<IActionResult> GetEventControls(string eventId)
+        {
+            var organizerId = GetAuthenticatedUserId();
+            if (string.IsNullOrEmpty(organizerId)) return Unauthorized();
+
+            var controles = await _userService.ListarControlesDelEventoAsync(organizerId, eventId);
+            return Ok(controles);
+        }
+
+        // API-MVP 5: eventos asignados al Control autenticado, en cualquier estado (la UI decide
+        // qué habilitar). Reutiliza TICKET_VALIDAR (sin acción nueva).
+        [HttpGet("control/me")]
+        [Authorize(Policy = Acciones.TicketValidar)]
+        public async Task<IActionResult> GetMyAssignedEvents()
+        {
+            var controlId = GetAuthenticatedUserId();
+            if (string.IsNullOrEmpty(controlId)) return Unauthorized();
+
+            var eventos = await _userService.ListarEventosAsignadosAsync(controlId);
+            return Ok(eventos);
+        }
+
         // UID tomado exclusivamente del token autenticado (nunca de un campo del body/query).
         private string? GetAuthenticatedUserId() =>
             User.FindFirst(ClaimTypes.NameIdentifier)?.Value

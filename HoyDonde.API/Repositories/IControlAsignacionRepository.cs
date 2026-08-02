@@ -1,4 +1,5 @@
 using HoyDonde.API.Models;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace HoyDonde.API.Repositories
@@ -21,5 +22,19 @@ namespace HoyDonde.API.Repositories
         // devolver AssignedByPersonaId/CreatedAt tras un AsignarAsync (nuevo o ya existente),
         // preservando la metadata original en el caso idempotente.
         Task<ControlAsignacion?> GetAsignacionAsync(string controlPersonaId, string eventId);
+
+        // ---- API-MVP 5 (docs/api-mvp-plan.md §6): consultas operativas de solo lectura ----
+
+        // Todas las asignaciones que hizo ese organizador, a cualquier evento. Un solo filtro de
+        // igualdad, sin índice compuesto nuevo.
+        Task<IReadOnlyList<ControlAsignacion>> ListarPorAsignadorAsync(string assignedByPersonaId);
+
+        // Los Controles asignados a un evento específico. Un solo filtro de igualdad, sin
+        // índice compuesto nuevo.
+        Task<IReadOnlyList<ControlAsignacion>> ListarPorEventoAsync(string eventId);
+
+        // Los eventos a los que un Control fue asignado. Un solo filtro de igualdad, sin
+        // índice compuesto nuevo.
+        Task<IReadOnlyList<ControlAsignacion>> ListarPorControlAsync(string controlPersonaId);
     }
 }

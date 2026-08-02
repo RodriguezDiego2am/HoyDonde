@@ -32,6 +32,20 @@ namespace HoyDonde.API.Services
             return snapshot.ConvertTo<Event>();
         }
 
+        public async Task<IReadOnlyDictionary<string, Event>> GetEntitiesByIdsAsync(IEnumerable<string> ids)
+        {
+            var distinctIds = ids.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
+            if (distinctIds.Count == 0) return new Dictionary<string, Event>();
+
+            var refs = distinctIds.Select(id => _firestore.Collection(CollectionName).Document(id));
+            var snapshots = await _firestore.GetAllSnapshotsAsync(refs);
+
+            return snapshots
+                .Where(s => s.Exists)
+                .Select(s => s.ConvertTo<Event>())
+                .ToDictionary(e => e.Id);
+        }
+
         public async Task<EventResponse?> GetByIdAsync(string id)
         {
             var evento = await GetEventEntityByIdAsync(id);
