@@ -101,7 +101,7 @@ namespace HoyDonde.API.Tests
         }
 
         [Fact]
-        public async Task ValidateTicketAsync_CancelledTicket_ReturnsCancelled()
+        public async Task ValidateTicketAsync_AnuladoTicket_ReturnsAnulado()
         {
             var store = new FakeTicketValidationStore();
             var ticket = EmitidoTicket();
@@ -111,7 +111,64 @@ namespace HoyDonde.API.Tests
 
             var outcome = await sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId);
 
-            Assert.Equal(TicketValidationOutcome.Cancelled, outcome);
+            Assert.Equal(TicketValidationOutcome.Anulado, outcome);
+        }
+
+        [Fact]
+        public async Task ValidateTicketAsync_EventoCancelado_ReturnsEventoCancelado()
+        {
+            var store = new FakeTicketValidationStore();
+            store.Seed(EmitidoTicket());
+            store.SeedEvent(new Event
+            {
+                Id = EventId,
+                FechaInicio = DateTime.UtcNow.AddDays(-2),
+                FechaFin = DateTime.UtcNow.AddDays(2),
+                Estado = Event.EventStatus.Cancelado
+            });
+            var sut = CreateSut(store);
+
+            var outcome = await sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId);
+
+            Assert.Equal(TicketValidationOutcome.EventoCancelado, outcome);
+        }
+
+        [Fact]
+        public async Task ValidateTicketAsync_EventoFinalizado_ReturnsEventoFinalizado()
+        {
+            var store = new FakeTicketValidationStore();
+            store.Seed(EmitidoTicket());
+            store.SeedEvent(new Event
+            {
+                Id = EventId,
+                FechaInicio = DateTime.UtcNow.AddDays(-3),
+                FechaFin = DateTime.UtcNow.AddDays(-1),
+                Estado = Event.EventStatus.Publicado
+            });
+            var sut = CreateSut(store);
+
+            var outcome = await sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId);
+
+            Assert.Equal(TicketValidationOutcome.EventoFinalizado, outcome);
+        }
+
+        [Fact]
+        public async Task ValidateTicketAsync_EventoPublicadoEnCurso_ReturnsSuccess()
+        {
+            var store = new FakeTicketValidationStore();
+            store.Seed(EmitidoTicket());
+            store.SeedEvent(new Event
+            {
+                Id = EventId,
+                FechaInicio = DateTime.UtcNow.AddHours(-1),
+                FechaFin = DateTime.UtcNow.AddHours(1),
+                Estado = Event.EventStatus.Publicado
+            });
+            var sut = CreateSut(store);
+
+            var outcome = await sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId);
+
+            Assert.Equal(TicketValidationOutcome.Success, outcome);
         }
 
         [Fact]

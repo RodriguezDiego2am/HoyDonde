@@ -6,6 +6,8 @@ namespace HoyDonde.API.Models
         NotAuthorized,
         NotFound,
         AlreadyUsed,
-        Cancelled
+        Anulado,
+        EventoCancelado,
+        EventoFinalizado
     }
 }

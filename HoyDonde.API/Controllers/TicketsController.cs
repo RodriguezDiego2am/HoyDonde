@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Threading.Tasks;
 using HoyDonde.API.Authorization;
 using HoyDonde.API.DTOs;
+using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
 using HoyDonde.API.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -42,16 +43,27 @@ namespace HoyDonde.API.Controllers
                 var tickets = await _ticketService.BuyTicketsAsync(clienteId, request);
                 return Ok(tickets);
             }
+            catch (EventNotFoundException)
+            {
+                return NotFound(new { message = "Evento no encontrado." });
+            }
+            catch (EventoNoDisponibleParaCompraException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
+            catch (TicketTypeInvalidoException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (StockInsuficienteException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
             catch (HoyDonde.API.Exceptions.IdentityNotProvisionedException)
             {
                 // Se deja propagar al middleware: respuesta 403 genérica centralizada, sin
                 // reenviar información interna (docs/security-refactor-plan.md §1/§4).
                 throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error al comprar tickets para cliente {ClienteId}", clienteId);
-                return BadRequest(new { message = ex.Message });
             }
         }
 
@@ -90,8 +102,14 @@ namespace HoyDonde.API.Controllers
                     StatusCode(StatusCodes.Status403Forbidden, new { valid = false, message = "No autorizado para validar tickets de este evento." }),
                 TicketValidationOutcome.AlreadyUsed =>
                     Conflict(new { valid = false, message = "El ticket ya fue utilizado." }),
-                TicketValidationOutcome.Cancelled =>
+                TicketValidationOutcome.Anulado =>
                     Conflict(new { valid = false, message = "El ticket fue anulado." }),
+                TicketValidationOutcome.EventoCancelado =>
+                    Conflict(new { valid = false, message = "El evento fue cancelado." }),
+                TicketValidationOutcome.EventoFinalizado =>
+                    Conflict(new { valid = false, message = "El evento ya finalizó." }),
+                TicketValidationOutcome.NotFound =>
+                    NotFound(new { valid = false, message = "Ticket no encontrado." }),
                 _ =>
                     BadRequest(new { valid = false, message = "Ticket inválido o no corresponde al evento." })
             };

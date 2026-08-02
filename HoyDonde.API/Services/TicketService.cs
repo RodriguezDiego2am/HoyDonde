@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Google.Cloud.Firestore;
 using HoyDonde.API.DTOs;
+using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
 using Microsoft.Extensions.Logging;
@@ -44,32 +45,35 @@ namespace HoyDonde.API.Services
             var eventRef = _firestore.Collection(EventsCollection).Document(request.EventoId);
             var ticketsColRef = _firestore.Collection(TicketsCollection);
             var purchasedTickets = new List<Ticket>();
+            Event evento = null!;
 
             await _firestore.RunTransactionAsync(async transaction =>
             {
+                // El Event se lee dentro de la misma transacción que descuenta stock y crea los
+                // tickets (docs/api-mvp-plan.md §3): precio, nombres y vigencia salen exclusivamente
+                // de esta lectura, nunca de lo que envía el cliente.
                 var eventSnapshot = await transaction.GetSnapshotAsync(eventRef);
                 if (!eventSnapshot.Exists)
-                    throw new Exception("El evento especificado no existe.");
+                    throw new EventNotFoundException(request.EventoId);
 
-                var evento = eventSnapshot.ConvertTo<Event>();
+                evento = eventSnapshot.ConvertTo<Event>();
+                var utcNow = DateTime.UtcNow;
 
-                if (evento.Estado != Event.EventStatus.Publicado)
-                    throw new Exception("El evento no admite compra de tickets en este momento.");
+                // Vigencia de compra (docs/api-mvp-plan.md §0.1): Publicado y todavía no empezó.
+                if (evento.Estado != Event.EventStatus.Publicado || utcNow >= evento.FechaInicio)
+                    throw new EventoNoDisponibleParaCompraException(request.EventoId);
 
-                if (evento.TicketTypes == null || !evento.TicketTypes.Any())
-                    throw new Exception("El evento no tiene tipos de ticket configurados.");
-
-                var ticketType = evento.TicketTypes.FirstOrDefault(t => t.Id == request.TicketTypeId);
+                var ticketType = evento.TicketTypes?.FirstOrDefault(t => t.Id == request.TicketTypeId);
                 if (ticketType == null)
-                    throw new Exception("El tipo de ticket seleccionado no es válido para este evento.");
+                    throw new TicketTypeInvalidoException(request.EventoId, request.TicketTypeId);
 
                 if (ticketType.CantidadDisponible < request.Cantidad)
-                    throw new Exception($"Stock insuficiente. Solo quedan {ticketType.CantidadDisponible} tickets disponibles de este tipo.");
+                    throw new StockInsuficienteException(request.TicketTypeId, ticketType.CantidadDisponible, request.Cantidad);
 
                 // Deduce stock
                 ticketType.CantidadDisponible -= request.Cantidad;
 
-                // Create tickets
+                // Create tickets, fotografiando Event/TicketType en este mismo instante.
                 for (int i = 0; i < request.Cantidad; i++)
                 {
                     var ticket = new Ticket
@@ -78,7 +82,13 @@ namespace HoyDonde.API.Services
                         TicketTypeId = ticketType.Id,
                         ClientePersonaId = clientePersonaId,
                         EventoId = request.EventoId,
-                        FechaCompra = DateTime.UtcNow
+                        FechaCompra = utcNow,
+                        Estado = Ticket.TicketStatus.Emitido,
+                        EventoNombre = evento.Nombre,
+                        TicketTypeNombre = ticketType.Nombre,
+                        PrecioPagado = ticketType.Precio,
+                        FechaInicio = evento.FechaInicio,
+                        FechaFin = evento.FechaFin,
                     };
 
                     var newTicketRef = ticketsColRef.Document(ticket.Id);
@@ -92,14 +102,7 @@ namespace HoyDonde.API.Services
 
             _logger.LogInformation("Compra finalizada exitosamente para persona {ClientePersonaId}. Generados {Count} tickets.", clientePersonaId, purchasedTickets.Count);
 
-            return purchasedTickets.Select(t => new TicketResponseDto
-            {
-                Id = t.Id,
-                EventoId = t.EventoId,
-                TicketTypeId = t.TicketTypeId,
-                ClientePersonaId = t.ClientePersonaId,
-                FechaCompra = t.FechaCompra
-            }).ToList();
+            return purchasedTickets.Select(t => MapToResponse(t, evento)).ToList();
         }
 
         public async Task<List<TicketResponseDto>> GetTicketsByClienteIdAsync(string clienteId)
@@ -108,17 +111,17 @@ namespace HoyDonde.API.Services
 
             var query = _firestore.Collection(TicketsCollection).WhereEqualTo(nameof(Ticket.ClientePersonaId), clientePersonaId);
             var snapshot = await query.GetSnapshotAsync();
+            var tickets = snapshot.Documents.Select(d => d.ConvertTo<Ticket>()).ToList();
 
-            return snapshot.Documents
-                .Select(d => d.ConvertTo<Ticket>())
-                .Select(t => new TicketResponseDto
-                {
-                    Id = t.Id,
-                    EventoId = t.EventoId,
-                    TicketTypeId = t.TicketTypeId,
-                    ClientePersonaId = t.ClientePersonaId,
-                    FechaCompra = t.FechaCompra
-                }).ToList();
+            // Utilizable/MotivoNoUtilizable dependen del Event actual (FechaInicio/FechaFin, en
+            // cambio, salen de la fotografía persistida en cada Ticket, no de esta lectura — ver
+            // MapToResponse). Se agrupa por EventoId y se hace una única lectura batch por
+            // identificador distinto, en vez de una lectura por ticket.
+            var eventosPorId = await GetEventosByIdsAsync(tickets.Select(t => t.EventoId));
+
+            return tickets
+                .Select(t => MapToResponse(t, eventosPorId.GetValueOrDefault(t.EventoId)))
+                .ToList();
         }
 
         public async Task<TicketValidationOutcome> ValidateTicketAsync(string controlId, string ticketId, string eventId)
@@ -143,8 +146,89 @@ namespace HoyDonde.API.Services
                 TicketConsumeResult.Success => TicketValidationOutcome.Success,
                 TicketConsumeResult.EventMismatch => TicketValidationOutcome.NotAuthorized,
                 TicketConsumeResult.AlreadyUsed => TicketValidationOutcome.AlreadyUsed,
-                TicketConsumeResult.Cancelled => TicketValidationOutcome.Cancelled,
+                TicketConsumeResult.Anulado => TicketValidationOutcome.Anulado,
+                TicketConsumeResult.EventoCancelado => TicketValidationOutcome.EventoCancelado,
+                TicketConsumeResult.EventoFinalizado => TicketValidationOutcome.EventoFinalizado,
                 _ => TicketValidationOutcome.NotFound
+            };
+        }
+
+        private async Task<Dictionary<string, Event>> GetEventosByIdsAsync(IEnumerable<string> eventIds)
+        {
+            var distinctIds = eventIds.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
+            if (distinctIds.Count == 0)
+                return new Dictionary<string, Event>();
+
+            var refs = distinctIds.Select(id => _firestore.Collection(EventsCollection).Document(id));
+            var snapshots = await _firestore.GetAllSnapshotsAsync(refs);
+
+            return snapshots
+                .Where(s => s.Exists)
+                .Select(s => s.ConvertTo<Event>())
+                .ToDictionary(e => e.Id);
+        }
+
+        // Estado histórico del ticket + Utilizable/MotivoNoUtilizable derivados del Event actual
+        // (docs/api-mvp-plan.md §3). `evento` es null solo en el caso defensivo de un ticket cuyo
+        // Event referenciado ya no existe; se trata igual que un evento cancelado. FechaInicio y
+        // FechaFin, en cambio, NUNCA salen de `evento`: son parte de la fotografía inmutable
+        // tomada al comprar (Ticket.FechaInicio/FechaFin), para no reescribir el historial si el
+        // Event cambiara.
+        private static TicketResponseDto MapToResponse(Ticket ticket, Event? evento)
+        {
+            string? motivo;
+            bool utilizable;
+
+            if (ticket.Estado == Ticket.TicketStatus.Usado)
+            {
+                utilizable = false;
+                motivo = "Usado";
+            }
+            else if (ticket.Estado == Ticket.TicketStatus.Anulado)
+            {
+                utilizable = false;
+                motivo = "Anulado";
+            }
+            else if (evento == null)
+            {
+                utilizable = false;
+                motivo = "EventoCancelado";
+            }
+            else
+            {
+                var estadoEfectivo = evento.GetEstadoEfectivo(DateTime.UtcNow);
+                if (estadoEfectivo == Event.EventEffectiveStatus.Finalizado)
+                {
+                    utilizable = false;
+                    motivo = "EventoFinalizado";
+                }
+                else if (estadoEfectivo != Event.EventEffectiveStatus.Publicado)
+                {
+                    utilizable = false;
+                    motivo = "EventoCancelado";
+                }
+                else
+                {
+                    utilizable = true;
+                    motivo = null;
+                }
+            }
+
+            return new TicketResponseDto
+            {
+                Id = ticket.Id,
+                EventoId = ticket.EventoId,
+                TicketTypeId = ticket.TicketTypeId,
+                ClientePersonaId = ticket.ClientePersonaId,
+                FechaCompra = ticket.FechaCompra,
+                Estado = ticket.Estado.ToString(),
+                Utilizable = utilizable,
+                MotivoNoUtilizable = motivo,
+                EventoNombre = ticket.EventoNombre,
+                TicketTypeNombre = ticket.TicketTypeNombre,
+                PrecioPagado = ticket.PrecioPagado,
+                FechaInicio = ticket.FechaInicio,
+                FechaFin = ticket.FechaFin,
             };
         }
     }

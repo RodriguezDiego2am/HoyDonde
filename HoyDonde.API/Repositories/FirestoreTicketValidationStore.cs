@@ -9,6 +9,7 @@ namespace HoyDonde.API.Repositories
     {
         private readonly FirestoreDb _firestore;
         private const string TicketsCollection = "tickets";
+        private const string EventsCollection = "events";
 
         public FirestoreTicketValidationStore(FirestoreDb firestore)
         {
@@ -18,6 +19,7 @@ namespace HoyDonde.API.Repositories
         public async Task<TicketConsumeResult> TryConsumeAsync(string ticketId, string eventId, string validatedByPersonaId)
         {
             var ticketRef = _firestore.Collection(TicketsCollection).Document(ticketId);
+            var eventRef = _firestore.Collection(EventsCollection).Document(eventId);
             var result = TicketConsumeResult.NotFound;
 
             await _firestore.RunTransactionAsync(async transaction =>
@@ -37,6 +39,31 @@ namespace HoyDonde.API.Repositories
                     return;
                 }
 
+                // Vigencia de validación (docs/api-mvp-plan.md §0.1/§3): el Event se lee dentro de
+                // la misma transacción que intenta consumir el ticket, para que la decisión nunca
+                // quede desactualizada frente a una cancelación concurrente.
+                var eventSnapshot = await transaction.GetSnapshotAsync(eventRef);
+                if (!eventSnapshot.Exists)
+                {
+                    result = TicketConsumeResult.EventMismatch;
+                    return;
+                }
+
+                var evento = eventSnapshot.ConvertTo<Event>();
+                var estadoEfectivo = evento.GetEstadoEfectivo(DateTime.UtcNow);
+
+                if (estadoEfectivo == Event.EventEffectiveStatus.Finalizado)
+                {
+                    result = TicketConsumeResult.EventoFinalizado;
+                    return;
+                }
+
+                if (estadoEfectivo != Event.EventEffectiveStatus.Publicado)
+                {
+                    result = TicketConsumeResult.EventoCancelado;
+                    return;
+                }
+
                 if (ticket.Estado == Ticket.TicketStatus.Usado)
                 {
                     result = TicketConsumeResult.AlreadyUsed;
@@ -45,7 +72,7 @@ namespace HoyDonde.API.Repositories
 
                 if (ticket.Estado == Ticket.TicketStatus.Anulado)
                 {
-                    result = TicketConsumeResult.Cancelled;
+                    result = TicketConsumeResult.Anulado;
                     return;
                 }
 

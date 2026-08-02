@@ -34,6 +34,24 @@ namespace HoyDonde.API.Models
         [Google.Cloud.Firestore.FirestoreProperty]
         public string ValidadoPorPersonaId { get; set; } = string.Empty;
 
+        // Fotografía inmutable tomada en el momento de la compra (docs/api-mvp-plan.md §3): nunca
+        // se recalcula después, ni siquiera si el Event/TicketType cambiaran (un evento publicado
+        // ya es inmutable, pero esto además blinda contra cualquier futura excepción a esa regla).
+        [Google.Cloud.Firestore.FirestoreProperty]
+        public string EventoNombre { get; set; } = string.Empty;
+
+        [Google.Cloud.Firestore.FirestoreProperty]
+        public string TicketTypeNombre { get; set; } = string.Empty;
+
+        [Google.Cloud.Firestore.FirestoreProperty(ConverterType = typeof(HoyDonde.API.Converters.DecimalFirestoreConverter))]
+        public decimal PrecioPagado { get; set; }
+
+        [Google.Cloud.Firestore.FirestoreProperty]
+        public DateTime FechaInicio { get; set; }
+
+        [Google.Cloud.Firestore.FirestoreProperty]
+        public DateTime FechaFin { get; set; }
+
         public enum TicketStatus
         {
             Emitido,

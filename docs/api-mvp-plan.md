@@ -4,7 +4,7 @@ Este documento es el roadmap de implementación posterior al refactor de segurid
 
 Para distinguirlas de las **Etapas** del refactor de seguridad, las etapas de este plan se llaman **API-MVP N**. No reabren ni modifican el módulo de seguridad: reutilizan sus policies, su catálogo de 20 acciones y su mecanismo de autorización tal como están.
 
-Este documento nació como documento de planificación: no se implementó código ni se ejecutó la suite de tests al crearlo, y no se modificaron `CLAUDE.md` ni `API_Documentation.md` en esa revisión inicial. Esta revisión (2026-08-02) **cierra API-MVP 1**: código implementado y verificado (ver §2, "Estado: implementada y verificada"); `CLAUDE.md` se actualizó con el estado funcional real de `Event`. `API_Documentation.md` sigue sin tocarse — su actualización pertenece a API-MVP 4 (§5), no a este cierre.
+Este documento nació como documento de planificación: no se implementó código ni se ejecutó la suite de tests al crearlo, y no se modificaron `CLAUDE.md` ni `API_Documentation.md` en esa revisión inicial. La revisión del 2026-08-02 **cerró API-MVP 1**: código implementado y verificado (ver §2, "Estado: implementada y verificada"); `CLAUDE.md` se actualizó con el estado funcional real de `Event`. Esta revisión (2026-08-02) **cierra además API-MVP 2**: compra, validación y consulta de tickets implementadas y verificadas (ver §3, "Estado: implementada y verificada"); `CLAUDE.md` se actualizó con el estado funcional real del flujo de `Ticket`. `API_Documentation.md` sigue sin tocarse — su actualización pertenece a API-MVP 4 (§5), no a estos cierres.
 
 ---
 
@@ -122,7 +122,7 @@ Resumen de lo efectivamente implementado:
 - `SearchEventsAsync` pagina completamente del lado de Firestore: el filtro opcional `FechaInicio`, el cursor (`StartAfter`) y el `Limit` son parte de la misma consulta — no hay filtrado en memoria en ningún punto de la paginación.
 - Cuatro índices compuestos explícitos en `firestore.indexes.json` cubren las combinaciones reales de filtros de igualdad opcionales (`Categoria`/`Ubicacion`) junto con el rango obligatorio (`Estado`+`FechaFin`+`FechaInicio`). **Nota prudente**: el Firestore Emulator valida la lógica de las consultas, no la existencia de índices — una suite en verde contra el emulador no acredita que estos índices estén efectivamente desplegados en un proyecto de Firestore de producción; eso requiere `firebase deploy --only firestore:indexes` (o equivalente) contra ese proyecto, verificación que queda fuera del alcance de este cierre.
 
-API-MVP 2, 3 y 4 (§3, §4, §5) siguen **pendientes**, sin cambios respecto a lo planificado en este documento.
+API-MVP 2 (§3) está **cerrada** (ver su propia sección "Estado: implementada y verificada"). API-MVP 3 y 4 (§4, §5) siguen **pendientes**, sin cambios respecto a lo planificado en este documento.
 
 ### Dependencias
 Ninguna — puede iniciarse de inmediato.
@@ -139,19 +139,18 @@ Cerrar los huecos de compra, la falta de verificación del estado y vigencia del
 
 ### Reglas funcionales exactas
 - `BuyTicketsAsync`: dentro de la misma transacción de Firestore que lee/descuenta stock, lee también el `Event` y rechaza si no cumple la vigencia de compra (§0.1): `Estado == Publicado && UtcNow < FechaInicio`. Ya no acepta `Estado == Activo` (ese estado deja de existir tras API-MVP 1). Una vez que el evento empezó (`UtcNow >= FechaInicio`), la compra se rechaza aunque el evento siga `Publicado`, siga visible en catálogo y siga aceptando validaciones.
-- Al emitir cada `Ticket`, se persiste una fotografía inmutable: `EventoNombre`, `TicketTypeNombre`, `PrecioPagado` (copiados del `Event`/`TicketType` en el momento de la compra, nunca recalculados después). `Ticket.Estado` inicial: `Emitido`. `FechaInicio`/`FechaFin` **no** se desnormalizan en el ticket (no forman parte de la fotografía inmutable de la decisión 7): se resuelven leyendo el `Event` en el momento de construir la respuesta, ya que un evento publicado es inmutable (API-MVP 1, decisión 6) y esa lectura siempre es segura y consistente.
+- Al emitir cada `Ticket`, se persiste una fotografía inmutable: `EventoNombre`, `TicketTypeNombre`, `PrecioPagado`, `FechaInicio`, `FechaFin` (las cinco copiadas del `Event`/`TicketType` leído dentro de la misma transacción de compra, nunca recalculadas después ni aceptadas del cliente). `Ticket.Estado` inicial: `Emitido`. *(Corrección post-cierre, 2026-08-02: la primera implementación resolvía `FechaInicio`/`FechaFin` en vivo desde el `Event` en el momento de construir la respuesta en lugar de desnormalizarlas en el `Ticket`; se corrigió para que ambas fechas también formen parte de la fotografía persistida, igual que `EventoNombre`/`TicketTypeNombre`/`PrecioPagado`, y así queden protegidas ante cualquier cambio futuro del `Event`.)*
 - `ValidateTicketAsync`/`TryConsumeAsync`: dentro de la misma transacción que intenta marcar el ticket como `Usado`, lee también el `Event` y rechaza si no cumple la vigencia de validación (§0.1): `Estado == Publicado && UtcNow <= FechaFin`. No se escribe ningún cambio en el `Ticket` de un evento cancelado o finalizado; el documento del ticket conserva su `Estado` histórico (`Emitido`).
 - No hay actualización masiva/batch de tickets al cancelar un evento (decisión 1, ya reflejada en API-MVP 1: `CancelEventAsync` no toca tickets).
 - `TicketResponseDto` expone, además de los campos actuales:
   - `Estado` — valor **histórico/persistido** del ticket (`Emitido`/`Usado`/`Anulado`), nunca reescrito por una cancelación de evento.
   - `Utilizable: bool` — campo **derivado**, calculado en el momento de la lectura (sin mutar el documento) como: `Estado == Emitido && Event.Estado == Publicado && UtcNow <= Event.FechaFin`. Es decir, `false` si el ticket ya fue usado o anulado, si el evento fue cancelado, o si el evento ya está "Finalizado" derivado.
   - `MotivoNoUtilizable` — string público, nulo si `Utilizable == true`; en caso contrario, uno de: `"Usado"`, `"Anulado"`, `"EventoCancelado"`, `"EventoFinalizado"` (según cuál condición de las anteriores aplique).
-  - `EventoNombre`, `TicketTypeNombre`, `PrecioPagado` — fotografía inmutable de la compra.
-  - `FechaInicio`, `FechaFin` — resueltos en vivo desde el `Event` (ver arriba), no desnormalizados.
-- `GetTicketsByClienteIdAsync` resuelve `Utilizable`/`MotivoNoUtilizable`/`FechaInicio`/`FechaFin` por evento (lectura adicional de los eventos involucrados en el lote de tickets del cliente); `EventoNombre`/`TicketTypeNombre`/`PrecioPagado` ya están fijos en el propio documento del ticket.
+  - `EventoNombre`, `TicketTypeNombre`, `PrecioPagado`, `FechaInicio`, `FechaFin` — fotografía inmutable de la compra, persistida en el propio documento del `Ticket`; nunca se recalculan contra el `Event` actual.
+- `GetTicketsByClienteIdAsync` resuelve `Utilizable`/`MotivoNoUtilizable` por evento (lectura batch agrupada por `EventoId` distinto, una sola resolución por evento — no una lectura por ticket — de los eventos involucrados en el lote de tickets del cliente); `EventoNombre`/`TicketTypeNombre`/`PrecioPagado`/`FechaInicio`/`FechaFin` ya están fijos en el propio documento del ticket y no requieren esa lectura.
 
 ### Archivos/componentes probablemente afectados
-- `HoyDonde.API/Models/Ticket.cs` — nuevos campos `EventoNombre`, `TicketTypeNombre`, `PrecioPagado`.
+- `HoyDonde.API/Models/Ticket.cs` — nuevos campos `EventoNombre`, `TicketTypeNombre`, `PrecioPagado`, `FechaInicio`, `FechaFin` (fotografía inmutable completa).
 - `HoyDonde.API/DTOs/TicketResponseDto.cs` — campos nuevos (`Estado`, `Utilizable`, `MotivoNoUtilizable`, `EventoNombre`, `TicketTypeNombre`, `PrecioPagado`, `FechaInicio`, `FechaFin`).
 - `HoyDonde.API/Services/TicketService.cs` — `BuyTicketsAsync` (lectura de evento dentro de la transacción, chequeo de vigencia-compra, escritura de la fotografía), `ValidateTicketAsync` (chequeo de vigencia-validación), `GetTicketsByClienteIdAsync` (resolución de `Utilizable`/`MotivoNoUtilizable`/fechas).
 - `HoyDonde.API/Repositories/ITicketValidationStore.cs`, `FirestoreTicketValidationStore.cs` — `TryConsumeAsync` debe leer el `Event` dentro de la misma transacción y devolver un resultado que distinga ticket usado/anulado de evento cancelado/finalizado.
@@ -175,6 +174,27 @@ API-MVP 1 (necesita `EventStatus` reducido a 3 valores y `FechaInicio`/`FechaFin
 
 ### Fuera de alcance
 Actualización masiva/batch de tickets al cancelar (rechazada explícitamente por decisión 1); reembolsos; notificaciones al cliente al cancelar; anulación manual de un ticket individual fuera del flujo de validación; recalcular `PrecioPagado` si el organizador pudiera editar precios después de publicar (no aplica: API-MVP 1 ya prohíbe editar un evento publicado); ventana de "apertura de puertas" previa a `FechaInicio` (decisión explícita: la validación se habilita desde que el evento está publicado, sin ventana adicional).
+
+### Estado: implementada y verificada (cierre, 2026-08-02)
+
+API-MVP 2 está **implementada y verificada** contra el HEAD actual. Resultado final de verificación:
+
+- `dotnet build HoyDonde.sln`: **0 errores**.
+- Suite completa (unit + controller + integración) contra Firestore Emulator real (`npx firebase-tools@13.35.1 emulators:exec ...`, ver `CLAUDE.md`): **291 passed, 0 failed, 0 skipped**.
+
+Resumen de lo efectivamente implementado:
+
+- **Compra atómica** (`TicketService.BuyTicketsAsync`): el `Event` se lee dentro de la misma transacción de Firestore que descuenta stock y crea los tickets; solo se acepta la compra con `Estado == Publicado && UtcNow < FechaInicio` (`EventoNoDisponibleParaCompraException` → 409 en cualquier otro caso); el `TicketType` inexistente (`TicketTypeInvalidoException` → 404) y el stock insuficiente (`StockInsuficienteException` → 409) se validan contra el `Event` recién leído, nunca contra datos enviados por el cliente. La transacción de Firestore (reintento automático del SDK sobre conflicto real, `ABORTED`) protege contra sobreventa bajo concurrencia: verificado con un test de N compras concurrentes contra stock 1 (`BuyTicketsAsync_ConcurrentPurchases_StockOne_OnlyOneSucceeds`) — exactamente una compra exitosa, un solo `Ticket` creado, `CantidadDisponible` nunca negativo.
+- **Fotografía inmutable completa**: `EventoNombre`, `TicketTypeNombre`, `PrecioPagado`, `FechaInicio` y `FechaFin` se copian las cinco del `Event`/`TicketType` leído dentro de la transacción de compra y se persisten en el propio documento del `Ticket`; ninguna se recalcula después ni se acepta del cliente (`TicketBuyRequest` no tiene siquiera un campo de fecha o precio). Ver nota de corrección más arriba en "Reglas funcionales exactas".
+- **Validación atómica** (`FirestoreTicketValidationStore.TryConsumeAsync`): el `Ticket` y el `Event` se leen dentro de la misma transacción antes de marcar `Usado`; se rechaza con `EventoCancelado`/`EventoFinalizado` (409) si el `Event` no está `Publicado` o ya pasó `FechaFin`, sin escribir ningún cambio en el `Ticket` (su `Estado` histórico permanece `Emitido`); el doble uso del mismo ticket se rechaza (`AlreadyUsed`) tanto en secuencia como bajo concurrencia (`ValidateTicketAsync_ConcurrentValidations_OnlyOneSucceeds`, con `Task.WhenAll` sobre el mismo ticket).
+- **Cancelación sin actualización masiva**: `CancelEventAsync` (API-MVP 1) no toca ningún `Ticket`; verificado explícitamente en `CancelarEvento_CambiaUtilizable_PeroNoLaFotografiaHistoricaDelTicket` — cancelar el evento cambia `Utilizable`/`MotivoNoUtilizable` en la lectura, pero el documento del `Ticket` conserva su `Estado` (`Emitido`) y su fotografía histórica intactos.
+- `Utilizable`/`MotivoNoUtilizable` se derivan del `Event` **actual** en el momento de la lectura (nunca de la fotografía): `Usado`/`Anulado` si el `Ticket` ya fue consumido/anulado, `EventoCancelado`/`EventoFinalizado` según el estado efectivo del `Event`, o `Utilizable == true` en caso contrario.
+- `GetTicketsByClienteIdAsync` agrupa los tickets del cliente por `EventoId` distinto y resuelve esos eventos con una única lectura batch (`FirestoreDb.GetAllSnapshotsAsync`) — nunca una lectura por ticket; verificado con `GetTicketsByClienteIdAsync_MultipleTicketsSameEvent_ResolveConsistently` (3 tickets del mismo evento reflejan consistentemente el mismo resultado derivado de una única resolución).
+- Excepciones tipadas nuevas (`EventoNoDisponibleParaCompraException`, `TicketTypeInvalidoException`, `StockInsuficienteException`) mapeadas a 409/404/409 en `TicketsController`; `TicketValidationOutcome`/`TicketConsumeResult` distinguen `Anulado` (ticket) de `EventoCancelado`/`EventoFinalizado` (evento), todos mapeados a 409 con mensaje público distinto. Ningún `catch (Exception ex)` genérico quedó en los flujos de compra/validación de `TicketsController`; lo no anticipado sube a `ExceptionMiddleware`.
+
+**Riesgo no bloqueante**: durante una corrida de la suite completa en paralelo, `BuyTicketsAsync_ConcurrentPurchases_StockOne_OnlyOneSucceeds` falló una vez con `Grpc.Core.RpcException: Aborted — Transaction lock timeout` por contención real del Firestore Emulator bajo ejecución concurrente de múltiples clases de test a la vez; en aislamiento y en las corridas subsiguientes de la suite completa pasó sin problemas (291 passed, 0 failed, 0 skipped). No se considera un defecto del código de producción — es contención del emulador local bajo carga de test paralela, no reproducida contra una sola transacción real de negocio. Revisar la paralelización de la suite de integración (por ejemplo, desactivar el paralelismo de xUnit entre clases que comparten el emulador) solo si esta falla vuelve a repetirse.
+
+API-MVP 3 y 4 (§4, §5) siguen **pendientes**, sin cambios respecto a lo planificado en este documento.
 
 ---
 

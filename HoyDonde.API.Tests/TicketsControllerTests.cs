@@ -138,13 +138,37 @@ namespace HoyDonde.API.Tests
         }
 
         [Fact]
-        public async Task ValidateTicket_Cancelled_ReturnsConflict()
+        public async Task ValidateTicket_Anulado_ReturnsConflict()
         {
             _factory.MockTicketService
                 .Setup(s => s.ValidateTicketAsync("test-uid-123", "ticket-anulado", "event-1"))
-                .ReturnsAsync(TicketValidationOutcome.Cancelled);
+                .ReturnsAsync(TicketValidationOutcome.Anulado);
 
             var response = await _client.SendAsync(ValidateRequest("ticket-anulado", "event-1"));
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task ValidateTicket_EventoCancelado_ReturnsConflict()
+        {
+            _factory.MockTicketService
+                .Setup(s => s.ValidateTicketAsync("test-uid-123", "ticket-1", "event-cancelado"))
+                .ReturnsAsync(TicketValidationOutcome.EventoCancelado);
+
+            var response = await _client.SendAsync(ValidateRequest("ticket-1", "event-cancelado"));
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task ValidateTicket_EventoFinalizado_ReturnsConflict()
+        {
+            _factory.MockTicketService
+                .Setup(s => s.ValidateTicketAsync("test-uid-123", "ticket-1", "event-finalizado"))
+                .ReturnsAsync(TicketValidationOutcome.EventoFinalizado);
+
+            var response = await _client.SendAsync(ValidateRequest("ticket-1", "event-finalizado"));
 
             Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         }
