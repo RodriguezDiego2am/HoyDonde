@@ -1,6 +1,7 @@
 using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace HoyDonde.API.Services
@@ -15,10 +16,12 @@ namespace HoyDonde.API.Services
         private const string RolCliente = "CLIENTE";
 
         private readonly IUsuarioRepository _usuarioRepository;
+        private readonly IPermissionService _permissionService;
 
-        public AuthService(IUsuarioRepository usuarioRepository)
+        public AuthService(IUsuarioRepository usuarioRepository, IPermissionService permissionService)
         {
             _usuarioRepository = usuarioRepository;
+            _permissionService = permissionService;
         }
 
         public async Task<SyncClienteResult> SyncClienteAsync(string uid, string email, SyncClienteRequest request)
@@ -40,7 +43,17 @@ namespace HoyDonde.API.Services
             var result = await _usuarioRepository.ProvisionarAsync(provisioningRequest);
             var roles = await _usuarioRepository.GetRolCodigosActivosAsync(result.UsuarioId);
 
-            return new SyncClienteResult(result.UsuarioId, result.PersonaId, roles);
+            // Acciones efectivas resueltas por la misma autoridad que autoriza cada request
+            // (IPermissionService), nunca desde claims ni desde una tabla hardcodeada de roles.
+            // Únicas y en orden determinístico (ordinal ascendente) para que el contrato de
+            // /api/auth/sync sea estable entre llamadas.
+            var permisos = await _permissionService.GetPermisosEfectivosPorUsuarioIdAsync(result.UsuarioId);
+            var acciones = permisos.Acciones
+                .Distinct()
+                .OrderBy(accion => accion, StringComparer.Ordinal)
+                .ToList();
+
+            return new SyncClienteResult(result.UsuarioId, result.PersonaId, roles, acciones);
         }
     }
 }

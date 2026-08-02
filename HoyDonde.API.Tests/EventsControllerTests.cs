@@ -4,6 +4,8 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using HoyDonde.API.Authorization;
 using HoyDonde.API.DTOs;
@@ -17,6 +19,17 @@ namespace HoyDonde.API.Tests
 {
     public class EventsControllerTests : IClassFixture<TestApplicationFactory>
     {
+        // Program.cs configura globalmente JsonStringEnumConverter para que Categoria/Estado
+        // viajen como el nombre del enum, nunca como número (ajuste de contrato backend<->
+        // frontend). System.Net.Http.Json usa sus propias JsonSerializerOptions por defecto (sin
+        // ese converter), así que los tests que serializan/deserializan un EventCreateRequest/
+        // EventUpdateRequest/EventResponse necesitan estas mismas options explícitamente para
+        // reflejar el contrato HTTP real, en vez de degradar Categoria/Estado a un entero.
+        private static readonly JsonSerializerOptions EnumAwareJson = new(JsonSerializerDefaults.Web)
+        {
+            Converters = { new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false) },
+        };
+
         private readonly TestApplicationFactory _factory;
         private readonly System.Net.Http.HttpClient _client;
 
@@ -83,13 +96,13 @@ namespace HoyDonde.API.Tests
                 .Setup(s => s.CreateEventAsync(It.IsAny<EventCreateRequest>(), "test-uid-123"))
                 .ReturnsAsync(expectedResponse);
 
-            var response = await _client.PostAsJsonAsync("/api/events", request);
+            var response = await _client.PostAsJsonAsync("/api/events", request, EnumAwareJson);
 
             var content = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode) throw new Exception(content);
 
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<EventResponse>();
+            var result = await response.Content.ReadFromJsonAsync<EventResponse>(EnumAwareJson);
             Assert.NotNull(result);
             Assert.Equal("new-event-id", result!.Id);
             Assert.Equal("Festival de Prueba", result.Nombre);
@@ -104,7 +117,7 @@ namespace HoyDonde.API.Tests
                 .Setup(s => s.CreateEventAsync(It.IsAny<EventCreateRequest>(), It.IsAny<string>()))
                 .ThrowsAsync(new EventValidationException("El evento debe tener al menos un tipo de ticket."));
 
-            var response = await _client.PostAsJsonAsync("/api/events", request);
+            var response = await _client.PostAsJsonAsync("/api/events", request, EnumAwareJson);
             var content = await response.Content.ReadAsStringAsync();
 
             if (response.StatusCode == HttpStatusCode.InternalServerError)
@@ -236,7 +249,7 @@ namespace HoyDonde.API.Tests
                 .Setup(s => s.UpdateEventAsync("event-own", "test-uid-123", It.IsAny<EventUpdateRequest>()))
                 .ReturnsAsync(new EventResponse { Id = "event-own", Nombre = request.Nombre });
 
-            var response = await _client.PutAsJsonAsync("/api/events/event-own", request);
+            var response = await _client.PutAsJsonAsync("/api/events/event-own", request, EnumAwareJson);
 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
@@ -250,7 +263,7 @@ namespace HoyDonde.API.Tests
                 .Setup(s => s.UpdateEventAsync("event-foreign", "test-uid-123", It.IsAny<EventUpdateRequest>()))
                 .ThrowsAsync(new EventOwnershipException("event-foreign", "test-uid-123"));
 
-            var response = await _client.PutAsJsonAsync("/api/events/event-foreign", request);
+            var response = await _client.PutAsJsonAsync("/api/events/event-foreign", request, EnumAwareJson);
 
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         }
@@ -264,7 +277,7 @@ namespace HoyDonde.API.Tests
                 .Setup(s => s.UpdateEventAsync("event-publicado", "test-uid-123", It.IsAny<EventUpdateRequest>()))
                 .ThrowsAsync(new EventNotEditableException("event-publicado"));
 
-            var response = await _client.PutAsJsonAsync("/api/events/event-publicado", request);
+            var response = await _client.PutAsJsonAsync("/api/events/event-publicado", request, EnumAwareJson);
 
             Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         }
@@ -278,7 +291,7 @@ namespace HoyDonde.API.Tests
                 .Setup(s => s.UpdateEventAsync("event-own", "test-uid-123", It.IsAny<EventUpdateRequest>()))
                 .ThrowsAsync(new EventValidationException("El precio no puede ser negativo."));
 
-            var response = await _client.PutAsJsonAsync("/api/events/event-own", request);
+            var response = await _client.PutAsJsonAsync("/api/events/event-own", request, EnumAwareJson);
 
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         }
@@ -292,7 +305,7 @@ namespace HoyDonde.API.Tests
                 .Setup(s => s.CreateEventAsync(It.IsAny<EventCreateRequest>(), "test-uid-123"))
                 .ThrowsAsync(new IdentityNotProvisionedException("test-uid-123"));
 
-            var response = await _client.PostAsJsonAsync("/api/events", ValidCreateRequest());
+            var response = await _client.PostAsJsonAsync("/api/events", ValidCreateRequest(), EnumAwareJson);
             var content = await response.Content.ReadAsStringAsync();
 
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
@@ -433,7 +446,7 @@ namespace HoyDonde.API.Tests
             var response = await anonClient.GetAsync("/api/events/event-publico");
 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            var result = await response.Content.ReadFromJsonAsync<EventResponse>();
+            var result = await response.Content.ReadFromJsonAsync<EventResponse>(EnumAwareJson);
             Assert.NotNull(result);
             Assert.Equal(Event.EventEffectiveStatus.Publicado, result!.Estado);
         }
@@ -470,7 +483,7 @@ namespace HoyDonde.API.Tests
             var response = await _client.GetAsync("/api/events/organizer/event-propio-borrador");
 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            var result = await response.Content.ReadFromJsonAsync<EventResponse>();
+            var result = await response.Content.ReadFromJsonAsync<EventResponse>(EnumAwareJson);
             Assert.NotNull(result);
             Assert.Equal(Event.EventEffectiveStatus.Borrador, result!.Estado);
         }

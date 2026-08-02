@@ -43,7 +43,7 @@ namespace HoyDonde.API.Tests
             // tomado del token (FakeAuthHandler), nunca de lo que viaja en el body.
             _factory.MockAuthService
                 .Setup(s => s.SyncClienteAsync(TokenUid, TokenEmail, It.IsAny<SyncClienteRequest>()))
-                .ReturnsAsync(new SyncClienteResult("usuario-1", "persona-1", new List<string> { "CLIENTE" }));
+                .ReturnsAsync(new SyncClienteResult("usuario-1", "persona-1", new List<string> { "CLIENTE" }, new List<string> { "TICKET_COMPRAR", "TICKET_VER_PROPIO" }));
 
             var body = new SyncClienteRequestDto { FullName = "Juan Perez", Dni = "12345678", PhoneNumber = "+5491122334455" };
 
@@ -62,7 +62,7 @@ namespace HoyDonde.API.Tests
         {
             _factory.MockAuthService
                 .Setup(s => s.SyncClienteAsync(TokenUid, TokenEmail, It.IsAny<SyncClienteRequest>()))
-                .ReturnsAsync(new SyncClienteResult("usuario-2", "persona-2", new List<string> { "CLIENTE" }));
+                .ReturnsAsync(new SyncClienteResult("usuario-2", "persona-2", new List<string> { "CLIENTE" }, new List<string> { "TICKET_COMPRAR", "TICKET_VER_PROPIO" }));
 
             var response = await _client.PostAsJsonAsync("/api/auth/sync", new SyncClienteRequestDto());
             var payload = await response.Content.ReadFromJsonAsync<SyncUserResponseDto>();
@@ -79,7 +79,7 @@ namespace HoyDonde.API.Tests
         {
             _factory.MockAuthService
                 .Setup(s => s.SyncClienteAsync(TokenUid, TokenEmail, It.IsAny<SyncClienteRequest>()))
-                .ReturnsAsync(new SyncClienteResult("usuario-3", "persona-3", new List<string> { "ADMINISTRADOR" }));
+                .ReturnsAsync(new SyncClienteResult("usuario-3", "persona-3", new List<string> { "ADMINISTRADOR" }, new List<string> { "USUARIO_CREAR_ADMIN" }));
 
             var response = await _client.PostAsJsonAsync("/api/auth/sync", new SyncClienteRequestDto());
             var payload = await response.Content.ReadFromJsonAsync<SyncUserResponseDto>();
@@ -87,6 +87,38 @@ namespace HoyDonde.API.Tests
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             Assert.DoesNotContain("CLIENTE", payload!.Roles);
             Assert.Contains("ADMINISTRADOR", payload.Roles);
+        }
+
+        // ---- Acciones efectivas (ajuste de contrato backend<->frontend) ----
+
+        [Fact]
+        public async Task SyncUser_ReturnsEffectiveAccionesFromService()
+        {
+            _factory.MockAuthService
+                .Setup(s => s.SyncClienteAsync(TokenUid, TokenEmail, It.IsAny<SyncClienteRequest>()))
+                .ReturnsAsync(new SyncClienteResult("usuario-4", "persona-4", new List<string> { "CLIENTE" },
+                    new List<string> { "TICKET_COMPRAR", "TICKET_VER_PROPIO" }));
+
+            var response = await _client.PostAsJsonAsync("/api/auth/sync", new SyncClienteRequestDto());
+            var payload = await response.Content.ReadFromJsonAsync<SyncUserResponseDto>();
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.NotNull(payload);
+            Assert.Equal(new List<string> { "TICKET_COMPRAR", "TICKET_VER_PROPIO" }, payload!.Acciones);
+        }
+
+        [Fact]
+        public async Task SyncUser_UsuarioDesactivado_ReturnsNoAcciones()
+        {
+            _factory.MockAuthService
+                .Setup(s => s.SyncClienteAsync(TokenUid, TokenEmail, It.IsAny<SyncClienteRequest>()))
+                .ReturnsAsync(new SyncClienteResult("usuario-5", "persona-5", new List<string> { "CLIENTE" }, new List<string>()));
+
+            var response = await _client.PostAsJsonAsync("/api/auth/sync", new SyncClienteRequestDto());
+            var payload = await response.Content.ReadFromJsonAsync<SyncUserResponseDto>();
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Empty(payload!.Acciones);
         }
     }
 }

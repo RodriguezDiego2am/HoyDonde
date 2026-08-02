@@ -18,17 +18,27 @@ namespace HoyDonde.API.Tests
         private const string Uid = "uid-cliente-1";
         private const string Email = "cliente@test.com";
 
-        private static (AuthService sut, Mock<IUsuarioRepository> usuarioRepository) CreateSut()
+        private static (AuthService sut, Mock<IUsuarioRepository> usuarioRepository, Mock<IPermissionService> permissionService) CreateSut()
         {
             var usuarioRepository = new Mock<IUsuarioRepository>();
-            var sut = new AuthService(usuarioRepository.Object);
-            return (sut, usuarioRepository);
+            var permissionService = new Mock<IPermissionService>();
+
+            // Default sensato para los tests que no ejercitan Acciones específicamente: un
+            // Usuario activo sin acciones concedidas. Los tests que sí ejercitan Acciones
+            // sobreescriben esto con un Setup más específico para el usuarioId que les interesa.
+            permissionService
+                .Setup(p => p.GetPermisosEfectivosPorUsuarioIdAsync(It.IsAny<string>()))
+                .ReturnsAsync((string usuarioId) =>
+                    new PermisosEfectivosResult(usuarioId, null, true, Array.Empty<string>(), Array.Empty<string>()));
+
+            var sut = new AuthService(usuarioRepository.Object, permissionService.Object);
+            return (sut, usuarioRepository, permissionService);
         }
 
         [Fact]
         public async Task SyncClienteAsync_NewUser_ProvisionsClienteOnly_WithSelfRegistrationActor()
         {
-            var (sut, usuarioRepository) = CreateSut();
+            var (sut, usuarioRepository, _) = CreateSut();
 
             UsuarioProvisioningRequest? capturedRequest = null;
             usuarioRepository
@@ -56,7 +66,7 @@ namespace HoyDonde.API.Tests
         [Fact]
         public async Task SyncClienteAsync_ExistingNonClienteUser_KeepsExistingRoles()
         {
-            var (sut, usuarioRepository) = CreateSut();
+            var (sut, usuarioRepository, _) = CreateSut();
 
             // La idempotencia real la resuelve ProvisionarAsync (Etapa 2): para un Usuario ya
             // existente devuelve sus IDs originales sin tocar sus roles. Acá se simula ese
@@ -77,7 +87,7 @@ namespace HoyDonde.API.Tests
         [Fact]
         public async Task SyncClienteAsync_WhenProvisioningFails_Propagates()
         {
-            var (sut, usuarioRepository) = CreateSut();
+            var (sut, usuarioRepository, _) = CreateSut();
             var firestoreError = new InvalidOperationException("firestore failed");
             usuarioRepository
                 .Setup(r => r.ProvisionarAsync(It.IsAny<UsuarioProvisioningRequest>()))
@@ -87,6 +97,58 @@ namespace HoyDonde.API.Tests
                 () => sut.SyncClienteAsync(Uid, Email, new SyncClienteRequest(null, null, null)));
 
             Assert.Same(firestoreError, thrown);
+        }
+
+        [Fact]
+        public async Task SyncClienteAsync_ReturnsAccionesFromPermissionService_SortedAndDeduplicated()
+        {
+            var (sut, usuarioRepository, permissionService) = CreateSut();
+
+            usuarioRepository
+                .Setup(r => r.ProvisionarAsync(It.IsAny<UsuarioProvisioningRequest>()))
+                .ReturnsAsync(new UsuarioProvisioningResult("persona-acciones", "usuario-acciones"));
+            usuarioRepository
+                .Setup(r => r.GetRolCodigosActivosAsync("usuario-acciones"))
+                .ReturnsAsync(new List<string> { "CLIENTE" });
+
+            // Deliberadamente desordenado y con un duplicado: IPermissionService es la única
+            // fuente de las acciones (nunca una tabla hardcodeada acá), pero AuthService es
+            // responsable de devolverlas únicas y en orden determinístico.
+            permissionService
+                .Setup(p => p.GetPermisosEfectivosPorUsuarioIdAsync("usuario-acciones"))
+                .ReturnsAsync(new PermisosEfectivosResult(
+                    "usuario-acciones", "persona-acciones", true,
+                    new List<string> { "CLIENTE" },
+                    new List<string> { "TICKET_VER_PROPIO", "TICKET_COMPRAR", "TICKET_COMPRAR" }));
+
+            var result = await sut.SyncClienteAsync(Uid, Email, new SyncClienteRequest(null, null, null));
+
+            Assert.Equal(new List<string> { "TICKET_COMPRAR", "TICKET_VER_PROPIO" }, result.Acciones);
+        }
+
+        [Fact]
+        public async Task SyncClienteAsync_UsuarioDesactivado_ReturnsNoAcciones()
+        {
+            var (sut, usuarioRepository, permissionService) = CreateSut();
+
+            usuarioRepository
+                .Setup(r => r.ProvisionarAsync(It.IsAny<UsuarioProvisioningRequest>()))
+                .ReturnsAsync(new UsuarioProvisioningResult("persona-inactivo", "usuario-inactivo"));
+            usuarioRepository
+                .Setup(r => r.GetRolCodigosActivosAsync("usuario-inactivo"))
+                .ReturnsAsync(new List<string> { "CLIENTE" });
+
+            // Mismo comportamiento que PermissionService ya tiene para un Usuario con
+            // IsActive == false: Acciones vacío (ver PermissionServiceTests).
+            permissionService
+                .Setup(p => p.GetPermisosEfectivosPorUsuarioIdAsync("usuario-inactivo"))
+                .ReturnsAsync(new PermisosEfectivosResult(
+                    "usuario-inactivo", "persona-inactivo", false,
+                    Array.Empty<string>(), Array.Empty<string>()));
+
+            var result = await sut.SyncClienteAsync(Uid, Email, new SyncClienteRequest(null, null, null));
+
+            Assert.Empty(result.Acciones);
         }
     }
 }

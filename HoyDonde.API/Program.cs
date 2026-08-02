@@ -14,6 +14,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using System.Text;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -77,8 +78,18 @@ builder.Services.AddAuthorization(options =>
     }
 });
 
-// Agregar controladores
-builder.Services.AddControllers();
+// Agregar controladores. Los enums HTTP de Event/Ticket (EventStatus/EventEffectiveStatus/
+// EventCategory/TicketStatus) viajan siempre como el nombre del miembro (p. ej. "Publicado",
+// "Musica"), nunca su valor entero: allowIntegerValues:false hace que un entero o un nombre
+// inválido en un request body sea rechazado en la deserialización, lo que ASP.NET Core traduce
+// automáticamente en un ModelState inválido -> el mismo contrato uniforme de error
+// (VALIDATION_ERROR) configurado más abajo, sin ningún cambio en los controllers.
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(
+            new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false));
+    });
 
 // Los errores automáticos de ModelState (DataAnnotations/binding) siguen el mismo contrato
 // público de error que ExceptionMiddleware (docs/api-mvp-plan.md §5): Code="VALIDATION_ERROR",

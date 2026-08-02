@@ -74,9 +74,12 @@ Respuesta `200 OK` (`SyncUserResponseDto`):
 {
   "usuarioId": "usuario-...",
   "personaId": "persona-...",
-  "roles": ["CLIENTE"]
+  "roles": ["CLIENTE"],
+  "acciones": ["TICKET_COMPRAR", "TICKET_VER_PROPIO"]
 }
 ```
+
+- **`acciones`**: códigos de `Accion` efectivos del `Usuario` sincronizado, resueltos en el momento de la llamada vía `IPermissionService` (`Usuario` → `UsuarioRol` → `Rol` → `RolAccion` → `Accion`) — la misma autoridad que resuelve cada policy `[Authorize]`, nunca una tabla hardcodeada de roles ni un claim del token. Únicos y en orden determinístico (ordinal ascendente). Si el `Usuario` está inactivo o no tiene roles/acciones activas, `acciones` es `[]`. El frontend usa este campo para decidir qué opciones mostrar, pero **no reemplaza** la autorización real: cada endpoint vuelve a evaluar su policy contra Firestore en cada request.
 
 ---
 
@@ -243,6 +246,8 @@ Reglas: `nombre`/`ubicacion` no vacíos; `fechaInicio` estrictamente futura; `fe
 ```
 
 `estado` es el **efectivo/derivado**: `"Borrador"`, `"Publicado"`, `"Cancelado"` o `"Finalizado"`.
+
+**Serialización de enums**: `estado` y `categoria` viajan siempre como el **nombre** del valor (`"Publicado"`, `"Musica"`, etc.), nunca como el entero subyacente — configurado globalmente en `Program.cs` vía `JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false)`. Esto aplica tanto a las respuestas (`EventResponse.Estado`/`Categoria`) como a los requests que aceptan `categoria` (`EventCreateRequest`/`EventUpdateRequest`, §7 abajo): un `categoria` numérico o un nombre que no exista en el enum se rechaza en la deserialización, lo que ASP.NET Core traduce automáticamente en el mismo contrato uniforme de error (`code: "VALIDATION_ERROR"`, §11) — ningún controller necesita código adicional para esto. `TicketResponseDto.Estado` (`"Emitido"`/`"Usado"`/`"Anulado"`) ya era un `string` calculado en el servicio antes de este ajuste, así que no depende de esta configuración global.
 
 Los seis endpoints de lectura de eventos devuelven este mismo `id` real por tipo de ticket — **creación**, **actualización**, **detalle público** (`GET /api/events/{eventId}`), **búsqueda pública** (`GET /api/events`), **lista de eventos propios** (`GET /api/events/organizer/me`) y **detalle autenticado del organizador** (`GET /api/events/organizer/{id}`) —, así que un cliente real puede resolver qué tipo de ticket comprar usando **exclusivamente** la respuesta HTTP de cualquiera de ellos, sin necesitar ningún otro medio para conocer el `TicketTypeId`.
 

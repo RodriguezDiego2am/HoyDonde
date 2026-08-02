@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using HoyDonde.API.Authorization;
 using HoyDonde.API.DTOs;
@@ -29,6 +30,15 @@ namespace HoyDonde.API.Tests
     public class ErrorContractTests : IClassFixture<TestApplicationFactory>
     {
         private static readonly JsonSerializerOptions CaseInsensitive = new() { PropertyNameCaseInsensitive = true };
+
+        // Program.cs configura globalmente JsonStringEnumConverter (Categoria/Estado viajan como
+        // el nombre del enum, nunca como número); System.Net.Http.Json usa sus propias
+        // JsonSerializerOptions por defecto (sin ese converter), así que un test que serializa un
+        // EventCreateRequest necesita estas mismas options para no enviar un entero de vuelta.
+        private static readonly JsonSerializerOptions EnumAwareJson = new(JsonSerializerDefaults.Web)
+        {
+            Converters = { new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false) },
+        };
 
         private readonly TestApplicationFactory _factory;
         private readonly HttpClient _client;
@@ -158,7 +168,7 @@ namespace HoyDonde.API.Tests
                 TicketGroups = new List<TicketGroupDto> { new() { Nombre = "General", Precio = 1, CantidadDisponible = 1 } }
             };
 
-            var response = await _client.PostAsJsonAsync("/api/events", request);
+            var response = await _client.PostAsJsonAsync("/api/events", request, EnumAwareJson);
             var content = await response.Content.ReadAsStringAsync();
             var error = JsonSerializer.Deserialize<ErrorResponse>(content, CaseInsensitive)!;
 

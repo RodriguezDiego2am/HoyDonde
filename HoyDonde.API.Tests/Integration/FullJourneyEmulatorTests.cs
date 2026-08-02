@@ -4,6 +4,8 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Google.Cloud.Firestore;
 using HoyDonde.API.DTOs;
@@ -24,6 +26,17 @@ namespace HoyDonde.API.Tests.Integration
     [Collection(FirestoreEmulatorCollection.Name)]
     public class FullJourneyEmulatorTests
     {
+        // Program.cs configura globalmente JsonStringEnumConverter (Categoria/Estado viajan como
+        // el nombre del enum, nunca como número); System.Net.Http.Json usa sus propias
+        // JsonSerializerOptions por defecto (sin ese converter), así que este recorrido necesita
+        // estas mismas options tanto para el body de EventCreateRequest como para deserializar
+        // EventResponse. TicketBuyRequest/TicketResponseDto no tienen campos enum-typed, así que
+        // no les afecta compartir estas mismas options.
+        private static readonly JsonSerializerOptions EnumAwareJson = new(JsonSerializerDefaults.Web)
+        {
+            Converters = { new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false) },
+        };
+
         private readonly FirestoreEmulatorFixture _fixture;
 
         public FullJourneyEmulatorTests(FirestoreEmulatorFixture fixture)
@@ -62,7 +75,7 @@ namespace HoyDonde.API.Tests.Integration
             var msg = new HttpRequestMessage(method, path);
             msg.Headers.Authorization = new AuthenticationHeaderValue("Test");
             msg.Headers.Add("Test-Uid", uid);
-            if (body != null) msg.Content = JsonContent.Create(body);
+            if (body != null) msg.Content = JsonContent.Create(body, options: EnumAwareJson);
             return msg;
         }
 
@@ -99,7 +112,7 @@ namespace HoyDonde.API.Tests.Integration
             var createResponse = await client.SendAsync(Request(HttpMethod.Post, "/api/events", organizadorUid, createRequest));
             var createBody = await createResponse.Content.ReadAsStringAsync();
             Assert.True(createResponse.StatusCode == HttpStatusCode.OK, $"CreateEvent falló: {createBody}");
-            var created = await createResponse.Content.ReadFromJsonAsync<EventResponse>();
+            var created = await createResponse.Content.ReadFromJsonAsync<EventResponse>(EnumAwareJson);
             Assert.NotNull(created);
             var eventId = created!.Id;
 
