@@ -10,6 +10,7 @@ export type { ApiErrorBody } from './apiError';
 
 type RetryableConfig = InternalAxiosRequestConfig & { _retried?: boolean };
 
+// eslint-disable-next-line import/no-named-as-default-member -- default import + .create() is the standard axios usage; axios has no separate named `create` export in practice
 export const apiClient = axios.create({
   baseURL: resolveApiUrl(),
   headers: {
