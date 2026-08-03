@@ -50,3 +50,48 @@ export function splitIsoToLocalParts(iso: string): { date: string; time: string 
 
   return { date: `${dd}/${mm}/${yyyy}`, time: `${hh}:${min}` };
 }
+
+/**
+ * Variantes de solo-fecha para los filtros de rango de la Cartelera (docs/api-mvp-plan.md §7
+ * Frontend 5, GET /api/events?fechaDesde&fechaHasta). Comparten el mismo formato "DD/MM/AAAA"
+ * que parseLocalDateTime, pero sin hora: acá la hora no tiene sentido, "Desde"/"Hasta" describen
+ * un día completo, no un instante — nunca se pide ni se fabrica un "00:00" para poder reusar
+ * parseLocalDateTime.
+ */
+
+/** Interpreta "DD/MM/AAAA" como medianoche local de ese día. `null` si el formato o el valor no son válidos (incluye overflow como 31/02, igual que parseLocalDateTime). */
+export function parseLocalDate(dateStr: string): Date | null {
+  const match = DATE_RE.exec(dateStr.trim());
+  if (!match) return null;
+
+  const [, ddStr, mmStr, yyyyStr] = match;
+  const dd = Number(ddStr);
+  const mm = Number(mmStr);
+  const yyyy = Number(yyyyStr);
+
+  const date = new Date(yyyy, mm - 1, dd, 0, 0, 0, 0);
+  const isSameCalendarValue = date.getFullYear() === yyyy && date.getMonth() === mm - 1 && date.getDate() === dd;
+
+  return isSameCalendarValue ? date : null;
+}
+
+/** Medianoche local del mismo día calendario que `date` (trunca hora/minuto/segundo/ms). */
+export function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+/**
+ * Medianoche local del día siguiente a `date`: límite superior EXCLUSIVO de un filtro "Hasta"
+ * que debe incluir el día completo (nunca `23:59:59.999`, que puede perder el último milisegundo
+ * de vigencia del día). Arma la fecha por componentes en vez de sumar 24h en milisegundos, para
+ * que el propio motor de Date resuelva cambios de mes/año y horario de verano sin aritmética manual.
+ */
+export function nextLocalDayExclusive(date: Date): Date {
+  const start = startOfLocalDay(date);
+  return new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1, 0, 0, 0, 0);
+}
+
+/** true si `desde` no es posterior a `hasta` comparando por día calendario local (un mismo día en ambos extremos es un rango válido de un solo día). */
+export function isValidLocalDateRange(desde: Date, hasta: Date): boolean {
+  return startOfLocalDay(desde).getTime() <= startOfLocalDay(hasta).getTime();
+}

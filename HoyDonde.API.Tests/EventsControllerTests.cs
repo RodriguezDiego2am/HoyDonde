@@ -465,6 +465,57 @@ namespace HoyDonde.API.Tests
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
+        // ---- GET /api/events: contrato de query string de los filtros de Frontend 5 ----
+
+        [Fact]
+        public async Task SearchEvents_FechaDesdeHastaCategoriaUbicacion_BindCorrectlyIntoFilterDto()
+        {
+            EventSearchFilterDto? capturedFilter = null;
+            _factory.MockEventService
+                .Setup(s => s.SearchEventsAsync(It.IsAny<EventSearchFilterDto>()))
+                .Callback<EventSearchFilterDto>(f => capturedFilter = f)
+                .ReturnsAsync(new PagedResponse<EventResponse> { Data = new List<EventResponse>(), HasNextPage = false });
+
+            var anonClient = _factory.CreateClient();
+            var response = await anonClient.GetAsync(
+                "/api/events?fechaDesde=2026-08-05T00:00:00Z&fechaHasta=2026-08-11T00:00:00Z&categoria=Musica&ubicacion=Parque%20Central&lastEventId=cursor-1&limit=5");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.NotNull(capturedFilter);
+            Assert.Equal(new DateTime(2026, 8, 5, 0, 0, 0, DateTimeKind.Utc), capturedFilter!.FechaDesde);
+            Assert.Equal(new DateTime(2026, 8, 11, 0, 0, 0, DateTimeKind.Utc), capturedFilter.FechaHasta);
+            Assert.Equal(Event.EventCategory.Musica, capturedFilter.Categoria);
+            Assert.Equal("Parque Central", capturedFilter.Ubicacion);
+            Assert.Equal("cursor-1", capturedFilter.LastEventId);
+            Assert.Equal(5, capturedFilter.Limit);
+        }
+
+        [Fact]
+        public async Task SearchEvents_CategoriaInexistente_ReturnsValidationError400()
+        {
+            var anonClient = _factory.CreateClient();
+            var response = await anonClient.GetAsync("/api/events?categoria=NoExiste");
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("VALIDATION_ERROR", body.GetProperty("code").GetString());
+        }
+
+        [Fact]
+        public async Task SearchEvents_DesdeMayorQueHasta_PropagatesTypedExceptionAsEventValidationError400()
+        {
+            _factory.MockEventService
+                .Setup(s => s.SearchEventsAsync(It.IsAny<EventSearchFilterDto>()))
+                .ThrowsAsync(new EventValidationException("La fecha 'Desde' no puede ser posterior a la fecha 'Hasta'."));
+
+            var anonClient = _factory.CreateClient();
+            var response = await anonClient.GetAsync("/api/events?fechaDesde=2026-08-11T00:00:00Z&fechaHasta=2026-08-05T00:00:00Z");
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("EVENT_VALIDATION_ERROR", body.GetProperty("code").GetString());
+        }
+
         // ---- GET /api/events/organizer/{id}: detalle propio en cualquier estado ----
 
         [Fact]

@@ -260,29 +260,43 @@ namespace HoyDonde.API.Services
         {
             var utcNow = DateTime.UtcNow;
 
+            // Rango de fechas (docs/api-mvp-plan.md §7 Frontend 5): Desde inclusiva, Hasta
+            // exclusiva, ambas sobre Event.FechaInicio. El frontend ya resuelve el límite de día
+            // local -> UTC antes de mandarlas; acá solo se valida que el rango tenga sentido.
+            if (filter.FechaDesde.HasValue && filter.FechaHasta.HasValue &&
+                filter.FechaDesde.Value.ToUniversalTime() > filter.FechaHasta.Value.ToUniversalTime())
+            {
+                throw new EventValidationException("La fecha 'Desde' no puede ser posterior a la fecha 'Hasta'.");
+            }
+
             // Vigencia de catálogo (docs/api-mvp-plan.md §0.1): Publicado y FechaFin todavía no
             // pasó. Firestore admite desigualdades sobre varios campos en una misma consulta
             // (requiere uno de los cuatro índices compuestos de firestore.indexes.json —según
             // qué combinación de Categoria/Ubicacion esté presente—, ver comentario de orderBy
-            // más abajo): el filtro opcional por filter.FechaInicio se aplica también del lado
-            // de Firestore, nunca en memoria, para no devolver páginas incompletas.
+            // más abajo): los filtros opcionales de FechaDesde/FechaHasta se aplican también del
+            // lado de Firestore, nunca en memoria, para no devolver páginas incompletas.
             var query = _firestore.Collection(CollectionName)
                 .WhereEqualTo("Estado", (int)EventStatus.Publicado)
                 .WhereGreaterThanOrEqualTo("FechaFin", utcNow);
 
-            if (!string.IsNullOrEmpty(filter.Categoria) && Enum.TryParse<EventCategory>(filter.Categoria, true, out var parsedCategory))
+            if (filter.Categoria.HasValue)
             {
-                query = query.WhereEqualTo("Categoria", (int)parsedCategory);
+                query = query.WhereEqualTo("Categoria", (int)filter.Categoria.Value);
             }
 
-            if (!string.IsNullOrEmpty(filter.Ubicacion))
+            if (!string.IsNullOrWhiteSpace(filter.Ubicacion))
             {
-                query = query.WhereEqualTo("Ubicacion", filter.Ubicacion);
+                query = query.WhereEqualTo("Ubicacion", filter.Ubicacion.Trim());
             }
 
-            if (filter.FechaInicio.HasValue)
+            if (filter.FechaDesde.HasValue)
             {
-                query = query.WhereGreaterThanOrEqualTo("FechaInicio", filter.FechaInicio.Value.ToUniversalTime());
+                query = query.WhereGreaterThanOrEqualTo("FechaInicio", filter.FechaDesde.Value.ToUniversalTime());
+            }
+
+            if (filter.FechaHasta.HasValue)
+            {
+                query = query.WhereLessThan("FechaInicio", filter.FechaHasta.Value.ToUniversalTime());
             }
 
             // Orden determinístico para paginación: FechaFin (campo del filtro obligatorio),

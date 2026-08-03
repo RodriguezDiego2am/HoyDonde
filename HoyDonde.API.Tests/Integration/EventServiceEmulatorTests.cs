@@ -666,7 +666,7 @@ namespace HoyDonde.API.Tests.Integration
         }
 
         [FirestoreEmulatorFact]
-        public async Task SearchEventsAsync_FechaInicioFilter_CombinesWithFechaFinVisibility_InFirestoreQuery()
+        public async Task SearchEventsAsync_SoloFechaDesde_CombinesWithFechaFinVisibility_InFirestoreQuery()
         {
             // Ventana de fechas exclusiva de este test (día +200) para no depender de, ni verse
             // afectado por, eventos sembrados por otros tests en la misma colección compartida
@@ -694,11 +694,101 @@ namespace HoyDonde.API.Tests.Integration
                 fechaInicio: baseFecha.AddDays(10),
                 fechaFin: baseFecha.AddDays(15)));
 
-            var result = await sut.SearchEventsAsync(new EventSearchFilterDto { FechaInicio = corte, Limit = 50 });
+            var result = await sut.SearchEventsAsync(new EventSearchFilterDto { FechaDesde = corte, Limit = 50 });
             var ids = result.Data.Select(e => e.Id).ToList();
 
             Assert.DoesNotContain(antesDelCorte, ids);
             Assert.Contains(despuesDelCorte, ids);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task SearchEventsAsync_SoloFechaHasta_ExcludesFechaInicioOnOrAfterHasta()
+        {
+            // Ventana de fechas exclusiva de este test (día +90).
+            var sut = CreateSut(_fixture);
+            var personaId = $"persona-{Guid.NewGuid():N}";
+            var hasta = DateTime.UtcNow.AddDays(90);
+
+            var antesDeHasta = $"event-antes-hasta-{Guid.NewGuid():N}";
+            var despuesDeHasta = $"event-despues-hasta-{Guid.NewGuid():N}";
+
+            // FechaInicio antes del límite superior (nunca exactamente igual: ver comentario de
+            // SearchEventsAsync_PaginatesAcrossPages... sobre el bug de inclusividad conocido del
+            // emulador local en el límite exacto de una consulta con desigualdades sobre dos
+            // campos distintos): debe incluirse, Hasta es exclusiva.
+            await SeedEventAsync(BuildEvent(
+                antesDeHasta, personaId,
+                estado: Event.EventStatus.Publicado,
+                fechaInicio: hasta.AddSeconds(-1),
+                fechaFin: hasta.AddDays(5)));
+
+            // FechaInicio en/después del límite superior: debe excluirse.
+            await SeedEventAsync(BuildEvent(
+                despuesDeHasta, personaId,
+                estado: Event.EventStatus.Publicado,
+                fechaInicio: hasta.AddSeconds(1),
+                fechaFin: hasta.AddDays(5)));
+
+            var result = await sut.SearchEventsAsync(new EventSearchFilterDto { FechaHasta = hasta, Limit = 50 });
+            var ids = result.Data.Select(e => e.Id).ToList();
+
+            Assert.Contains(antesDeHasta, ids);
+            Assert.DoesNotContain(despuesDeHasta, ids);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task SearchEventsAsync_RangoCompleto_DesdeInclusive_HastaExclusive()
+        {
+            // Ventana de fechas exclusiva de este test (día +100).
+            var sut = CreateSut(_fixture);
+            var personaId = $"persona-{Guid.NewGuid():N}";
+            var desde = DateTime.UtcNow.AddDays(100);
+            var hasta = desde.AddDays(3);
+
+            var antesDeDesde = $"event-antes-desde-{Guid.NewGuid():N}";
+            var dentroDelRango = $"event-dentro-rango-{Guid.NewGuid():N}";
+            var enOTrasHasta = $"event-en-hasta-{Guid.NewGuid():N}";
+
+            // Antes del límite inferior: excluido.
+            await SeedEventAsync(BuildEvent(
+                antesDeDesde, personaId,
+                estado: Event.EventStatus.Publicado,
+                fechaInicio: desde.AddSeconds(-1),
+                fechaFin: hasta.AddDays(5)));
+
+            // Dentro del rango: incluido.
+            await SeedEventAsync(BuildEvent(
+                dentroDelRango, personaId,
+                estado: Event.EventStatus.Publicado,
+                fechaInicio: desde.AddSeconds(1),
+                fechaFin: hasta.AddDays(5)));
+
+            // En/después del límite superior (exclusivo): excluido.
+            await SeedEventAsync(BuildEvent(
+                enOTrasHasta, personaId,
+                estado: Event.EventStatus.Publicado,
+                fechaInicio: hasta.AddSeconds(1),
+                fechaFin: hasta.AddDays(5)));
+
+            var result = await sut.SearchEventsAsync(new EventSearchFilterDto { FechaDesde = desde, FechaHasta = hasta, Limit = 50 });
+            var ids = result.Data.Select(e => e.Id).ToList();
+
+            Assert.DoesNotContain(antesDeDesde, ids);
+            Assert.Contains(dentroDelRango, ids);
+            Assert.DoesNotContain(enOTrasHasta, ids);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task SearchEventsAsync_FechaDesdeMayorQueFechaHasta_ThrowsEventValidationException()
+        {
+            var sut = CreateSut(_fixture);
+            var desde = DateTime.UtcNow.AddDays(10);
+            var hasta = DateTime.UtcNow.AddDays(5);
+
+            var ex = await Assert.ThrowsAsync<EventValidationException>(() =>
+                sut.SearchEventsAsync(new EventSearchFilterDto { FechaDesde = desde, FechaHasta = hasta, Limit = 50 }));
+
+            Assert.Contains("Desde", ex.Message);
         }
 
         [FirestoreEmulatorFact]
@@ -752,7 +842,7 @@ namespace HoyDonde.API.Tests.Integration
             {
                 var page = await sut.SearchEventsAsync(new EventSearchFilterDto
                 {
-                    FechaInicio = corteFechaInicio,
+                    FechaDesde = corteFechaInicio,
                     Limit = 2,
                     LastEventId = cursor
                 });
@@ -905,8 +995,8 @@ namespace HoyDonde.API.Tests.Integration
 
             var result = await sut.SearchEventsAsync(new EventSearchFilterDto
             {
-                Categoria = nameof(Event.EventCategory.Tecnologia),
-                FechaInicio = corteFechaInicio,
+                Categoria = Event.EventCategory.Tecnologia,
+                FechaDesde = corteFechaInicio,
                 Limit = 50
             });
             var ids = result.Data.Select(e => e.Id).ToList();
@@ -1017,7 +1107,7 @@ namespace HoyDonde.API.Tests.Integration
 
             var result = await sut.SearchEventsAsync(new EventSearchFilterDto
             {
-                Categoria = nameof(Event.EventCategory.Deportes),
+                Categoria = Event.EventCategory.Deportes,
                 Ubicacion = ubicacionObjetivo,
                 Limit = 50
             });
@@ -1027,6 +1117,161 @@ namespace HoyDonde.API.Tests.Integration
             Assert.DoesNotContain(soloCategoria, ids);
             Assert.DoesNotContain(soloUbicacion, ids);
             Assert.DoesNotContain(finalizadoAmbos, ids);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task SearchEventsAsync_CategoriaUbicacionYRango_CombinanTodosLosFiltrosEnLaMismaConsulta()
+        {
+            // Ventana de fechas exclusiva de este test (día +110).
+            var sut = CreateSut(_fixture);
+            var personaId = $"persona-{Guid.NewGuid():N}";
+            var ubicacionObjetivo = $"Ubicacion-{Guid.NewGuid():N}";
+            var otraUbicacion = $"Otra-Ubicacion-{Guid.NewGuid():N}";
+            var desde = DateTime.UtcNow.AddDays(110);
+            var hasta = desde.AddDays(3);
+
+            var matchTodos = $"event-match-todos-{Guid.NewGuid():N}";
+            var otraCategoria = $"event-otra-cat-todos-{Guid.NewGuid():N}";
+            var otraUbicacionEvento = $"event-otra-ubi-todos-{Guid.NewGuid():N}";
+            var fueraDeRango = $"event-fuera-rango-todos-{Guid.NewGuid():N}";
+
+            // Cumple Categoria, Ubicacion y rango: debe incluirse.
+            await SeedEventAsync(BuildEvent(
+                matchTodos, personaId,
+                estado: Event.EventStatus.Publicado,
+                fechaInicio: desde.AddSeconds(1),
+                fechaFin: hasta.AddDays(5),
+                categoria: Event.EventCategory.Arte,
+                ubicacion: ubicacionObjetivo));
+
+            // Categoria distinta: excluido por el filtro de igualdad.
+            await SeedEventAsync(BuildEvent(
+                otraCategoria, personaId,
+                estado: Event.EventStatus.Publicado,
+                fechaInicio: desde.AddSeconds(1),
+                fechaFin: hasta.AddDays(5),
+                categoria: Event.EventCategory.Otros,
+                ubicacion: ubicacionObjetivo));
+
+            // Ubicacion distinta: excluido por el filtro de igualdad.
+            await SeedEventAsync(BuildEvent(
+                otraUbicacionEvento, personaId,
+                estado: Event.EventStatus.Publicado,
+                fechaInicio: desde.AddSeconds(1),
+                fechaFin: hasta.AddDays(5),
+                categoria: Event.EventCategory.Arte,
+                ubicacion: otraUbicacion));
+
+            // Categoria y Ubicacion correctas, pero FechaInicio en/después del límite superior
+            // (exclusivo): excluido por el rango.
+            await SeedEventAsync(BuildEvent(
+                fueraDeRango, personaId,
+                estado: Event.EventStatus.Publicado,
+                fechaInicio: hasta.AddSeconds(1),
+                fechaFin: hasta.AddDays(5),
+                categoria: Event.EventCategory.Arte,
+                ubicacion: ubicacionObjetivo));
+
+            var result = await sut.SearchEventsAsync(new EventSearchFilterDto
+            {
+                Categoria = Event.EventCategory.Arte,
+                Ubicacion = ubicacionObjetivo,
+                FechaDesde = desde,
+                FechaHasta = hasta,
+                Limit = 50
+            });
+            var ids = result.Data.Select(e => e.Id).ToList();
+
+            Assert.Contains(matchTodos, ids);
+            Assert.DoesNotContain(otraCategoria, ids);
+            Assert.DoesNotContain(otraUbicacionEvento, ids);
+            Assert.DoesNotContain(fueraDeRango, ids);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task SearchEventsAsync_PaginatesAcrossPages_WithCategoriaUbicacionAndFullDateRange_NoLossOrDuplicates()
+        {
+            // Ventana de fechas exclusiva de este test (día +130). Deliberadamente por debajo del
+            // día +301 usado por SearchEventsAsync_PaginatesAcrossPages_WithoutLosingOrRepeating...:
+            // ese test filtra solo por FechaDesde >= día +301, sin cota superior ni Categoria/
+            // Ubicacion, así que cualquier evento "visible" de este archivo con FechaInicio mayor
+            // a esa cota se colaría en su conteo estricto de resultados (ya le pasó a este mismo
+            // test cuando usaba el día +320: rompió esa otra prueba).
+            var sut = CreateSut(_fixture);
+            var personaId = $"persona-{Guid.NewGuid():N}";
+            var ubicacionObjetivo = $"Ubicacion-{Guid.NewGuid():N}";
+            var desde = DateTime.UtcNow.AddDays(130);
+            var hasta = desde.AddDays(3);
+
+            var incluidos = new List<string>();
+            for (int i = 1; i <= 5; i++)
+            {
+                var id = $"event-pag-todos-{i}-{Guid.NewGuid():N}";
+                incluidos.Add(id);
+                await SeedEventAsync(BuildEvent(
+                    id, personaId,
+                    estado: Event.EventStatus.Publicado,
+                    fechaInicio: desde.AddSeconds(i), // dentro del rango [desde, hasta)
+                    fechaFin: hasta.AddDays(10),
+                    categoria: Event.EventCategory.Deportes,
+                    ubicacion: ubicacionObjetivo));
+            }
+
+            // Fuera del rango de fechas: no debe aparecer en ninguna página.
+            var fueraDeRango = $"event-pag-fuera-rango-{Guid.NewGuid():N}";
+            await SeedEventAsync(BuildEvent(
+                fueraDeRango, personaId,
+                estado: Event.EventStatus.Publicado,
+                fechaInicio: hasta.AddSeconds(1),
+                fechaFin: hasta.AddDays(10),
+                categoria: Event.EventCategory.Deportes,
+                ubicacion: ubicacionObjetivo));
+
+            // Categoria distinta, dentro del rango: no debe aparecer en ninguna página.
+            var otraCategoria = $"event-pag-otra-cat-{Guid.NewGuid():N}";
+            await SeedEventAsync(BuildEvent(
+                otraCategoria, personaId,
+                estado: Event.EventStatus.Publicado,
+                fechaInicio: desde.AddSeconds(1),
+                fechaFin: hasta.AddDays(10),
+                categoria: Event.EventCategory.Musica,
+                ubicacion: ubicacionObjetivo));
+
+            var collected = new List<EventResponse>();
+            string? cursor = null;
+            var pageCount = 0;
+            const int safetyLimit = 10;
+
+            do
+            {
+                var page = await sut.SearchEventsAsync(new EventSearchFilterDto
+                {
+                    Categoria = Event.EventCategory.Deportes,
+                    Ubicacion = ubicacionObjetivo,
+                    FechaDesde = desde,
+                    FechaHasta = hasta,
+                    Limit = 2,
+                    LastEventId = cursor
+                });
+
+                Assert.True(page.Data.Count() <= 2, "Ninguna página debe exceder el tamaño pedido.");
+
+                collected.AddRange(page.Data);
+                cursor = page.LastDocumentId;
+                pageCount++;
+
+                if (!page.HasNextPage) break;
+
+                Assert.NotNull(cursor);
+            } while (pageCount < safetyLimit);
+
+            var collectedIds = collected.Select(e => e.Id).ToList();
+
+            Assert.Equal(incluidos.Count, collectedIds.Distinct().Count());
+            Assert.Equal(incluidos.OrderBy(x => x).ToList(), collectedIds.OrderBy(x => x).ToList());
+            Assert.DoesNotContain(fueraDeRango, collectedIds);
+            Assert.DoesNotContain(otraCategoria, collectedIds);
+            Assert.Equal(3, pageCount); // 5 elementos con Limit=2 -> páginas de 2, 2 y 1
         }
 
         // ---- GetOwnedByIdAsync (organizer/{id}): cualquier estado propio ----

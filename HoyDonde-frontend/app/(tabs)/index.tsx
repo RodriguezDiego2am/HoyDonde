@@ -6,22 +6,38 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { ActionButton } from '@/components/ui/ActionButton';
 import { StatusStamp, eventEstadoTone } from '@/components/ui/StatusStamp';
 import { TicketCard } from '@/components/ui/TicketCard';
+import { CategoriaOption, EventFilterPanel } from '@/components/cartelera/EventFilterPanel';
 import { colors, fonts, spacing } from '@/constants/theme';
 import { EventResponse, eventService } from '@/services/APIService';
 import { formatPrecio } from '@/utils/format';
+import { isValidLocalDateRange, nextLocalDayExclusive, parseLocalDate, startOfLocalDay, toUtcIso } from '@/utils/datetime';
 
 const PAGE_SIZE = 10;
 const MESES = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
 
 /** Categorías reales del enum Event.EventCategory (HoyDonde.API/Models/Event.cs) — el filtro
  * nunca inventa valores propios, solo los que la API acepta en `categoria`. */
-const CATEGORIAS: { value: string; label: string }[] = [
+const CATEGORIAS: CategoriaOption[] = [
   { value: 'Musica', label: 'Música' },
   { value: 'Deportes', label: 'Deportes' },
   { value: 'Tecnologia', label: 'Tecnología' },
   { value: 'Arte', label: 'Arte' },
   { value: 'Otros', label: 'Otros' },
 ];
+
+/** Filtros ya aplicados (tras "Aplicar filtros"): fechaDesde/fechaHasta van en ISO UTC, listos
+ * para el contrato real de GET /api/events; los campos *Display conservan "DD/MM/AAAA" solo para
+ * mostrar el resumen y precargar el panel si se reabre. */
+interface AppliedFilters {
+  categoria?: string;
+  ubicacion?: string;
+  fechaDesde?: string;
+  fechaHasta?: string;
+  fechaDesdeDisplay?: string;
+  fechaHastaDisplay?: string;
+}
+
+const SIN_FILTROS: AppliedFilters = {};
 
 function splitFecha(iso: string): { day: string; month: string; time: string } {
   const date = new Date(iso);
@@ -51,6 +67,32 @@ function mergeSinDuplicados(prev: EventResponse[], next: EventResponse[]): Event
   return [...prev, ...next.filter((e) => !seen.has(e.id))];
 }
 
+function contarFiltrosActivos(filters: AppliedFilters): number {
+  let count = 0;
+  if (filters.categoria) count += 1;
+  if (filters.ubicacion) count += 1;
+  if (filters.fechaDesde || filters.fechaHasta) count += 1;
+  return count;
+}
+
+function resumenFiltros(filters: AppliedFilters, categorias: CategoriaOption[]): string {
+  const partes: string[] = [];
+  if (filters.categoria) {
+    partes.push(categorias.find((c) => c.value === filters.categoria)?.label ?? filters.categoria);
+  }
+  if (filters.ubicacion) {
+    partes.push(filters.ubicacion);
+  }
+  if (filters.fechaDesdeDisplay && filters.fechaHastaDisplay) {
+    partes.push(`${filters.fechaDesdeDisplay} – ${filters.fechaHastaDisplay}`);
+  } else if (filters.fechaDesdeDisplay) {
+    partes.push(`Desde ${filters.fechaDesdeDisplay}`);
+  } else if (filters.fechaHastaDisplay) {
+    partes.push(`Hasta ${filters.fechaHastaDisplay}`);
+  }
+  return partes.join(' · ');
+}
+
 export default function CarteleraScreen() {
   const [events, setEvents] = useState<EventResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,7 +101,15 @@ export default function CarteleraScreen() {
   const [error, setError] = useState<string | null>(null);
   const [hasNextPage, setHasNextPage] = useState(false);
   const [lastEventId, setLastEventId] = useState<string | undefined>(undefined);
-  const [categoria, setCategoria] = useState<string | undefined>(undefined);
+
+  const [appliedFilters, setAppliedFilters] = useState<AppliedFilters>(SIN_FILTROS);
+
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [categoriaDraft, setCategoriaDraft] = useState<string | undefined>(undefined);
+  const [ubicacionDraft, setUbicacionDraft] = useState('');
+  const [fechaDesdeDraft, setFechaDesdeDraft] = useState('');
+  const [fechaHastaDraft, setFechaHastaDraft] = useState('');
+  const [filterError, setFilterError] = useState<string | null>(null);
 
   // Cerrojo síncrono adicional a los estados de loading: onEndReached puede dispararse más de
   // una vez antes de que el re-render con loadingMore=true se aplique, y esto evita una segunda
@@ -67,7 +117,7 @@ export default function CarteleraScreen() {
   const fetchInFlight = useRef(false);
 
   const fetchEvents = useCallback(
-    async (mode: 'initial' | 'refresh' | 'more', categoriaFiltro: string | undefined, cursor: string | undefined) => {
+    async (mode: 'initial' | 'refresh' | 'more', filters: AppliedFilters, cursor: string | undefined) => {
       if (fetchInFlight.current) return;
       fetchInFlight.current = true;
 
@@ -81,7 +131,10 @@ export default function CarteleraScreen() {
         const data = await eventService.search({
           limit: PAGE_SIZE,
           lastEventId: mode === 'more' ? cursor : undefined,
-          categoria: categoriaFiltro,
+          categoria: filters.categoria,
+          ubicacion: filters.ubicacion,
+          fechaDesde: filters.fechaDesde,
+          fechaHasta: filters.fechaHasta,
         });
 
         setEvents((prev) => (mode === 'more' ? mergeSinDuplicados(prev, data.data) : data.data));
@@ -105,32 +158,93 @@ export default function CarteleraScreen() {
   );
 
   useEffect(() => {
-    fetchEvents('initial', categoria, undefined);
-    // Se dispara al montar y cada vez que cambia el filtro de categoría; paginar/refrescar
-    // se dispara desde los handlers de abajo.
+    fetchEvents('initial', SIN_FILTROS, undefined);
+    // Se dispara solo al montar: cambiar/aplicar/limpiar filtros dispara su propio fetch abajo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoria]);
+  }, []);
 
   const onRefresh = () => {
     if (fetchInFlight.current) return;
     setRefreshing(true);
-    fetchEvents('refresh', categoria, undefined);
+    fetchEvents('refresh', appliedFilters, undefined);
   };
 
   const loadMore = () => {
     if (hasNextPage && !fetchInFlight.current) {
-      fetchEvents('more', categoria, lastEventId);
+      fetchEvents('more', appliedFilters, lastEventId);
     }
   };
 
-  const onToggleCategoria = (value: string) => {
+  const openFiltersPanel = () => {
+    setCategoriaDraft(appliedFilters.categoria);
+    setUbicacionDraft(appliedFilters.ubicacion ?? '');
+    setFechaDesdeDraft(appliedFilters.fechaDesdeDisplay ?? '');
+    setFechaHastaDraft(appliedFilters.fechaHastaDisplay ?? '');
+    setFilterError(null);
+    setFiltersOpen(true);
+  };
+
+  const handleApplyFilters = () => {
     if (fetchInFlight.current) return;
-    setCategoria((prev) => (prev === value ? undefined : value));
+
+    // SegmentedDateField siempre emite "DD/MM/AAAA" con los segmentos vacíos rellenados por sus
+    // propios separadores (p. ej. "//" cuando no se tipeó nada): sin dígitos, nunca es un string
+    // realmente vacío. Sin este chequeo, un campo intacto se interpretaría como "fecha inválida"
+    // en vez de "no se pidió filtro de fecha".
+    const desdeTexto = fechaDesdeDraft.trim();
+    const hastaTexto = fechaHastaDraft.trim();
+    const desdeProvista = /\d/.test(desdeTexto);
+    const hastaProvista = /\d/.test(hastaTexto);
+    const desdeDate = desdeProvista ? parseLocalDate(desdeTexto) : null;
+    const hastaDate = hastaProvista ? parseLocalDate(hastaTexto) : null;
+
+    if (desdeProvista && !desdeDate) {
+      setFilterError('Ingresá una fecha "Desde" válida (DD/MM/AAAA).');
+      return;
+    }
+    if (hastaProvista && !hastaDate) {
+      setFilterError('Ingresá una fecha "Hasta" válida (DD/MM/AAAA).');
+      return;
+    }
+    if (desdeDate && hastaDate && !isValidLocalDateRange(desdeDate, hastaDate)) {
+      setFilterError('"Desde" no puede ser posterior a "Hasta".');
+      return;
+    }
+
+    setFilterError(null);
+
+    const nextFilters: AppliedFilters = {
+      categoria: categoriaDraft,
+      ubicacion: ubicacionDraft.trim() || undefined,
+      fechaDesde: desdeDate ? toUtcIso(startOfLocalDay(desdeDate)) : undefined,
+      fechaHasta: hastaDate ? toUtcIso(nextLocalDayExclusive(hastaDate)) : undefined,
+      fechaDesdeDisplay: desdeDate ? desdeTexto : undefined,
+      fechaHastaDisplay: hastaDate ? hastaTexto : undefined,
+    };
+
+    setAppliedFilters(nextFilters);
+    setFiltersOpen(false);
+    fetchEvents('initial', nextFilters, undefined);
+  };
+
+  const handleClearFilters = () => {
+    if (fetchInFlight.current) return;
+    setCategoriaDraft(undefined);
+    setUbicacionDraft('');
+    setFechaDesdeDraft('');
+    setFechaHastaDraft('');
+    setFilterError(null);
+    setAppliedFilters(SIN_FILTROS);
+    setFiltersOpen(false);
+    fetchEvents('initial', SIN_FILTROS, undefined);
   };
 
   const openEvent = (id: string) => {
     router.push({ pathname: '/events/[id]', params: { id } });
   };
+
+  const filtrosActivos = contarFiltrosActivos(appliedFilters);
+  const tieneFiltrosActivos = filtrosActivos > 0;
 
   const renderItem = ({ item }: { item: EventResponse }) => {
     const { day, month, time } = splitFecha(item.fechaInicio);
@@ -204,28 +318,38 @@ export default function CarteleraScreen() {
         <Text style={styles.title}>Cartelera</Text>
         <Text style={styles.subtitle}>Eventos publicados</Text>
 
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={CATEGORIAS}
-          keyExtractor={(item) => item.value}
-          style={styles.filterRow}
-          contentContainerStyle={styles.filterRowContent}
-          renderItem={({ item }) => {
-            const active = categoria === item.value;
-            return (
+        <View style={styles.filtersBar}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Abrir filtros"
+            onPress={openFiltersPanel}
+            style={({ pressed }) => [styles.filtersButton, pressed && styles.filtersButtonPressed]}
+          >
+            <MaterialIcons name="tune" size={16} color={colors.ink} />
+            <Text style={styles.filtersButtonText}>Filtros</Text>
+            {filtrosActivos > 0 ? (
+              <View style={styles.filtersBadge}>
+                <Text style={styles.filtersBadgeText}>{filtrosActivos}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+
+          {tieneFiltrosActivos ? (
+            <View style={styles.filtersSummaryWrap}>
+              <Text numberOfLines={1} style={styles.filtersSummaryText}>
+                {resumenFiltros(appliedFilters, CATEGORIAS)}
+              </Text>
               <Pressable
                 accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-                accessibilityLabel={`Filtrar por ${item.label}`}
-                onPress={() => onToggleCategoria(item.value)}
-                style={[styles.filterChip, active && styles.filterChipActive]}
+                accessibilityLabel="Limpiar filtros"
+                onPress={handleClearFilters}
+                hitSlop={8}
               >
-                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{item.label}</Text>
+                <MaterialIcons name="close" size={16} color={colors.inkSoft} />
               </Pressable>
-            );
-          }}
-        />
+            </View>
+          ) : null}
+        </View>
       </View>
 
       {loading ? (
@@ -253,13 +377,21 @@ export default function CarteleraScreen() {
           >
             <MaterialIcons name="campaign" size={40} color={colors.ink} style={styles.emptyIcon} />
             <Text style={styles.emptyText}>
-              {categoria ? 'No hay eventos en esta categoría por el momento.' : 'No hay eventos disponibles por el momento.'}
+              {tieneFiltrosActivos
+                ? 'No encontramos eventos con estos filtros.'
+                : 'No hay eventos publicados por el momento.'}
             </Text>
             <Text style={styles.emptyHint}>
-              Los organizadores todavía no publicaron nada acá. Volvé a mirar más tarde o actualizá la cartelera.
+              {tieneFiltrosActivos
+                ? 'Probá ajustar o limpiar los filtros para ver más resultados.'
+                : 'Los organizadores todavía no publicaron nada acá. Volvé a mirar más tarde o actualizá la cartelera.'}
             </Text>
             <View style={styles.emptyButton}>
-              <ActionButton label="Actualizar cartelera" onPress={onRefresh} />
+              {tieneFiltrosActivos ? (
+                <ActionButton label="Limpiar filtros" onPress={handleClearFilters} />
+              ) : (
+                <ActionButton label="Actualizar cartelera" onPress={onRefresh} />
+              )}
             </View>
           </TicketCard>
         </View>
@@ -282,6 +414,23 @@ export default function CarteleraScreen() {
           }
         />
       )}
+
+      <EventFilterPanel
+        visible={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        categorias={CATEGORIAS}
+        categoria={categoriaDraft}
+        onChangeCategoria={setCategoriaDraft}
+        ubicacion={ubicacionDraft}
+        onChangeUbicacion={setUbicacionDraft}
+        fechaDesde={fechaDesdeDraft}
+        onChangeFechaDesde={setFechaDesdeDraft}
+        fechaHasta={fechaHastaDraft}
+        onChangeFechaHasta={setFechaHastaDraft}
+        error={filterError}
+        onApply={handleApplyFilters}
+        onClear={handleClearFilters}
+      />
     </View>
   );
 }
@@ -350,31 +499,57 @@ const styles = StyleSheet.create({
     color: colors.inkSoft,
     marginTop: 2,
   },
-  filterRow: {
-    marginTop: spacing.md,
-  },
-  filterRowContent: {
+  filtersBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.sm,
-    paddingRight: spacing.lg,
+    marginTop: spacing.md,
+    flexWrap: 'wrap',
   },
-  filterChip: {
+  filtersButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     borderWidth: 1,
     borderColor: colors.ink,
     paddingVertical: 6,
     paddingHorizontal: 12,
   },
-  filterChipActive: {
-    backgroundColor: colors.ink,
+  filtersButtonPressed: {
+    backgroundColor: colors.sand,
   },
-  filterChipText: {
+  filtersButtonText: {
     fontFamily: fonts.bold,
     fontSize: 12,
     letterSpacing: 0.5,
     color: colors.ink,
     textTransform: 'uppercase',
   },
-  filterChipTextActive: {
+  filtersBadge: {
+    backgroundColor: colors.tomato,
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  filtersBadgeText: {
+    fontFamily: fonts.bold,
+    fontSize: 11,
     color: colors.paper,
+  },
+  filtersSummaryWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 1,
+  },
+  filtersSummaryText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: colors.inkSoft,
+    flexShrink: 1,
   },
   center: {
     flex: 1,

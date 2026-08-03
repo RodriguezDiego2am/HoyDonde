@@ -206,6 +206,27 @@ Un evento publicado es **inmutable**: no hay "despublicar"; para corregirlo hay 
 
 Ningún endpoint de lectura devuelve el modelo `Event` crudo: todos devuelven `EventResponse` o `PagedResponse<EventResponse>`.
 
+### Filtros de `GET /api/events` (Frontend 5 — Cartelera)
+
+Todos opcionales y combinables, se aplican en la propia consulta de Firestore (`EventService.SearchEventsAsync`) antes del cursor y del `limit` — nunca hay filtrado en memoria:
+
+| Query param | Tipo | Semántica |
+|---|---|---|
+| `fechaDesde` | ISO 8601 UTC | Filtra `Event.FechaInicio >= fechaDesde` (**inclusiva**). |
+| `fechaHasta` | ISO 8601 UTC | Filtra `Event.FechaInicio < fechaHasta` (**exclusiva**). Para incluir el día completo "Hasta", el llamador debe enviar el inicio del día **siguiente**, nunca `23:59:59.999`. |
+| `categoria` | `Event.EventCategory` | Igualdad exacta; un valor que no exista en el enum responde `VALIDATION_ERROR` (400) vía el propio model binding, sin lógica adicional en el servicio. |
+| `ubicacion` | texto | Igualdad **exacta** tras `Trim()` del lado del servidor — no es búsqueda parcial ni difusa. |
+| `lastEventId` | string | Cursor de paginación: id del último `Event` devuelto en la página anterior. |
+| `limit` | int | Tamaño de página (default 20). |
+
+`fechaDesde`/`fechaHasta` reemplazan al antiguo filtro de un solo lado (`fechaInicio`, solo cota inferior, sin cota superior): no tenía consumidores reales (ni frontend ni tests), así que se migró directamente en vez de mantener dos parámetros con significados ambiguos.
+
+Visibilidad pública: siempre `Estado == Publicado && UtcNow <= FechaFin`, igual que el detalle público — los filtros de arriba se combinan con esa condición, nunca la reemplazan. `fechaDesde > fechaHasta` responde `EVENT_VALIDATION_ERROR` (400, §11) antes de tocar Firestore.
+
+Paginación: la respuesta es `PagedResponse<EventResponse>` (`data`, `lastDocumentId`, `hasNextPage`); pedir la página siguiente repite exactamente los mismos filtros de la primera llamada junto con `lastEventId` — cambiar cualquier filtro entre llamadas invalida el cursor previo (hay que volver a paginar desde el principio).
+
+Ejemplo: `GET /api/events?fechaDesde=2026-08-05T00:00:00Z&fechaHasta=2026-08-11T00:00:00Z&categoria=Musica&ubicacion=Parque%20Central&limit=10`.
+
 ### `EventCreateRequest` / `EventUpdateRequest`
 
 ```json

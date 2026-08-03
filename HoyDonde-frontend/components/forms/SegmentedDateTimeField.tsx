@@ -1,92 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { NativeSyntheticEvent, StyleSheet, Text, TextInput, TextInputKeyPressEventData, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { borderWidth, colors, fonts, radii, spacing } from '@/constants/theme';
-
-interface Slot {
-  value: string;
-  length: number;
-  setValue: (value: string) => void;
-  ref: React.RefObject<TextInput | null>;
-  accessibilityLabel: string;
-  testID: string;
-}
-
-/** Deja solo dígitos, sin límite de longitud (el recorte lo maneja distributeDigits). */
-function onlyDigits(text: string): string {
-  return text.replace(/\D/g, '');
-}
-
-/**
- * Reparte una tira de dígitos entre los segmentos a partir de `startIndex`, en cascada:
- * llena el segmento actual hasta su longitud máxima y, si sobran dígitos, sigue con el
- * siguiente. Cubre tanto tipear de más (el segmento ya estaba lleno) como pegar un valor
- * largo (fecha completa pegada en el primer segmento).
- */
-function distributeDigits(slots: Slot[], startIndex: number, digits: string): void {
-  let remaining = digits;
-  let idx = startIndex;
-
-  while (idx < slots.length) {
-    const chunk = remaining.slice(0, slots[idx].length);
-    slots[idx].setValue(chunk);
-    remaining = remaining.slice(slots[idx].length);
-
-    if (remaining.length === 0) {
-      if (chunk.length === slots[idx].length && idx < slots.length - 1) {
-        slots[idx + 1].ref.current?.focus();
-      }
-      return;
-    }
-    idx += 1;
-  }
-}
-
-function handleSlotChange(slots: Slot[], index: number, rawText: string): void {
-  const digits = onlyDigits(rawText);
-  const slot = slots[index];
-
-  if (digits.length <= slot.length) {
-    slot.setValue(digits);
-    if (digits.length === slot.length && index < slots.length - 1) {
-      slots[index + 1].ref.current?.focus();
-    }
-    return;
-  }
-
-  distributeDigits(slots, index, digits);
-}
-
-function handleSlotKeyPress(slots: Slot[], index: number, e: NativeSyntheticEvent<TextInputKeyPressEventData>): void {
-  if (e.nativeEvent.key !== 'Backspace' || slots[index].value !== '' || index === 0) return;
-  const prev = slots[index - 1];
-  prev.setValue(prev.value.slice(0, -1));
-  prev.ref.current?.focus();
-}
-
-interface DigitBoxProps {
-  slot: Slot;
-  slots: Slot[];
-  index: number;
-  hasError: boolean;
-}
-
-function DigitBox({ slot, slots, index, hasError }: DigitBoxProps) {
-  return (
-    <TextInput
-      ref={slot.ref}
-      testID={slot.testID}
-      value={slot.value}
-      onChangeText={(text) => handleSlotChange(slots, index, text)}
-      onKeyPress={(e) => handleSlotKeyPress(slots, index, e)}
-      keyboardType="number-pad"
-      placeholder={'•'.repeat(slot.length)}
-      placeholderTextColor={colors.inkSoft}
-      accessibilityLabel={slot.accessibilityLabel}
-      style={[styles.box, slot.length === 4 ? styles.boxWide : styles.boxNarrow, hasError && styles.boxError]}
-    />
-  );
-}
+import { colors, fonts, spacing } from '@/constants/theme';
+import { DigitBox } from './DigitBox';
+import { Slot } from './segmentedDigits';
 
 interface SegmentedDateTimeFieldProps {
   /** Etiqueta del bloque completo (p. ej. "Inicio", "Fin"); prefija las etiquetas de accesibilidad de cada segmento. */
@@ -105,7 +22,10 @@ interface SegmentedDateTimeFieldProps {
  * Fecha y hora con segmentos visuales (DD / MM / AAAA y HH : MM): solo se tipean dígitos, los
  * separadores son fijos. Reemplaza los inputs de texto libre que exigían escribir "/" y ":" a
  * mano. Sigue produciendo/consumiendo los mismos strings "DD/MM/AAAA"/"HH:MM" que
- * utils/datetime.ts ya validaba y convertía a UTC — esa lógica no cambia.
+ * utils/datetime.ts ya validaba y convertía a UTC — esa lógica no cambia. La variante de solo
+ * fecha (sin hora, para los filtros de rango de la Cartelera) es SegmentedDateField, que
+ * comparte esta misma mecánica de segmentos (components/forms/segmentedDigits.ts, DigitBox) en
+ * vez de duplicarla.
  */
 export function SegmentedDateTimeField({
   label,
@@ -236,27 +156,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 18,
     color: colors.inkSoft,
-  },
-  box: {
-    height: 44,
-    borderWidth: borderWidth.thin,
-    borderColor: colors.ink,
-    borderRadius: radii.sm,
-    textAlign: 'center',
-    fontFamily: fonts.medium,
-    fontSize: 16,
-    color: colors.ink,
-    backgroundColor: colors.paper,
-  },
-  boxNarrow: {
-    width: 40,
-  },
-  boxWide: {
-    width: 64,
-  },
-  boxError: {
-    borderColor: colors.error,
-    borderWidth: borderWidth.thick,
   },
   errorText: {
     fontFamily: fonts.medium,

@@ -25,7 +25,7 @@ Este archivo evita repetir DTOs completos, inventarios de archivos, pseudocódig
 | Frontend 2 | Cerrada (circuito mínimo) | Alta de Organizador, ciclo de vida de eventos y alta/asignación de Control; validado a mano en Expo Go |
 | Frontend 3 | Cerrada | Validación de Control por QR (`expo-camera`) e ingreso manual, verificada end-to-end con cámara física, API y Firestore reales; recorrido real de los cuatro perfiles (Admin, Organizador, Cliente, Control) completado |
 | Frontend 4 | Cerrada | Administración de roles/acciones/usuarios operable desde la interfaz por acción efectiva; modificación de permisos verificada a mano (quitar/reponer `EVENTO_CREAR`) |
-| Frontend 5 | Pendiente | Filtros de Cartelera, reportes y QA final |
+| Frontend 5 | En progreso | Filtros de Cartelera (rango de fechas, categoría, ubicación, paginación) cerrados y verificados contra Firestore real; reportes/analíticas y QA final pendientes |
 
 Al cerrar una etapa se actualizan únicamente esta tabla, su breve resultado y la última verificación. No se conserva un diario de implementación dentro de este archivo.
 
@@ -336,11 +336,13 @@ La identidad se aplica durante Frontend 0; no requiere otro documento extenso ni
 
 **Cierre — implementado y validado a mano.** Administración de roles, acciones y usuarios operada íntegramente desde la interfaz (`/admin`, `/admin/altas`, `/admin/roles`, `/admin/usuarios`), sin hardcodear relaciones rol→acción. Verificado contra Firebase/API/Firestore reales: un Admin le quitó `EVENTO_CREAR` al rol `ORGANIZADOR`, el Organizador actualizó permisos (`refreshSessionPermissions`) y perdió "Crear evento"; se lo reasignaron y, tras actualizar de nuevo, la opción volvió a aparecer.
 
-Filtros de Cartelera, reportes/analíticas y el QA final (Frontend 5) siguen pendientes.
+Reportes/analíticas y el QA final (Frontend 5) siguen pendientes; los filtros de Cartelera (Frontend 5) ya cerraron — ver nota debajo.
 
 ### Frontend 5 — Cierre
 
-**Alcance**
+**Filtros de Cartelera — implementado y validado a mano.** `GET /api/events` acepta `fechaDesde`/`fechaHasta` (UTC, Desde inclusiva/Hasta exclusiva sobre `Event.FechaInicio`), `categoria` y `ubicacion` (exacta), combinables y paginados junto con `lastEventId`/`limit`, todos aplicados en la propia consulta de Firestore antes del cursor (ver `API_Documentation.md` §7). Verificado en Expo Go contra API y Firestore reales: cartelera pública sin sesión, rango Desde/Hasta con límites correctos, solo Desde, solo Hasta, categoría, ubicación exacta, combinación rango+categoría+ubicación, rango inválido rechazado antes de llamar a la API, estado vacío filtrado, limpiar filtros, indicador de filtros activos, refresh conservando filtros, sin errores de índices (los cuatro índices compuestos existentes ya cubrían la combinación). Reportes/PDF quedan como siguiente bloque de Frontend 5.
+
+**Alcance (resto de Frontend 5, pendiente)**
 
 - Estados loading/vacío/error/403 en todas las pantallas.
 - Accesibilidad, validación de formularios y limpieza del scaffold Expo.

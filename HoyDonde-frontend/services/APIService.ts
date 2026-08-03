@@ -130,10 +130,18 @@ export interface PagedResponse<T> {
   hasNextPage: boolean;
 }
 
+/**
+ * Espejo de EventSearchFilterDto (HoyDonde.API/DTOs/EventSearchFilterDto.cs). fechaDesde/
+ * fechaHasta reemplazan al antiguo filtro de un solo lado (nunca usado desde este archivo, así
+ * que no hace falta compatibilidad): ambos viajan en UTC (ISO 8601, `toUtcIso`), fechaDesde
+ * inclusiva, fechaHasta EXCLUSIVA — quien arma el filtro (utils/datetime.ts) es responsable de
+ * convertir "hasta el día D" en "antes del día D+1", la API nunca hace ese cálculo.
+ */
 export interface EventSearchFilter {
   categoria?: string;
   ubicacion?: string;
-  fechaInicio?: string;
+  fechaDesde?: string;
+  fechaHasta?: string;
   limit?: number;
   lastEventId?: string;
 }
