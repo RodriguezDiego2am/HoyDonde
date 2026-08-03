@@ -1,50 +1,42 @@
-# Welcome to your Expo app 👋
+# HoyDonde? — frontend
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Cliente Expo SDK 54 / React Native 0.81 (TypeScript, Expo Router) de la plataforma HoyDonde?. Ver el [README raíz del repositorio](../README.md) para una descripción general del proyecto y [`CLAUDE.md`](../CLAUDE.md) para el detalle técnico completo.
 
-## Get started
+## Configuración
 
-1. Install dependencies
+Copiá `.env.example` a `.env` (en esta misma carpeta) y completá los valores públicos del SDK cliente de Firebase de tu propio proyecto (panel de Firebase → Configuración del proyecto → tus apps). Esos valores son públicos por diseño; nunca copies acá la cuenta de servicio del backend (`HoyDonde.API/firebase-service-account.json`).
 
-   ```bash
-   npm install
-   ```
+`EXPO_PUBLIC_API_URL` debe incluir `/api`. En desarrollo, sin esta variable se usa un fallback automático (`10.0.2.2` para el emulador Android, `localhost` para web/iOS). Para probar desde un **dispositivo físico** con Expo Go en la misma red Wi-Fi que tu backend, usá la IP LAN de tu máquina en vez de `localhost`, por ejemplo:
 
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+EXPO_PUBLIC_API_URL=http://192.168.1.40:5053/api
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Instalación y ejecución
 
-## Learn more
+```bash
+npm install
+npx expo start --lan -c   # o: npm run start:lan
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+`-c` limpia la caché de Metro si veniás de cambiar variables de entorno. Elegí Android/iOS/web desde la salida del CLI, o escaneá el QR con Expo Go para un dispositivo físico.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+La API debe estar corriendo y accesible desde el dispositivo/emulador — ver la sección "Ejecutar el backend" del README raíz (para un dispositivo físico, la API debe levantarse con `--urls "http://0.0.0.0:5053"`).
 
-## Join the community
+## Verificaciones
 
-Join our community of developers creating universal apps.
+```bash
+npm run typecheck   # tsc --noEmit
+npm run lint         # eslint .
+npm test             # jest
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Scripts disponibles
+
+| Script | Qué hace |
+|---|---|
+| `npm run start` | `expo start` |
+| `npm run start:lan` | `expo start --lan`, para un dispositivo físico en la misma red |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm run lint` | `eslint .` |
+| `npm test` | `jest` |

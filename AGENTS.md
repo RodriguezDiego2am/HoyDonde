@@ -1,76 +1,49 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides quick orientation to Codex (or any other coding agent) working in this repository. **`CLAUDE.md` is the authoritative, detailed source** — read it before making any change; this file only summarizes the parts most likely to trip up an agent that hasn't read it yet.
 
-## Repository layout
+## Repository
 
-This repo contains two independent projects that are not built or deployed together:
+Two independent projects:
 
-- `HoyDonde.API/` — ASP.NET Core 8 Web API (backend)
-- `HoyDonde.API.Tests/` — xUnit test project for the API
-- `HoyDonde-frontend/` — Expo / React Native app (mobile + web client)
+- `HoyDonde.API/` — ASP.NET Core 8 REST API, persisted entirely on Firestore (no `DbContext`, no migrations, despite some obsolete EF Core package references still sitting in the `.csproj`).
+- `HoyDonde.API.Tests/` — xUnit unit/controller/integration tests.
+- `HoyDonde-frontend/` — Expo SDK 54 / React Native 0.81 client (TypeScript, Expo Router), an independent npm workspace.
 
-There is no root-level build script tying the two together; treat them as separate workspaces.
+## Security model — read this before touching auth/authorization
 
-## Backend (HoyDonde.API)
+There is **no** `ApplicationUser`/role-inheritance model, **no** role custom claim, and **no** `users`/`user_audits` collection anywhere in the current code. Do not reintroduce any of these.
 
-### Commands
-
-Run from the repo root or `HoyDonde.API/`:
-
-```bash
-dotnet build HoyDonde.sln          # build API + tests
-dotnet test HoyDonde.sln           # run all backend tests
-dotnet test --filter "FullyQualifiedName~EventsControllerTests"   # run one test class
-dotnet run --project HoyDonde.API  # run the API locally (default: http://localhost:5053)
+```
+Firebase UID → IdentidadExterna → Usuario → UsuarioRol → Rol → RolAccion → Accion → ASP.NET Policy
 ```
 
-The API requires a Firebase service account key at `HoyDonde.API/firebase-service-account.json` (path configurable via `Firebase:CredentialsPath` in `appsettings.json`). Without it, Firebase initialization is skipped with a warning and auth/Firestore calls will fail. This file is a secret and must never be read into context or committed.
+- A Firebase ID token (verified via the Firebase Admin SDK in `FirebaseAuthenticationHandler`, not `AddJwtBearer`) proves identity (UID/email) only — it carries no permissions.
+- Every `[Authorize(Policy = "ACCION_CODIGO")]` is resolved by `AccionAuthorizationHandler` against `IPermissionService`, which walks `Usuario → UsuarioRol → Rol → RolAccion → Accion` in Firestore. Nothing reads a claim to authorize.
+- `Rol`/`Accion` are administrable Firestore entities (`/api/security`), not enums or code constants.
+- `Persona` (never a Firebase UID or `UsuarioId`) is the only bridge to domain entities (`Event.OrganizadorPersonaId`, `Ticket.ClientePersonaId`, etc.) — resolved per-request via `IAuthenticatedPersonaResolver`.
+- There is no `/api/auth/login` endpoint. Cliente auth is Firebase Client SDK → `POST /api/auth/sync` with the ID token. Admin/Organizador/Control are provisioned server-side via `IIdentityProvider`.
 
-### Architecture
-
-Classic layered architecture, but **backed entirely by Firestore, not SQL/EF Core** — despite `Microsoft.EntityFrameworkCore*` still being referenced in `HoyDonde.API.csproj`, there is no `DbContext` or migrations in the project anymore (they were removed in favor of Firestore). Do not reintroduce EF-based repositories/migrations without confirming with the user first.
-
-- **Controllers** (`Controllers/`) — thin HTTP layer; pull the caller's UID from `ClaimTypes.NameIdentifier` / `user_id` / `sub` claims (Firebase tokens vary which one is populated, so controllers check all three).
-- **Services** (`Services/`) — business logic (`AuthService`, `EventService`, `TicketService`, `UserService`).
-- **Repositories** (`Repositories/`) — data access. Currently only `FirestoreUserRepository` (implements `IUserRepository`) talks to Firestore's `users` collection directly.
-- **Models** (`Models/`) — Firestore-mapped domain entities using `[FirestoreData]` / `[FirestoreProperty]` attributes (not EF attributes). `ApplicationUser` is an abstract base with `Admin`, `Organizador`, `Cliente`, `Control` subclasses, discriminated by a `Role` string field read back via `FirestoreUserRepository.MapDocumentToUser`.
-- **DTOs** (`DTOs/`) — request/response shapes for the HTTP boundary.
-
-**Auth model**: Firebase Auth issues the JWTs; ASP.NET's JWT bearer handler validates them against `https://securetoken.google.com/{ProjectId}` and maps the Firebase custom claim `role` to `ClaimsIdentity.RoleClaimType`, so `[Authorize(Roles = Roles.X)]` works directly against Firebase custom claims (see `Models/Roles.cs` for the four role constants: `Admin`, `Organizador`, `Cliente`, `Control`). User registration (`UserController`) creates the Firebase Auth user via FirebaseAdmin SDK, sets the `role` custom claim with `SetCustomUserClaimsAsync`, then writes the profile to Firestore. `POST /api/auth/sync` is what reconciles a Firebase-authenticated caller with their Firestore user document.
-
-Known quirk (see `API_Documentation.md`): if `AuthService.SyncUserAsync` doesn't find an existing Firestore user, it defaults the new record to role `Organizador` — verify this is still intended behavior before relying on it.
-
-**Ticket purchase** (`TicketService.BuyTicketsAsync`) uses `_firestore.RunTransactionAsync` to atomically decrement ticket-type inventory — preserve this pattern for any similar write to shared counters.
-
-Full endpoint reference and Firestore collection layout (`users`, `events`, `tickets`, `user_audits`) is documented in `API_Documentation.md` (Spanish) — read it before adding/changing endpoints.
-
-### Tests
-
-`HoyDonde.API.Tests` uses `WebApplicationFactory<Program>` (`TestApplicationFactory.cs`) with all real services/repositories replaced by Moq mocks, and a `FakeAuthHandler` that authenticates any request carrying an `Authorization` header, using the `Test-Role` header to set the mocked role (defaults to `Organizador`). Use this pattern — set `Test-Role` and `Authorization` headers rather than trying to mint real Firebase tokens — when writing new controller tests.
-
-## Frontend (HoyDonde-frontend)
-
-### Commands
-
-Run from `HoyDonde-frontend/`:
+## Essential commands
 
 ```bash
+dotnet build HoyDonde.sln
+dotnet test HoyDonde.sln     # skips Firestore-emulator integration tests without a running emulator
+npx --yes firebase-tools@13.35.1 emulators:exec --only firestore --project hoydonde-security-refactor-tests "dotnet test HoyDonde.sln"   # full suite
+dotnet run --project HoyDonde.API -- bootstrap-admin <email>   # first Administrator only
+```
+
+```bash
+cd HoyDonde-frontend
 npm install
-npx expo start           # dev server (Metro) — choose Android/iOS/web from the CLI output
-npm test                 # jest (jest-expo preset)
-npx eslint .              # lint (flat config, eslint-config-expo)
+npm run start:lan   # expo start --lan, for a physical device via Expo Go
+npm run lint && npm run typecheck && npm test
 ```
 
-There is no configured build/typecheck script beyond `tsc` via the editor; `tsconfig.json` sets strict mode.
+## Credentials — never touch
 
-### Architecture
+`HoyDonde.API/firebase-service-account.json` and `HoyDonde-frontend/.env` are gitignored secrets. **Never read, print, or commit either file**, and never grep for their contents. Test infrastructure (`FakeAuthHandler`, `TestApplicationFactory`) never uses real Firebase credentials or a role/`Test-Role` header — only a UID.
 
-- **File-based routing** via `expo-router`; screens live under `app/`, with `app/(tabs)/` as the tab group and `app/_layout.tsx` as the root `Stack` (wraps everything in `AuthProvider`).
-- Some screens live outside `app/` in `screens/` (e.g. `LoginScreen.tsx`, `RegisterScreen.tsx`) and are wired in via routes under `app/`.
-- **`context/AuthContext.tsx`** exposes `useAuth()` (`isAuthenticated`, `user`, `login`, `logout`, `loading`), backed by `services/APIService.ts`, which persists the token/user via `expo-secure-store`.
-- **`services/APIService.ts`** is the single Axios client (`apiClient`) for all backend calls; it auto-attaches the stored bearer token via a request interceptor. `getAPIUrl()` special-cases Android emulator (`10.0.2.2`) vs iOS/web (`localhost`) for local dev, pointed at port `5053`.
+## When in doubt
 
-### ⚠️ Frontend/backend auth mismatch
-
-The frontend's `authService.login()` posts credentials to `/auth/login`, but the current backend has **no such endpoint** — `AuthController` only exposes `POST /api/auth/sync`, which expects an already-issued Firebase ID token, not an email/password exchange. The frontend also has no Firebase client SDK integration visible in `package.json`. Before building on the login flow, confirm with the user whether the frontend auth is mid-migration to Firebase client auth or the backend removed a route the frontend still depends on — don't assume either side is the source of truth.
+Read `CLAUDE.md` for the full picture: functional domain, event/ticket lifecycle, reports module, role deactivation vs. physical deletion, DTO/exception conventions, and working rules. Don't duplicate it here — update `CLAUDE.md` itself if behavior changes.
