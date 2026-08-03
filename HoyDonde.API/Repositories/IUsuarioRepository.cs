@@ -18,6 +18,11 @@ namespace HoyDonde.API.Repositories
 
         Task<Usuario?> GetByIdAsync(string usuarioId);
 
+        // Resolución batch por UsuarioId (docs/api-mvp-plan.md §11.3: ActorEmail del reporte de
+        // auditoría de seguridad), por referencia directa al documento -no una query WhereIn-,
+        // mismo patrón que EventService.GetEntitiesByIdsAsync. Nunca una lectura por actor.
+        Task<IReadOnlyList<Usuario>> GetByIdsAsync(IEnumerable<string> usuarioIds);
+
         // Resuelve el Usuario dueño de una PersonaId dada (p. ej. el controlPersonaId recibido
         // en POST /api/events/{eventId}/controls/{controlPersonaId}). null si ninguna Usuario
         // tiene esa PersonaId.

@@ -589,13 +589,13 @@ Explícitamente no implementadas (`docs/api-mvp-plan.md` §10) — no asumir que
 
 ---
 
-## 15. Módulo de reportes — reporte de eventos propios del Organizador (docs/api-mvp-plan.md §11)
+## 15. Módulo de reportes (docs/api-mvp-plan.md §11) — cerrado
 
-Primer corte backend del módulo de reportes: solo el reporte del Organizador sobre sus propios eventos. El reporte Admin (actividad global), la auditoría de seguridad y el frontend/PDF **no** están implementados todavía (ver `docs/api-mvp-plan.md` §11 y "Estado" al final de esta sección).
+Los tres reportes están implementados: eventos propios del Organizador, eventos globales del Administrador y auditoría de seguridad del Administrador (primer corte aprobado). Frontend y exportación a PDF (`expo-print`/`expo-sharing`) también están cerrados — ver CLAUDE.md, "Reports module".
 
 ### Acciones nuevas
 
-`Authorization/Acciones.cs` suma `REPORTE_VER_GLOBAL` (reservada para el futuro reporte Admin) y `REPORTE_VER_PROPIO` (usada por el endpoint de abajo) — 20 → 22 acciones. `SecurityCatalogSeeder` las asigna a `ADMINISTRADOR`/`ORGANIZADOR` respectivamente, pero **solo para instalaciones nuevas** (dev/test/emulador): contra Firestore real, `SecurityCatalogSeeder.SeedAsync()` no vuelve a correr una vez que existe un Administrador efectivo.
+`Authorization/Acciones.cs` suma `REPORTE_VER_GLOBAL` (usada por los dos reportes del Administrador) y `REPORTE_VER_PROPIO` (usada por el reporte del Organizador) — 20 → 22 acciones. `SecurityCatalogSeeder` las asigna a `ADMINISTRADOR`/`ORGANIZADOR` respectivamente, pero **solo para instalaciones nuevas** (dev/test/emulador): contra Firestore real, `SecurityCatalogSeeder.SeedAsync()` no vuelve a correr una vez que existe un Administrador efectivo. Contra el Firestore real ya existente (`hoydonde-f5a05`), ambas acciones ya fueron creadas (`seed-report-actions`) y asignadas manualmente a `ADMINISTRADOR`/`ORGANIZADOR`.
 
 ### Comando para Firestore real ya existente
 
@@ -645,6 +645,48 @@ Respuesta (`ReporteEventosResponseDto`):
 
 Nunca expone `OrganizadorPersonaId`, UID de Firebase, `UsuarioId` ni `ExternalSubjectId` (el organizador ya es el actor autenticado). El importe siempre se llama **"importe emitido"**, nunca "recaudación"/"cobrado"/"ganancia" — `PrecioPagado` es la fotografía inmutable tomada en la compra (§7.1/§9), sumarla es válido para "cuánto se emitió", nunca para "cuánto se cobró" (el MVP no procesa pagos reales). Capacidad a nivel evento sale de `Event.CapacidadMaxima`; por tipo de entrada es una **derivación** (`CantidadDisponible` actual + entradas ya emitidas de ese tipo), no un dato persistido. División por cero en cualquier porcentaje → `0`, nunca una excepción.
 
+### `GET /api/reports/admin/events` — Policy: `REPORTE_VER_GLOBAL`
+
+```
+GET /api/reports/admin/events?fechaDesde=2026-01-01T00:00:00Z&fechaHasta=2026-02-01T00:00:00Z&organizadorPersonaId=persona-...
+```
+
+Mismos `fechaDesde`/`fechaHasta`/`estado`/`categoria` que el reporte del Organizador (mismas reglas y códigos de error: `REPORT_RANGE_INVALID`). Agrega `organizadorPersonaId` opcional y **arbitrario** (aceptado del cliente: este endpoint es exclusivo de Administrador vía la policy). Deliberadamente **sin** `eventId`/`ticketTypeId`: es un reporte de actividad agregada, no un drill-down a un evento puntual.
+
+Query Firestore: sin `organizadorPersonaId`, solo rango sobre `FechaInicio` (índice automático de campo simple); con `organizadorPersonaId`, se agrega `WhereEqualTo(OrganizadorPersonaId, ...)` — mismo índice compuesto que el reporte del Organizador (ver abajo). `estado`/`categoria` siempre en memoria. Tickets vía `WhereIn(EventoId, chunk)` en lotes de máximo 30, igual que el reporte del Organizador.
+
+Respuesta (`ReporteAdminEventosResponseDto`): mismo shape que `ReporteEventosResponseDto`, pero cada elemento de `eventos` (`ReporteAdminEventoDetalleDto`) agrega `organizadorPersonaId` — nunca el Firebase UID, `UsuarioId` ni `ExternalSubjectId`. El frontend resuelve ese id a email reutilizando `GET /api/security/usuarios`.
+
+### `GET /api/reports/admin/security-audits` — Policy: `REPORTE_VER_GLOBAL`
+
+```
+GET /api/reports/admin/security-audits?fechaDesde=2026-05-01T00:00:00Z&fechaHasta=2026-06-01T00:00:00Z&operacion=ROL_ASIGNAR_ACCION&actorUsuarioId=usuario-...&targetTipo=RolAccion&targetId=ORGANIZADOR%2FEVENTO_CREAR
+```
+
+| Query param | Obligatorio | Semántica |
+|---|---|---|
+| `fechaDesde` / `fechaHasta` | No | UTC explícito si se informan. Sin ninguno de los dos, default = últimos 30 días hasta `UtcNow`. Rango máximo 366 días si se informa explícitamente (`REPORT_RANGE_INVALID` → 400 en cualquier violación). |
+| `operacion` | No | Código exacto tal como lo escribe `SecurityAdminService` (p. ej. `ROL_CREAR`, `ROL_ASIGNAR_ACCION`, `USUARIO_ASIGNAR_ROL`, `USUARIO_DESACTIVAR`, etc.). |
+| `actorUsuarioId` | No | Match exacto contra `SecurityAudit.ActorUsuarioId`. |
+| `targetTipo` | No | `Rol` \| `Usuario` \| `RolAccion` \| `UsuarioRol`. **`UsuarioRol` es una adición respecto al diseño original de §11** (que solo enumeraba los otros tres): es el valor real que persisten `AsignarRolAUsuarioAsync`/`QuitarRolDeUsuarioAsync`, necesario para poder filtrar esa operación. |
+| `targetId` | No | Match exacto (nunca substring) contra `SecurityAudit.TargetId` — para `RolAccion`/`UsuarioRol` es el string compuesto `"{rol}/{accion}"` o `"{usuarioId}/{rol}"`. |
+
+Solo el rango sobre `Timestamp` es una query Firestore (`WhereGreaterThanOrEqualTo`/`WhereLessThan` + `OrderByDescending`, índice automático de campo simple); `operacion`/`actorUsuarioId`/`targetTipo`/`targetId` se filtran en memoria sobre ese conjunto ya acotado por fecha (volumen esperado bajo). `ActorEmail` se resuelve en batch por referencia directa a documento (nunca `WhereIn`, nunca una lectura por auditoría).
+
+Respuesta (`SecurityAuditReporteResponseDto`):
+
+```json
+{
+  "fechaDesde": "2026-05-02T14:30:00Z",
+  "fechaHasta": "2026-06-01T14:30:00Z",
+  "auditorias": [
+    { "timestamp": "2026-05-15T12:00:00Z", "operacion": "ROL_ASIGNAR_ACCION", "actorUsuarioId": "usuario-...", "actorEmail": "admin@hoydonde.com", "targetTipo": "RolAccion", "targetId": "ORGANIZADOR/EVENTO_CREAR", "detalle": "rol=ORGANIZADOR;accion=EVENTO_CREAR" }
+  ]
+}
+```
+
+`fechaDesde`/`fechaHasta` en la respuesta son siempre el rango **efectivo** aplicado (incluye el default de 30 días cuando el caller no informó ninguno), nunca lo que el caller mandó crudo. `actorEmail` es `null` si el `Usuario` actor ya no existe. Nunca expone `ActorPersonaId` ni ningún identificador del proveedor de identidad.
+
 ### Índice Firestore nuevo
 
 ```json
@@ -653,8 +695,8 @@ Nunca expone `OrganizadorPersonaId`, UID de Firebase, `UsuarioId` ni `ExternalSu
   { "fieldPath": "FechaInicio", "order": "ASCENDING" } ] }
 ```
 
-Agregado a `firestore.indexes.json` y probado contra el Firestore Emulator. **Todavía no desplegado contra el proyecto Firebase real** (`hoydonde-f5a05`) — pendiente como paso de despliegue explícito, fuera de esta entrega.
+Agregado a `firestore.indexes.json`, probado contra el Firestore Emulator y **desplegado y en estado READY contra el proyecto Firebase real** (`hoydonde-f5a05`). Cubre tanto el reporte del Organizador como el reporte del Administrador cuando filtra por `organizadorPersonaId` — no se agregó ningún índice nuevo para el reporte Admin ni para la auditoría de seguridad.
 
 ### Estado
 
-Implementado y verificado contra Firestore Emulator real: **468 passed, 0 failed, 0 skipped** (suite completa). Pendiente: reporte Admin (`REPORTE_VER_GLOBAL` sembrada pero sin endpoint todavía), auditoría de seguridad como reporte, frontend/PDF, despliegue del índice y ejecución de `seed-report-actions` contra Firebase real.
+Módulo completo (Organizador + Admin eventos + auditoría de seguridad + frontend + PDF), verificado contra Firestore Emulator real: **505 passed, 0 failed, 0 skipped** (suite completa; 2 tests de concurrencia no relacionados con este módulo son intermitentes bajo contención de la suite completa, verificados en verde de forma aislada). Frontend: `npm test` 408 passed, `npm run typecheck`/`npm run lint` limpios, `npx expo-doctor` 18/18, `npx expo export --platform android` exitoso, y **verificado a mano en Expo Go contra la API/Firestore reales** (ambos reportes de eventos y sus filtros, métricas coherentes, auditoría de seguridad y sus filtros, los tres PDF generándose/abriéndose/compartiéndose correctamente, Cliente/Control sin ningún acceso a reportes) — sin errores encontrados. **El módulo de reportes queda cerrado por completo.**

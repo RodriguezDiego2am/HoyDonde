@@ -25,7 +25,7 @@ Este archivo evita repetir DTOs completos, inventarios de archivos, pseudocódig
 | Frontend 2 | Cerrada (circuito mínimo) | Alta de Organizador, ciclo de vida de eventos y alta/asignación de Control; validado a mano en Expo Go |
 | Frontend 3 | Cerrada | Validación de Control por QR (`expo-camera`) e ingreso manual, verificada end-to-end con cámara física, API y Firestore reales; recorrido real de los cuatro perfiles (Admin, Organizador, Cliente, Control) completado |
 | Frontend 4 | Cerrada | Administración de roles/acciones/usuarios operable desde la interfaz por acción efectiva; modificación de permisos verificada a mano (quitar/reponer `EVENTO_CREAR`) |
-| Frontend 5 | En progreso | Filtros de Cartelera (rango de fechas, categoría, ubicación, paginación) cerrados y verificados contra Firestore real; reportes/analíticas y QA final pendientes |
+| Frontend 5 | Cerrada | Filtros de Cartelera cerrados; módulo de reportes (§11) cerrado: reporte propio del Organizador, reporte global y auditoría de seguridad del Administrador, con pantallas y exportación a PDF (`expo-print`/`expo-sharing`) |
 
 Al cerrar una etapa se actualizan únicamente esta tabla, su breve resultado y la última verificación. No se conserva un diario de implementación dentro de este archivo.
 
@@ -525,6 +525,10 @@ Estrategia validada: API devuelve JSON puro; el frontend construye HTML propio y
 
 ### 11.10 Checkpoint — estado real de implementación
 
-- **Implementado y verificado:** paso 1 (`Acciones.cs` 20→22, `SecurityCatalogSeeder` para instalaciones nuevas, comando `seed-report-actions`) y paso 2 (`GET /api/reports/organizer/events`, índice compuesto `events: OrganizadorPersonaId ASC, FechaInicio ASC`). Suite completa contra Firestore Emulator real: **468 passed, 0 failed, 0 skipped**.
-- **Pendiente, sin cambios de diseño respecto a §11.1–§11.9:** pasos 3–5 (reporte Admin, auditoría de seguridad, pantallas/PDF).
-- **Pendiente contra Firebase real** (deliberadamente no ejecutado en este checkpoint): desplegar el índice nuevo de `firestore.indexes.json` y correr `seed-report-actions` contra el proyecto real (`hoydonde-f5a05`).
+- **Implementado y verificado — módulo completo:** paso 1 (`Acciones.cs` 20→22, `SecurityCatalogSeeder`, comando `seed-report-actions`), paso 2 (`GET /api/reports/organizer/events`), paso 3 (`GET /api/reports/admin/events`), paso 4 (`GET /api/reports/admin/security-audits`) y paso 5 (pantallas `/organizer/reports`, `/admin/reports` + `/admin/reports/events` + `/admin/reports/security-audits`, con exportación a PDF vía `expo-print`/`expo-sharing`).
+- Suite backend contra Firestore Emulator real: **505 passed, 0 failed, 0 skipped** (2 tests de concurrencia no relacionados, `FirestoreControlAsignacionRepositoryTests`/`TicketServiceEmulatorTests`, son intermitentes bajo contención de la suite completa — verificados en verde de forma aislada).
+- Suite frontend (`npm test`): **408 passed, 0 failed** — `npm run typecheck`, `npm run lint` (0 errores) y `npx expo-doctor` (18/18) también en verde.
+- **Desviación respecto al diseño original:** el filtro `targetTipo` de la auditoría de seguridad admite un cuarto valor real, `UsuarioRol` (además de `Rol`/`Usuario`/`RolAccion`), porque `SecurityAdminService.AsignarRolAUsuarioAsync`/`QuitarRolDeUsuarioAsync` ya persisten ese `TargetTipo` — restringir el filtro a los tres valores originales lo habría dejado incapaz de filtrar la operación más frecuente de `/admin/usuarios` (asignar/quitar rol a un usuario).
+- El reporte global de eventos del Administrador expone `OrganizadorPersonaId` por evento (`ReporteAdminEventoDetalleDto`); el frontend lo resuelve a email reutilizando `GET /api/security/usuarios` (acción `USUARIO_VER_PERMISOS_EFECTIVOS`) — si la sesión no tiene esa acción, el selector/columna de organizador simplemente no se puebla con nombre (el reporte sigue funcionando con el id).
+- **Verificado a mano en Expo Go contra la API/Firestore reales:** reporte propio del Organizador, reporte global del Administrador, filtros de ambos, métricas coherentes, auditoría de seguridad y sus filtros, generación/apertura/compartido de los tres PDF, y confirmación de que Cliente y Control no reciben ningún acceso de reportes. Sin errores encontrados en el recorrido manual.
+- **Con esto, el módulo de reportes (docs/api-mvp-plan.md §11) queda cerrado por completo** — backend, frontend y verificación manual. El índice compuesto y las dos acciones ya estaban desplegados/asignados en Firebase real antes de este cierre (ver arriba); esta etapa no volvió a tocarlos.

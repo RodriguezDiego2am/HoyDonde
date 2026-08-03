@@ -37,6 +37,29 @@ namespace HoyDonde.API.Services
             return (desde, hasta);
         }
 
+        // Rango con default (docs/api-mvp-plan.md §11.1, reporte C de auditoría): ambos extremos
+        // opcionales. Si falta 'fechaHasta', se usa DateTime.UtcNow; si falta 'fechaDesde', se
+        // usa 'hasta menos defaultDias'. Mismas reglas que ValidateRango en todo lo demás (UTC
+        // explícito cuando el valor viene informado, Desde < Hasta, máximo MaxRangoDias).
+        public static (DateTime Desde, DateTime Hasta) ValidateRangoConDefault(DateTime? fechaDesde, DateTime? fechaHasta, int defaultDias)
+        {
+            if (fechaHasta.HasValue && fechaHasta.Value.Kind != DateTimeKind.Utc)
+                throw new ReporteRangoInvalidoException("'fechaHasta' debe especificarse en UTC explícito (por ejemplo, con sufijo 'Z').");
+            if (fechaDesde.HasValue && fechaDesde.Value.Kind != DateTimeKind.Utc)
+                throw new ReporteRangoInvalidoException("'fechaDesde' debe especificarse en UTC explícito (por ejemplo, con sufijo 'Z').");
+
+            var hasta = fechaHasta ?? DateTime.UtcNow;
+            var desde = fechaDesde ?? hasta.AddDays(-defaultDias);
+
+            if (desde >= hasta)
+                throw new ReporteRangoInvalidoException("'fechaDesde' debe ser anterior a 'fechaHasta'.");
+
+            if ((hasta - desde).TotalDays > MaxRangoDias)
+                throw new ReporteRangoInvalidoException($"El rango entre 'fechaDesde' y 'fechaHasta' no puede exceder {MaxRangoDias} días.");
+
+            return (desde, hasta);
+        }
+
         public static void ValidateTicketTypeRequiresEventId(string? eventId, string? ticketTypeId)
         {
             if (!string.IsNullOrEmpty(ticketTypeId) && string.IsNullOrEmpty(eventId))
@@ -64,11 +87,17 @@ namespace HoyDonde.API.Services
         // "sin eventId" (redundante con la query Firestore, pero inofensivo) como para el camino
         // "con eventId" (donde es la única verificación de rango/filtros: un evento propio fuera de
         // rango/filtros da un reporte vacío, nunca una fuga de datos).
-        public static bool CumpleFiltros(Event evento, ReporteEventosFilterDto filter, DateTime fechaDesde, DateTime fechaHasta, DateTime utcNow)
+        public static bool CumpleFiltros(Event evento, ReporteEventosFilterDto filter, DateTime fechaDesde, DateTime fechaHasta, DateTime utcNow) =>
+            CumpleFiltros(evento, filter.Estado, filter.Categoria, fechaDesde, fechaHasta, utcNow);
+
+        // Forma genérica (docs/api-mvp-plan.md §11.4), reutilizada también por el reporte Admin
+        // (ReporteAdminEventosFilterDto no comparte tipo con ReporteEventosFilterDto pero sí los
+        // mismos dos filtros en memoria de Estado/Categoria).
+        public static bool CumpleFiltros(Event evento, Event.EventEffectiveStatus? estado, Event.EventCategory? categoria, DateTime fechaDesde, DateTime fechaHasta, DateTime utcNow)
         {
             if (evento.FechaInicio < fechaDesde || evento.FechaInicio >= fechaHasta) return false;
-            if (filter.Estado.HasValue && evento.GetEstadoEfectivo(utcNow) != filter.Estado.Value) return false;
-            if (filter.Categoria.HasValue && evento.Categoria != filter.Categoria.Value) return false;
+            if (estado.HasValue && evento.GetEstadoEfectivo(utcNow) != estado.Value) return false;
+            if (categoria.HasValue && evento.Categoria != categoria.Value) return false;
             return true;
         }
     }

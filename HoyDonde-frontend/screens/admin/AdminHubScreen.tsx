@@ -29,6 +29,7 @@ export default function AdminHubScreen() {
   const puedeDarAltas = hasAccion(ACCIONES.USUARIO_CREAR_ADMIN) || hasAccion(ACCIONES.USUARIO_CREAR_ORGANIZADOR);
   const puedeVerRoles = hasAccion(ACCIONES.ROL_EDITAR);
   const puedeVerUsuarios = hasAccion(ACCIONES.USUARIO_VER_PERMISOS_EFECTIVOS);
+  const puedeVerReportes = hasAccion(ACCIONES.REPORTE_VER_GLOBAL);
 
   const entradas: EntradaHub[] = [];
   if (puedeDarAltas) {
@@ -56,6 +57,15 @@ export default function AdminHubScreen() {
       descripcion: 'Ver cuentas, roles asignados y permisos efectivos.',
       icono: 'groups',
       href: '/admin/usuarios',
+    });
+  }
+  if (puedeVerReportes) {
+    entradas.push({
+      key: 'reportes',
+      titulo: 'Reportes',
+      descripcion: 'Actividad global de eventos y auditoría de seguridad.',
+      icono: 'query-stats',
+      href: '/admin/reports',
     });
   }
 

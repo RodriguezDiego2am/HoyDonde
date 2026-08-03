@@ -86,6 +86,85 @@ namespace HoyDonde.API.Services
                 .ToList();
         }
 
+        // GET /api/reports/admin/events (docs/api-mvp-plan.md §11.3): sin ownership de un actor
+        // -es un reporte global-, OrganizadorPersonaId es un filtro opcional y arbitrario que
+        // viene directo del cliente. Reutiliza ReporteMetricasCalculator (misma agregación que el
+        // reporte del Organizador) y solo agrega OrganizadorPersonaId a cada fila después.
+        public async Task<ReporteAdminEventosResponseDto> GetAdminEventsReportAsync(ReporteAdminEventosFilterDto filter)
+        {
+            var (fechaDesde, fechaHasta) = ReporteFiltroValidator.ValidateRango(filter.FechaDesde, filter.FechaHasta);
+            var utcNow = DateTime.UtcNow;
+
+            var eventos = await GetEventosEnRangoAsync(fechaDesde, fechaHasta, filter, utcNow);
+
+            var ticketsPorEvento = eventos.Count == 0
+                ? new Dictionary<string, List<Ticket>>()
+                : await GetTicketsPorEventoAsync(eventos.Select(e => e.Id));
+
+            var baseReporte = ReporteMetricasCalculator.Build(fechaDesde, fechaHasta, eventos, ticketsPorEvento, ticketTypeId: null, utcNow);
+
+            return new ReporteAdminEventosResponseDto
+            {
+                FechaDesde = baseReporte.FechaDesde,
+                FechaHasta = baseReporte.FechaHasta,
+                AclaracionImporte = baseReporte.AclaracionImporte,
+                Resumen = baseReporte.Resumen,
+                // El orden de baseReporte.Eventos preserva el orden de 'eventos' (ReporteMetricasCalculator.Build
+                // itera con Select sobre la misma lista), así que el zip por índice es seguro.
+                Eventos = eventos.Zip(baseReporte.Eventos, ToAdminDetalle).ToList(),
+            };
+        }
+
+        private static ReporteAdminEventoDetalleDto ToAdminDetalle(Event evento, ReporteEventoDetalleDto detalle) => new()
+        {
+            EventId = detalle.EventId,
+            Nombre = detalle.Nombre,
+            Ubicacion = detalle.Ubicacion,
+            Categoria = detalle.Categoria,
+            Estado = detalle.Estado,
+            FechaInicio = detalle.FechaInicio,
+            FechaFin = detalle.FechaFin,
+            CapacidadInicial = detalle.CapacidadInicial,
+            StockDisponible = detalle.StockDisponible,
+            EntradasEmitidas = detalle.EntradasEmitidas,
+            EntradasUsadas = detalle.EntradasUsadas,
+            EntradasAnuladas = detalle.EntradasAnuladas,
+            EntradasPendientes = detalle.EntradasPendientes,
+            PorcentajeOcupacion = detalle.PorcentajeOcupacion,
+            PorcentajeAsistencia = detalle.PorcentajeAsistencia,
+            PorcentajeUtilizacion = detalle.PorcentajeUtilizacion,
+            ImporteEmitido = detalle.ImporteEmitido,
+            TiposDeEntrada = detalle.TiposDeEntrada,
+            OrganizadorPersonaId = evento.OrganizadorPersonaId,
+        };
+
+        // Estrategia Firestore (docs/api-mvp-plan.md §11.4): sin organizadorPersonaId, solo rango
+        // de FechaInicio (índice automático de campo simple); con organizadorPersonaId, se agrega
+        // WhereEqualTo -mismo índice compuesto que el reporte del Organizador-. Estado/Categoria
+        // siempre en memoria.
+        private async Task<List<Event>> GetEventosEnRangoAsync(DateTime fechaDesde, DateTime fechaHasta, ReporteAdminEventosFilterDto filter, DateTime utcNow)
+        {
+            Query query = _firestore.Collection(EventsCollection);
+
+            if (!string.IsNullOrEmpty(filter.OrganizadorPersonaId))
+            {
+                query = query.WhereEqualTo(nameof(Event.OrganizadorPersonaId), filter.OrganizadorPersonaId);
+            }
+
+            query = query
+                .WhereGreaterThanOrEqualTo(nameof(Event.FechaInicio), fechaDesde)
+                .WhereLessThan(nameof(Event.FechaInicio), fechaHasta)
+                .OrderBy(nameof(Event.FechaInicio))
+                .OrderBy(FieldPath.DocumentId);
+
+            var snapshot = await query.GetSnapshotAsync();
+            var eventos = snapshot.Documents.Select(d => d.ConvertTo<Event>());
+
+            return eventos
+                .Where(e => ReporteFiltroValidator.CumpleFiltros(e, filter.Estado, filter.Categoria, fechaDesde, fechaHasta, utcNow))
+                .ToList();
+        }
+
         // Lotes de <=30 ids (límite real de Firestore para WhereIn), nunca una lectura por evento.
         // Si no hay eventos, el llamador no ejecuta ninguna query de tickets.
         private async Task<Dictionary<string, List<Ticket>>> GetTicketsPorEventoAsync(IEnumerable<string> eventIds)

@@ -219,6 +219,12 @@ builder.Services.AddScoped<ISecurityAdminService, SecurityAdminService>();
 builder.Services.AddScoped<IReporteService, ReporteService>();
 builder.Services.AddScoped<SeedReportActionsCommand>();
 
+// Reporte Admin de eventos globales y auditoría de seguridad (docs/api-mvp-plan.md §11.3, pasos
+// 3-4): reutilizan ReporteFiltroValidator/ReporteMetricasCalculator (eventos) y agregan la lectura
+// de solo lectura de security_audits.
+builder.Services.AddScoped<ISecurityAuditRepository, FirestoreSecurityAuditRepository>();
+builder.Services.AddScoped<ISecurityAuditReportService, SecurityAuditReportService>();
+
 
 var app = builder.Build();
 

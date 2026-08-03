@@ -108,6 +108,17 @@ namespace HoyDonde.API.Repositories
             return snapshot.Exists ? snapshot.ConvertTo<Usuario>() : null;
         }
 
+        public async Task<IReadOnlyList<Usuario>> GetByIdsAsync(IEnumerable<string> usuarioIds)
+        {
+            var distinctIds = usuarioIds.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
+            if (distinctIds.Count == 0) return new List<Usuario>();
+
+            var refs = distinctIds.Select(id => _firestore.Collection(UsuariosCollection).Document(id));
+            var snapshots = await _firestore.GetAllSnapshotsAsync(refs);
+
+            return snapshots.Where(s => s.Exists).Select(s => s.ConvertTo<Usuario>()).ToList();
+        }
+
         public async Task<Usuario?> GetByPersonaIdAsync(string personaId)
         {
             var snapshot = await _firestore.Collection(UsuariosCollection)

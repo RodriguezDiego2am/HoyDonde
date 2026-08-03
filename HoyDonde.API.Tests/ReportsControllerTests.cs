@@ -31,7 +31,7 @@ namespace HoyDonde.API.Tests
             _client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
             _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test");
 
-            _factory.GrantAccion("test-uid-123", "usuario-reports-test", "persona-reports-test", Acciones.ReporteVerPropio);
+            _factory.GrantAccion("test-uid-123", "usuario-reports-test", "persona-reports-test", Acciones.ReporteVerPropio, Acciones.ReporteVerGlobal);
         }
 
         private static string ValidQuery(string? extra = null) =>
@@ -218,6 +218,194 @@ namespace HoyDonde.API.Tests
 
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
             Assert.DoesNotContain("test-uid-123", content);
+        }
+
+        // ==================================================================
+        // GET /api/reports/admin/events (docs/api-mvp-plan.md §11.3)
+        // ==================================================================
+
+        private static string ValidAdminQuery(string? extra = null) =>
+            "/api/reports/admin/events?fechaDesde=2026-01-01T00:00:00Z&fechaHasta=2026-02-01T00:00:00Z" + (extra ?? "");
+
+        [Fact]
+        public async Task GetAdminEventsReport_Anonymous_ReturnsUnauthorized()
+        {
+            var anonClient = _factory.CreateClient();
+
+            var response = await anonClient.GetAsync(ValidAdminQuery());
+
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GetAdminEventsReport_SinAccionReporteVerGlobal_ReturnsForbidden()
+        {
+            var msg = new HttpRequestMessage(HttpMethod.Get, ValidAdminQuery());
+            msg.Headers.Authorization = new AuthenticationHeaderValue("Test");
+            msg.Headers.Add("Test-Uid", "uid-sin-permiso-admin-reports");
+
+            var response = await _client.SendAsync(msg);
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GetAdminEventsReport_ConAccion_ReturnsOk_WithExpectedShape()
+        {
+            var expected = new ReporteAdminEventosResponseDto
+            {
+                FechaDesde = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                FechaHasta = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc),
+                AclaracionImporte = "El MVP no procesa pagos reales.",
+                Resumen = new ReporteResumenDto { CantidadEventos = 1, EntradasEmitidas = 2 },
+                Eventos = new List<ReporteAdminEventoDetalleDto>
+                {
+                    new() { EventId = "event-1", Nombre = "Festival", EntradasEmitidas = 2, OrganizadorPersonaId = "persona-organizador-1" },
+                },
+            };
+
+            _factory.MockReporteService
+                .Setup(s => s.GetAdminEventsReportAsync(It.IsAny<ReporteAdminEventosFilterDto>()))
+                .ReturnsAsync(expected);
+
+            var response = await _client.GetAsync(ValidAdminQuery());
+            var result = await response.Content.ReadFromJsonAsync<ReporteAdminEventosResponseDto>();
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.NotNull(result);
+            Assert.Equal(1, result!.Resumen.CantidadEventos);
+            Assert.Single(result.Eventos);
+            Assert.Equal("event-1", result.Eventos[0].EventId);
+            Assert.Equal("persona-organizador-1", result.Eventos[0].OrganizadorPersonaId);
+        }
+
+        [Fact]
+        public async Task GetAdminEventsReport_BindsFechasEstadoCategoriaOrganizador_SinEventIdNiTicketTypeId()
+        {
+            ReporteAdminEventosFilterDto? captured = null;
+            _factory.MockReporteService
+                .Setup(s => s.GetAdminEventsReportAsync(It.IsAny<ReporteAdminEventosFilterDto>()))
+                .Callback<ReporteAdminEventosFilterDto>(f => captured = f)
+                .ReturnsAsync(new ReporteAdminEventosResponseDto());
+
+            var response = await _client.GetAsync(
+                ValidAdminQuery("&estado=Publicado&categoria=Musica&organizadorPersonaId=persona-1"));
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.NotNull(captured);
+            Assert.Equal(Event.EventEffectiveStatus.Publicado, captured!.Estado);
+            Assert.Equal(Event.EventCategory.Musica, captured.Categoria);
+            Assert.Equal("persona-1", captured.OrganizadorPersonaId);
+        }
+
+        [Fact]
+        public async Task GetAdminEventsReport_RangoInvalido_ReturnsBadRequest_WithReportRangeInvalidCode()
+        {
+            _factory.MockReporteService
+                .Setup(s => s.GetAdminEventsReportAsync(It.IsAny<ReporteAdminEventosFilterDto>()))
+                .ThrowsAsync(new ReporteRangoInvalidoException("El rango no puede exceder 366 días."));
+
+            var response = await _client.GetAsync(ValidAdminQuery());
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Equal("REPORT_RANGE_INVALID", body.GetProperty("code").GetString());
+        }
+
+        // ==================================================================
+        // GET /api/reports/admin/security-audits (docs/api-mvp-plan.md §11.3)
+        // ==================================================================
+
+        [Fact]
+        public async Task GetSecurityAuditsReport_Anonymous_ReturnsUnauthorized()
+        {
+            var anonClient = _factory.CreateClient();
+
+            var response = await anonClient.GetAsync("/api/reports/admin/security-audits");
+
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GetSecurityAuditsReport_SinAccionReporteVerGlobal_ReturnsForbidden()
+        {
+            var msg = new HttpRequestMessage(HttpMethod.Get, "/api/reports/admin/security-audits");
+            msg.Headers.Authorization = new AuthenticationHeaderValue("Test");
+            msg.Headers.Add("Test-Uid", "uid-sin-permiso-audit-reports");
+
+            var response = await _client.SendAsync(msg);
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GetSecurityAuditsReport_ConAccion_ReturnsOk_WithExpectedShape()
+        {
+            var expected = new SecurityAuditReporteResponseDto
+            {
+                FechaDesde = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                FechaHasta = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc),
+                Auditorias = new List<SecurityAuditReporteDto>
+                {
+                    new() { Operacion = "ROL_ASIGNAR_ACCION", ActorUsuarioId = "usuario-1", ActorEmail = "admin@test.com", TargetTipo = "RolAccion", TargetId = "ORGANIZADOR/EVENTO_CREAR" },
+                },
+            };
+
+            _factory.MockSecurityAuditReportService
+                .Setup(s => s.GetSecurityAuditsReportAsync(It.IsAny<SecurityAuditReportFilterDto>()))
+                .ReturnsAsync(expected);
+
+            var response = await _client.GetAsync("/api/reports/admin/security-audits");
+            var result = await response.Content.ReadFromJsonAsync<SecurityAuditReporteResponseDto>();
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.NotNull(result);
+            Assert.Single(result!.Auditorias);
+            Assert.Equal("RolAccion", result.Auditorias[0].TargetTipo);
+        }
+
+        [Fact]
+        public async Task GetSecurityAuditsReport_BindsFiltros()
+        {
+            SecurityAuditReportFilterDto? captured = null;
+            _factory.MockSecurityAuditReportService
+                .Setup(s => s.GetSecurityAuditsReportAsync(It.IsAny<SecurityAuditReportFilterDto>()))
+                .Callback<SecurityAuditReportFilterDto>(f => captured = f)
+                .ReturnsAsync(new SecurityAuditReporteResponseDto());
+
+            var response = await _client.GetAsync(
+                "/api/reports/admin/security-audits?fechaDesde=2026-01-01T00:00:00Z&fechaHasta=2026-02-01T00:00:00Z&operacion=USUARIO_ASIGNAR_ROL&actorUsuarioId=usuario-1&targetTipo=UsuarioRol&targetId=usuario-2/ORGANIZADOR");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.NotNull(captured);
+            Assert.Equal("USUARIO_ASIGNAR_ROL", captured!.Operacion);
+            Assert.Equal("usuario-1", captured.ActorUsuarioId);
+            Assert.Equal(SecurityAuditTargetTipo.UsuarioRol, captured.TargetTipo);
+            Assert.Equal("usuario-2/ORGANIZADOR", captured.TargetId);
+        }
+
+        [Fact]
+        public async Task GetSecurityAuditsReport_TargetTipoInexistente_ReturnsValidationError400()
+        {
+            var response = await _client.GetAsync("/api/reports/admin/security-audits?targetTipo=NoExiste");
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("VALIDATION_ERROR", body.GetProperty("code").GetString());
+        }
+
+        [Fact]
+        public async Task GetSecurityAuditsReport_RangoInvalido_ReturnsBadRequest_WithReportRangeInvalidCode()
+        {
+            _factory.MockSecurityAuditReportService
+                .Setup(s => s.GetSecurityAuditsReportAsync(It.IsAny<SecurityAuditReportFilterDto>()))
+                .ThrowsAsync(new ReporteRangoInvalidoException("El rango no puede exceder 366 días."));
+
+            var response = await _client.GetAsync("/api/reports/admin/security-audits");
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Equal("REPORT_RANGE_INVALID", body.GetProperty("code").GetString());
         }
     }
 }

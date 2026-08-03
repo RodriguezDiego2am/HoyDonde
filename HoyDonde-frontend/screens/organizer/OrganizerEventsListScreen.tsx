@@ -28,6 +28,7 @@ function fetchErrorMessage(error: unknown): string {
 export default function OrganizerEventsListScreen() {
   const { hasAccion } = useAuth();
   const puedeCrearEvento = hasAccion(ACCIONES.EVENTO_CREAR);
+  const puedeVerReportes = hasAccion(ACCIONES.REPORTE_VER_PROPIO);
   const [events, setEvents] = useState<EventResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -98,9 +99,14 @@ export default function OrganizerEventsListScreen() {
     <View style={styles.container}>
       <EditorialHeader eyebrow="ORGANIZACIÓN" title="Mis eventos" onRefresh={onRefresh} showBack />
 
-      {puedeCrearEvento ? (
+      {puedeCrearEvento || puedeVerReportes ? (
         <View style={styles.newButtonRow}>
-          <ActionButton label="+ Crear evento" onPress={() => router.push('/organizer/new')} />
+          {puedeCrearEvento ? <ActionButton label="+ Crear evento" onPress={() => router.push('/organizer/new')} /> : null}
+          {puedeVerReportes ? (
+            <View style={puedeCrearEvento && styles.secondaryButtonSpacing}>
+              <ActionButton label="Reportes" variant="secondary" onPress={() => router.push('/organizer/reports')} />
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -135,8 +141,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.paper,
   },
   newButtonRow: {
+    flexDirection: 'row',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
+  },
+  secondaryButtonSpacing: {
+    marginLeft: spacing.sm,
   },
   list: {
     padding: spacing.lg,

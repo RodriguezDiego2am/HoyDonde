@@ -67,4 +67,15 @@ describe('AdminHubScreen', () => {
     expect(getByText('Roles y acciones')).toBeTruthy();
     expect(getByText('Usuarios')).toBeTruthy();
   });
+
+  it('muestra "Reportes" solo con REPORTE_VER_GLOBAL y navega a /admin/reports', () => {
+    mockHasAccion = (accion) => accion === 'REPORTE_VER_GLOBAL';
+    const { getByText, queryByText } = render(<AdminHubScreen />);
+
+    expect(queryByText('Altas')).toBeNull();
+    expect(queryByText('Usuarios')).toBeNull();
+
+    fireEvent.press(getByText('Reportes'));
+    expect(mockPush).toHaveBeenCalledWith('/admin/reports');
+  });
 });

@@ -66,6 +66,7 @@ namespace HoyDonde.API.Tests
         public Mock<IAccionRepository> MockAccionRepository { get; } = new();
         public Mock<ISecurityAdminService> MockSecurityAdminService { get; } = new();
         public Mock<IReporteService> MockReporteService { get; } = new();
+        public Mock<ISecurityAuditReportService> MockSecurityAuditReportService { get; } = new();
 
         // Etapa 5 del refactor de seguridad: concede, para el uid dado, exactamente los
         // accionCodigos indicados (via un único rol de prueba), dejando MockUsuarioRepository/
@@ -180,6 +181,16 @@ namespace HoyDonde.API.Tests
                 var reporteServiceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IReporteService));
                 if (reporteServiceDescriptor != null) services.Remove(reporteServiceDescriptor);
 
+                // Mismo criterio: ReportsController se prueba contra MockSecurityAuditReportService
+                // directamente. ISecurityAuditRepository (dependencia real de
+                // FirestoreSecurityAuditRepository -> FirestoreDb) también se retira: nada la
+                // construye en estos tests, pero ValidateOnBuild igual necesita poder resolverla.
+                var securityAuditReportServiceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ISecurityAuditReportService));
+                if (securityAuditReportServiceDescriptor != null) services.Remove(securityAuditReportServiceDescriptor);
+
+                var securityAuditRepositoryDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ISecurityAuditRepository));
+                if (securityAuditRepositoryDescriptor != null) services.Remove(securityAuditRepositoryDescriptor);
+
                 // Add Mocks
                 services.AddSingleton(MockEventService.Object);
                 services.AddSingleton(MockUserService.Object);
@@ -187,6 +198,8 @@ namespace HoyDonde.API.Tests
                 services.AddSingleton(MockTicketService.Object);
                 services.AddSingleton(MockSecurityAdminService.Object);
                 services.AddSingleton(MockReporteService.Object);
+                services.AddSingleton(MockSecurityAuditReportService.Object);
+                services.AddSingleton(Mock.Of<ISecurityAuditRepository>());
                 services.AddSingleton(Mock.Of<ITicketValidationStore>());
                 // Etapa 5: estos tres quedan como Mock<T> reales (no Mock.Of<T> anónimos) para que
                 // GrantAccion pueda configurarlos por test y AccionAuthorizationHandler resuelva

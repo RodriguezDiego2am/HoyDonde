@@ -14,10 +14,12 @@ namespace HoyDonde.API.Controllers
     public class ReportsController : ControllerBase
     {
         private readonly IReporteService _reporteService;
+        private readonly ISecurityAuditReportService _securityAuditReportService;
 
-        public ReportsController(IReporteService reporteService)
+        public ReportsController(IReporteService reporteService, ISecurityAuditReportService securityAuditReportService)
         {
             _reporteService = reporteService;
+            _securityAuditReportService = securityAuditReportService;
         }
 
         // docs/api-mvp-plan.md §11: reporte de solo lectura de los eventos propios del
@@ -30,6 +32,27 @@ namespace HoyDonde.API.Controllers
             if (string.IsNullOrEmpty(organizerId)) return Unauthorized();
 
             var result = await _reporteService.GetOrganizerEventsReportAsync(organizerId, filter);
+            return Ok(result);
+        }
+
+        // docs/api-mvp-plan.md §11.3: reporte agregado de eventos de cualquier organizador. Sin
+        // resolución de actor: es un reporte global, no hay ownership que verificar acá (el único
+        // filtro de organizador es OrganizadorPersonaId, opcional y arbitrario, aceptado del
+        // cliente porque el actor ya es Administrador vía la policy).
+        [HttpGet("admin/events")]
+        [Authorize(Policy = Acciones.ReporteVerGlobal)]
+        public async Task<IActionResult> GetAdminEventsReport([FromQuery] ReporteAdminEventosFilterDto filter)
+        {
+            var result = await _reporteService.GetAdminEventsReportAsync(filter);
+            return Ok(result);
+        }
+
+        // docs/api-mvp-plan.md §11.3: auditoría de seguridad, primer corte aprobado.
+        [HttpGet("admin/security-audits")]
+        [Authorize(Policy = Acciones.ReporteVerGlobal)]
+        public async Task<IActionResult> GetSecurityAuditsReport([FromQuery] SecurityAuditReportFilterDto filter)
+        {
+            var result = await _securityAuditReportService.GetSecurityAuditsReportAsync(filter);
             return Ok(result);
         }
 

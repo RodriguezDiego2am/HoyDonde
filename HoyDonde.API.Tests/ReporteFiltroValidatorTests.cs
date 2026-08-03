@@ -252,5 +252,81 @@ namespace HoyDonde.API.Tests
 
             Assert.True(ReporteFiltroValidator.CumpleFiltros(evento, filter, UtcNow.AddDays(-1), UtcNow.AddDays(1), UtcNow));
         }
+
+        // ---- CumpleFiltros (forma genérica, reporte Admin) ----
+
+        [Fact]
+        public void CumpleFiltrosGenerico_EstadoYCategoria_MismoResultadoQueLaSobrecargaConFilterDto()
+        {
+            var evento = BuildEvento(UtcNow, estado: Event.EventStatus.Publicado, categoria: Event.EventCategory.Musica);
+            var desde = UtcNow.AddDays(-1);
+            var hasta = UtcNow.AddDays(1);
+
+            Assert.True(ReporteFiltroValidator.CumpleFiltros(evento, Event.EventEffectiveStatus.Publicado, Event.EventCategory.Musica, desde, hasta, UtcNow));
+            Assert.False(ReporteFiltroValidator.CumpleFiltros(evento, Event.EventEffectiveStatus.Cancelado, null, desde, hasta, UtcNow));
+            Assert.False(ReporteFiltroValidator.CumpleFiltros(evento, null, Event.EventCategory.Deportes, desde, hasta, UtcNow));
+            Assert.True(ReporteFiltroValidator.CumpleFiltros(evento, null, null, desde, hasta, UtcNow));
+        }
+
+        // ---- ValidateRangoConDefault (reporte C, auditoría de seguridad) ----
+
+        [Fact]
+        public void ValidateRangoConDefault_AmbosAusentes_UsaUltimosNDiasHastaAhora()
+        {
+            var (desde, hasta) = ReporteFiltroValidator.ValidateRangoConDefault(null, null, 30);
+
+            Assert.True((DateTime.UtcNow - hasta).TotalSeconds < 5);
+            Assert.Equal(30, Math.Round((hasta - desde).TotalDays));
+        }
+
+        [Fact]
+        public void ValidateRangoConDefault_SoloHastaInformada_DesdeEsHastaMenosDefaultDias()
+        {
+            var (desde, hasta) = ReporteFiltroValidator.ValidateRangoConDefault(null, UtcNow, 30);
+
+            Assert.Equal(UtcNow, hasta);
+            Assert.Equal(UtcNow.AddDays(-30), desde);
+        }
+
+        [Fact]
+        public void ValidateRangoConDefault_SoloDesdeInformada_HastaEsUtcNow()
+        {
+            var (desde, hasta) = ReporteFiltroValidator.ValidateRangoConDefault(UtcNow.AddDays(-1), null, 30);
+
+            Assert.Equal(UtcNow.AddDays(-1), desde);
+            Assert.True((DateTime.UtcNow - hasta).TotalSeconds < 5);
+        }
+
+        [Fact]
+        public void ValidateRangoConDefault_AmbosInformados_UsaLosInformados()
+        {
+            var (desde, hasta) = ReporteFiltroValidator.ValidateRangoConDefault(UtcNow, UtcNow.AddDays(10), 30);
+
+            Assert.Equal(UtcNow, desde);
+            Assert.Equal(UtcNow.AddDays(10), hasta);
+        }
+
+        [Fact]
+        public void ValidateRangoConDefault_ExcedeMaximoDe366Dias_ThrowsReporteRangoInvalidoException()
+        {
+            Assert.Throws<ReporteRangoInvalidoException>(() =>
+                ReporteFiltroValidator.ValidateRangoConDefault(UtcNow, UtcNow.AddDays(367), 30));
+        }
+
+        [Fact]
+        public void ValidateRangoConDefault_DesdeMayorOIgualQueHasta_ThrowsReporteRangoInvalidoException()
+        {
+            Assert.Throws<ReporteRangoInvalidoException>(() =>
+                ReporteFiltroValidator.ValidateRangoConDefault(UtcNow, UtcNow, 30));
+        }
+
+        [Fact]
+        public void ValidateRangoConDefault_FechaSinKindUtc_ThrowsReporteRangoInvalidoException()
+        {
+            var desdeAmbigua = DateTime.SpecifyKind(UtcNow, DateTimeKind.Unspecified);
+
+            Assert.Throws<ReporteRangoInvalidoException>(() =>
+                ReporteFiltroValidator.ValidateRangoConDefault(desdeAmbigua, UtcNow.AddDays(1), 30));
+        }
     }
 }

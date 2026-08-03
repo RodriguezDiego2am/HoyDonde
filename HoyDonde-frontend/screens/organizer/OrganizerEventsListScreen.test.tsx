@@ -113,5 +113,25 @@ describe('OrganizerEventsListScreen', () => {
 
     expect(await findByText('Todavía no creaste ningún evento.')).toBeTruthy();
     expect(queryByText('+ Crear evento')).toBeNull();
+    expect(queryByText('Reportes')).toBeNull();
+  });
+
+  it('navega a los reportes propios al tocar "Reportes" cuando tiene REPORTE_VER_PROPIO', async () => {
+    jest.spyOn(apiClient, 'get').mockResolvedValue({ data: [] } as any);
+    const { findByText } = render(<OrganizerEventsListScreen />);
+
+    fireEvent.press(await findByText('Reportes'));
+
+    expect(mockPush).toHaveBeenCalledWith('/organizer/reports');
+  });
+
+  it('oculta "Reportes" cuando el Organizador no tiene la acción REPORTE_VER_PROPIO', async () => {
+    mockHasAccion = (accion) => accion === 'EVENTO_CREAR';
+    jest.spyOn(apiClient, 'get').mockResolvedValue({ data: [] } as any);
+
+    const { findByText, queryByText } = render(<OrganizerEventsListScreen />);
+
+    expect(await findByText('+ Crear evento')).toBeTruthy();
+    expect(queryByText('Reportes')).toBeNull();
   });
 });
