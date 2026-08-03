@@ -30,7 +30,7 @@ namespace HoyDonde.API.Tests
             _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test");
 
             _factory.GrantAccion(ActorUid, "usuario-security-admin-test", "persona-security-admin-test",
-                Acciones.RolCrear, Acciones.RolEditar, Acciones.RolActivar, Acciones.RolAsignarAccion, Acciones.RolQuitarAccion,
+                Acciones.RolCrear, Acciones.RolEditar, Acciones.RolActivar, Acciones.RolAsignarAccion, Acciones.RolQuitarAccion, Acciones.RolEliminar,
                 Acciones.UsuarioAsignarRol, Acciones.UsuarioQuitarRol, Acciones.UsuarioVerPermisosEfectivos, Acciones.UsuarioDesactivar);
         }
 
@@ -203,6 +203,70 @@ namespace HoyDonde.API.Tests
             var response = await _client.GetAsync("/api/security/roles/NO_EXISTE");
 
             Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        // ---- Baja física de un Rol (docs/api-mvp-plan.md §12) ----
+
+        [Fact]
+        public async Task EliminarRol_ConAccionRolEliminar_ReturnsOk()
+        {
+            _factory.MockSecurityAdminService.Setup(s => s.EliminarRolAsync(ActorUid, "SOPORTE")).Returns(Task.CompletedTask);
+
+            var response = await _client.DeleteAsync("/api/security/roles/SOPORTE");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task EliminarRol_SinAccionRolEliminar_ReturnsForbidden()
+        {
+            var response = await _client.SendAsync(SinAccion(HttpMethod.Delete, "/api/security/roles/SOPORTE"));
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task EliminarRol_Inexistente_ReturnsNotFound()
+        {
+            _factory.MockSecurityAdminService.Setup(s => s.EliminarRolAsync(ActorUid, "NO_EXISTE"))
+                .ThrowsAsync(new RolNoEncontradoException("NO_EXISTE"));
+
+            var response = await _client.DeleteAsync("/api/security/roles/NO_EXISTE");
+
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task EliminarRol_RolEsencial_ReturnsConflict()
+        {
+            _factory.MockSecurityAdminService.Setup(s => s.EliminarRolAsync(ActorUid, "ORGANIZADOR"))
+                .ThrowsAsync(new RolProtegidoException("ORGANIZADOR"));
+
+            var response = await _client.DeleteAsync("/api/security/roles/ORGANIZADOR");
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task EliminarRol_RolActivo_ReturnsConflict()
+        {
+            _factory.MockSecurityAdminService.Setup(s => s.EliminarRolAsync(ActorUid, "SOPORTE"))
+                .ThrowsAsync(new RolDebeEstarInactivoException("SOPORTE"));
+
+            var response = await _client.DeleteAsync("/api/security/roles/SOPORTE");
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task EliminarRol_ConUsuariosAsignados_ReturnsConflict()
+        {
+            _factory.MockSecurityAdminService.Setup(s => s.EliminarRolAsync(ActorUid, "SOPORTE"))
+                .ThrowsAsync(new RolTieneUsuariosAsignadosException("SOPORTE"));
+
+            var response = await _client.DeleteAsync("/api/security/roles/SOPORTE");
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         }
 
         // ---- Catálogo de Acciones ----

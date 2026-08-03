@@ -99,7 +99,7 @@ Firebase UID
 - Cada `[Authorize(Policy = "ACCION_CODIGO")]` se resuelve exclusivamente vía `AccionAuthorizationHandler` → `IPermissionService.TieneAccionAsync`, que recorre esa cadena completa en Firestore. **Nada lee un claim para autorizar.**
 - Un `Usuario` puede tener varios roles; un `Rol` puede otorgar varias acciones.
 - Si el `Usuario` está inactivo (`IsActive == false`), o la asignación de rol está inactiva, o el `Rol` está inactivo, o la `Accion` está inactiva, `TieneAccionAsync` devuelve `false` y el handler simplemente no llama a `context.Succeed(...)` — ASP.NET deniega por default, sin excepción ni 500. Esto es lo que hace que **un Usuario desactivado reciba 403 en cualquier endpoint protegido**, sin lógica adicional en el controller.
-- El catálogo tiene exactamente **22 acciones** (`Authorization/Acciones.cs`), sembradas por `SecurityCatalogSeeder` en 4 roles iniciales: `ADMINISTRADOR`, `ORGANIZADOR`, `CLIENTE`, `CONTROL`. Roles y acciones son entidades Firestore administrables (`/api/security`, §9), no enums ni constantes de código. Las dos últimas, `REPORTE_VER_GLOBAL` (`ADMINISTRADOR`) y `REPORTE_VER_PROPIO` (`ORGANIZADOR`), son del módulo de reportes (§15).
+- El catálogo tiene exactamente **23 acciones** (`Authorization/Acciones.cs`), sembradas por `SecurityCatalogSeeder` en 4 roles iniciales: `ADMINISTRADOR`, `ORGANIZADOR`, `CLIENTE`, `CONTROL`. Roles y acciones son entidades Firestore administrables (`/api/security`, §9), no enums ni constantes de código. `REPORTE_VER_GLOBAL` (`ADMINISTRADOR`) y `REPORTE_VER_PROPIO` (`ORGANIZADOR`) son del módulo de reportes (§15); `ROL_ELIMINAR` (`ADMINISTRADOR`) es de la baja física de roles (§10.1).
 - Una policy concedida **nunca es suficiente por sí sola** para tocar el recurso de otro actor: cada operación vuelve a leer el dueño/asignación real desde Firestore y lo compara contra el `PersonaId` del actor autenticado (`IAuthenticatedPersonaResolver`, §5). Ejemplos: `EVENTO_PUBLICAR_PROPIO` no alcanza para publicar el evento de otro organizador; `TICKET_VALIDAR` no alcanza para validar tickets de un evento al que ese Control no está asignado.
 
 ---
@@ -453,14 +453,15 @@ Un evento cancelado o finalizado **nunca** deja tocar (escribir) el documento de
 
 ## 10. Administración de seguridad (`/api/security`)
 
-Roles y acciones son entidades Firestore administrables, no constantes de código. Todo bajo `/api/security` requiere una de las policies `ROL_EDITAR` / `ROL_CREAR` / `ROL_ACTIVAR` / `ROL_ASIGNAR_ACCION` / `ROL_QUITAR_ACCION` / `USUARIO_ASIGNAR_ROL` / `USUARIO_QUITAR_ROL` / `USUARIO_VER_PERMISOS_EFECTIVOS` / `USUARIO_DESACTIVAR` según el endpoint — hoy, en la práctica, solo el rol `ADMINISTRADOR` las tiene todas asignadas.
+Roles y acciones son entidades Firestore administrables, no constantes de código. Todo bajo `/api/security` requiere una de las policies `ROL_EDITAR` / `ROL_CREAR` / `ROL_ACTIVAR` / `ROL_ASIGNAR_ACCION` / `ROL_QUITAR_ACCION` / `ROL_ELIMINAR` / `USUARIO_ASIGNAR_ROL` / `USUARIO_QUITAR_ROL` / `USUARIO_VER_PERMISOS_EFECTIVOS` / `USUARIO_DESACTIVAR` según el endpoint — hoy, en la práctica, solo el rol `ADMINISTRADOR` las tiene todas asignadas.
 
 | Método y ruta | Policy | Descripción |
 |---|---|---|
 | `POST /api/security/roles` | `ROL_CREAR` | Crea un rol (`CreateRolRequestDto`: `codigo`, `nombre`, `descripcion`). |
 | `PUT /api/security/roles/{codigo}` | `ROL_EDITAR` | Edita nombre/descripción (`UpdateRolRequestDto`); el código es inmutable. |
-| `POST /api/security/roles/{codigo}/activar` | `ROL_ACTIVAR` | Activa un rol. |
-| `POST /api/security/roles/{codigo}/desactivar` | `ROL_ACTIVAR` | Desactiva un rol (bloqueado si dejaría 0 Administradores efectivos). |
+| `POST /api/security/roles/{codigo}/activar` | `ROL_ACTIVAR` | Activa un rol (baja lógica inversa). |
+| `POST /api/security/roles/{codigo}/desactivar` | `ROL_ACTIVAR` | Baja lógica: desactiva un rol (bloqueado si dejaría 0 Administradores efectivos). |
+| `DELETE /api/security/roles/{codigo}` | `ROL_ELIMINAR` | Baja física: borra el rol de forma permanente. Ver §10.1. |
 | `GET /api/security/roles` | `ROL_EDITAR` | Lista todos los roles. |
 | `GET /api/security/roles/{codigo}` | `ROL_EDITAR` | Detalle de un rol, incluida su lista de acciones. |
 | `GET /api/security/acciones` | `ROL_ASIGNAR_ACCION` | Lista el catálogo completo de acciones. |
@@ -486,6 +487,19 @@ Toda mutación que dejaría el sistema sin **ningún** Administrador efectivo se
   "acciones": ["EVENTO_CREAR", "EVENTO_EDITAR_PROPIO", "..."]
 }
 ```
+
+### 10.1. Baja lógica vs. baja física de un Rol (docs/api-mvp-plan.md §12)
+
+- **Baja lógica** (`POST /api/security/roles/{codigo}/desactivar`, policy `ROL_ACTIVAR`): `Rol.Activo = false`. El rol y todas sus asignaciones (`RolAccion`, `UsuarioRol` de cualquier usuario) se conservan intactas; un rol inactivo simplemente deja de otorgar acciones efectivas. Reversible en cualquier momento (`.../activar`). Idempotente: repetir el mismo estado no vuelve a auditar. Mismo guard transaccional del último Administrador que el resto de `/api/security`.
+- **Baja física** (`DELETE /api/security/roles/{codigo}`, policy `ROL_ELIMINAR`, una acción independiente — nunca implícita en `ROL_ACTIVAR`): borra el documento `Rol` y toda su subcolección `roles/{codigo}/acciones`. Solo se permite cuando se cumplen **todas** estas condiciones, evaluadas dentro de una única transacción Firestore:
+  1. El rol existe (si no, 404 `ROLE_NOT_FOUND`).
+  2. No es uno de los 4 roles esenciales sembrados por `SecurityCatalogSeeder` — `ADMINISTRADOR`/`ORGANIZADOR`/`CLIENTE`/`CONTROL` nunca pueden eliminarse físicamente (409 `ROL_PROTEGIDO`).
+  3. El rol ya está inactivo (409 `ROL_DEBE_ESTAR_INACTIVO` si sigue activo — hay que darlo de baja lógica primero).
+  4. No tiene ninguna asignación `UsuarioRol`, activa **ni inactiva** (409 `ROL_TIENE_USUARIOS_ASIGNADOS`) — evita dejar una asignación histórica apuntando a un rol que ya no existe.
+- Nunca borra la `Accion` del catálogo (`acciones/{codigo}`) ni ningún `Usuario`; nunca toca otros roles. Las entradas de `security_audits` previas al rol se conservan siempre — la eliminación solo agrega una entrada nueva (`ROL_ELIMINAR`), nunca reescribe ni borra el historial.
+- La colección raíz del catálogo (`roles`) y la subcolección `usuarios/{usuarioId}/roles` (`UsuarioRol`) comparten el mismo nombre de colección en Firestore; la verificación de la condición 4 usa una collection-group query que descarta explícitamente los documentos sin un `Usuario` padre real, para no confundir ambos orígenes.
+- `FirestoreUsuarioRepository.AsignarRolAsync` lee el documento `Rol` dentro de su propia transacción (no solo el chequeo previo de `SecurityAdminService`), de modo que Firestore serialice correctamente una asignación concurrente contra una baja física del mismo rol — nunca queda una asignación huérfana apuntando a un rol ya borrado.
+- **Comando para el Firestore real ya existente** (mismo patrón que `seed-report-actions`, §15): `dotnet run --project HoyDonde.API -- seed-role-deletion-action` crea únicamente la Accion `ROL_ELIMINAR` (idempotente, nunca la asigna a ningún rol, nunca toca roles/usuarios existentes).
 
 ---
 
@@ -530,6 +544,9 @@ Todo error de este API (excepción de dominio tipada, `ModelState` inválido, o 
 | 409 | `IDENTITY_EMAIL_ALREADY_EXISTS` | Email ya usado en el proveedor de identidad |
 | 409 | `ROLE_ALREADY_EXISTS` / `ACTION_ALREADY_EXISTS` | Código de rol/acción duplicado |
 | 409 | `LAST_ADMINISTRATOR` | La operación dejaría el sistema sin Administradores efectivos |
+| 409 | `ROL_PROTEGIDO` | Baja física de uno de los 4 roles esenciales |
+| 409 | `ROL_DEBE_ESTAR_INACTIVO` | Baja física de un rol todavía activo |
+| 409 | `ROL_TIENE_USUARIOS_ASIGNADOS` | Baja física de un rol con al menos una `UsuarioRol` (activa o inactiva) |
 | 500 | `UNEXPECTED_ERROR` | Cualquier excepción no anticipada |
 
 `403 Forbidden` "puro" (sin body de `ErrorResponse`, generado directamente por el middleware de autorización de ASP.NET) ocurre cuando el actor está autenticado pero la policy nunca llega a `Succeed` — por ejemplo, un `Usuario` desactivado, o uno sin la acción concedida. `401 Unauthorized` ocurre cuando no hay identidad autenticada en absoluto (sin header `Authorization`, o token inválido/expirado).
@@ -563,6 +580,9 @@ dotnet run --project HoyDonde.API
 
 # Bootstrap del primer Administrador (requiere Bootstrap:AllowAdminBootstrap=true)
 dotnet run --project HoyDonde.API -- bootstrap-admin admin@hoydonde.com
+
+# Sembrar únicamente la Accion ROL_ELIMINAR contra un Firestore real ya existente (§10.1)
+dotnet run --project HoyDonde.API -- seed-role-deletion-action
 ```
 
 No se requiere `firebase login` ni credenciales reales para el comando de test: `hoydonde-security-refactor-tests` es un ID de proyecto arbitrario que nunca resuelve contra un proyecto Firebase real, y el Firestore Emulator no valida credenciales.

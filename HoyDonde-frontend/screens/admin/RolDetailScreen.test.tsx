@@ -2,8 +2,10 @@ import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 let mockParams: { codigo?: string } = { codigo: 'ORGANIZADOR' };
+const mockRouterReplace = jest.fn();
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => mockParams,
+  router: { replace: (...args: unknown[]) => mockRouterReplace(...args) },
 }));
 
 let mockHasAccion: (accion: string) => boolean = () => false;
@@ -17,6 +19,7 @@ const mockSetRolActivo = jest.fn();
 const mockListAcciones = jest.fn();
 const mockAsignarAccion = jest.fn();
 const mockQuitarAccion = jest.fn();
+const mockDeleteRol = jest.fn();
 jest.mock('@/services/securityAdminService', () => ({
   securityAdminService: {
     getRol: (...args: unknown[]) => mockGetRol(...args),
@@ -25,6 +28,7 @@ jest.mock('@/services/securityAdminService', () => ({
     listAcciones: (...args: unknown[]) => mockListAcciones(...args),
     asignarAccion: (...args: unknown[]) => mockAsignarAccion(...args),
     quitarAccion: (...args: unknown[]) => mockQuitarAccion(...args),
+    deleteRol: (...args: unknown[]) => mockDeleteRol(...args),
   },
 }));
 
@@ -40,6 +44,17 @@ function rolOrganizador(overrides: Partial<{ activo: boolean; acciones: string[]
     descripcion: 'Crea y gestiona sus propios eventos.',
     activo: true,
     acciones: ['EVENTO_CREAR'],
+    ...overrides,
+  };
+}
+
+function rolPersonalizado(overrides: Partial<{ activo: boolean; acciones: string[] }> = {}) {
+  return {
+    codigo: 'SOPORTE',
+    nombre: 'Soporte',
+    descripcion: 'Atiende reclamos.',
+    activo: false,
+    acciones: [],
     ...overrides,
   };
 }
@@ -91,17 +106,17 @@ describe('RolDetailScreen', () => {
     );
   });
 
-  it('con ROL_ACTIVAR, desactivar pide confirmación', async () => {
+  it('con ROL_ACTIVAR, dar de baja lógica pide confirmación', async () => {
     mockHasAccion = (accion) => accion === 'ROL_ACTIVAR';
     mockGetRol.mockResolvedValueOnce(rolOrganizador());
     mockSetRolActivo.mockResolvedValueOnce(undefined);
     const { findByText, getByText } = render(<RolDetailScreen />);
 
     await findByText('Organizador');
-    fireEvent.press(getByText('Desactivar rol'));
+    fireEvent.press(getByText('Dar de baja lógica'));
     expect(mockSetRolActivo).not.toHaveBeenCalled();
 
-    fireEvent.press(getByText('Desactivar'));
+    fireEvent.press(getByText('Dar de baja'));
     await waitFor(() => expect(mockSetRolActivo).toHaveBeenCalledWith('ORGANIZADOR', false));
     expect(await findByText('INACTIVO')).toBeTruthy();
   });
@@ -115,8 +130,8 @@ describe('RolDetailScreen', () => {
     const { findByText, getByText } = render(<RolDetailScreen />);
 
     await findByText('Organizador');
-    fireEvent.press(getByText('Desactivar rol'));
-    fireEvent.press(getByText('Desactivar'));
+    fireEvent.press(getByText('Dar de baja lógica'));
+    fireEvent.press(getByText('Dar de baja'));
 
     expect(await findByText('No se puede desactivar: el sistema quedaría sin ningún Administrador efectivo.')).toBeTruthy();
   });
@@ -182,5 +197,117 @@ describe('RolDetailScreen', () => {
     const { findByText } = render(<RolDetailScreen />);
 
     expect(await findByText('No se pudo cargar el rol. Verificá tu conexión.')).toBeTruthy();
+  });
+
+  // ---- Baja física (docs/api-mvp-plan.md §12) ----
+
+  describe('baja física', () => {
+    beforeEach(() => {
+      mockRouterReplace.mockClear();
+    });
+
+    it('sin ROL_ELIMINAR no muestra la zona de peligro', async () => {
+      mockHasAccion = () => false;
+      mockGetRol.mockResolvedValueOnce(rolPersonalizado());
+      const { findByText, queryByText, queryAllByText } = render(<RolDetailScreen />);
+
+      await findByText('Soporte');
+      expect(queryByText('Zona de peligro')).toBeNull();
+      expect(queryAllByText('Eliminar definitivamente')).toHaveLength(0);
+    });
+
+    it('con ROL_ELIMINAR, un rol esencial muestra la nota de protegido y nunca el botón de eliminar', async () => {
+      mockParams = { codigo: 'ORGANIZADOR' };
+      mockHasAccion = (accion) => accion === 'ROL_ELIMINAR';
+      mockGetRol.mockResolvedValueOnce(rolOrganizador({ activo: false }));
+      const { findByText, queryAllByText } = render(<RolDetailScreen />);
+
+      await findByText('Organizador');
+      expect(await findByText('Este es un rol esencial del sistema y nunca puede eliminarse físicamente.')).toBeTruthy();
+      expect(queryAllByText('Eliminar definitivamente')).toHaveLength(0);
+    });
+
+    it('con ROL_ELIMINAR, un rol personalizado activo indica que primero hay que darlo de baja lógica', async () => {
+      mockParams = { codigo: 'SOPORTE' };
+      mockHasAccion = (accion) => accion === 'ROL_ELIMINAR';
+      mockGetRol.mockResolvedValueOnce(rolPersonalizado({ activo: true }));
+      const { findByText, queryAllByText } = render(<RolDetailScreen />);
+
+      await findByText('Soporte');
+      expect(await findByText('Para eliminar este rol de forma definitiva, primero dalo de baja lógica.')).toBeTruthy();
+      expect(queryAllByText('Eliminar definitivamente')).toHaveLength(0);
+    });
+
+    it('con ROL_ELIMINAR, un rol personalizado inactivo muestra "Eliminar definitivamente" y pide confirmación', async () => {
+      mockParams = { codigo: 'SOPORTE' };
+      mockHasAccion = (accion) => accion === 'ROL_ELIMINAR';
+      mockGetRol.mockResolvedValueOnce(rolPersonalizado({ activo: false }));
+      mockDeleteRol.mockResolvedValueOnce(undefined);
+      const { findByText, getAllByText } = render(<RolDetailScreen />);
+
+      await findByText('Soporte');
+      // El ConfirmDialog ya está montado en el árbol (oculto vía Modal visible=false), así que
+      // "Eliminar definitivamente" siempre matchea 2 elementos: el botón que abre la
+      // confirmación (el primero) y el botón de confirmar dentro del diálogo (el último).
+      fireEvent.press(getAllByText('Eliminar definitivamente')[0]);
+      expect(mockDeleteRol).not.toHaveBeenCalled();
+
+      const botones = getAllByText('Eliminar definitivamente');
+      fireEvent.press(botones[botones.length - 1]);
+
+      await waitFor(() => expect(mockDeleteRol).toHaveBeenCalledWith('SOPORTE'));
+      await waitFor(() => expect(mockRouterReplace).toHaveBeenCalledWith('/admin/roles'));
+    });
+
+    it('impide un doble envío mientras la eliminación está en curso', async () => {
+      mockParams = { codigo: 'SOPORTE' };
+      mockHasAccion = (accion) => accion === 'ROL_ELIMINAR';
+      mockGetRol.mockResolvedValueOnce(rolPersonalizado({ activo: false }));
+      let resolveDelete: (() => void) | undefined;
+      mockDeleteRol.mockReturnValueOnce(new Promise<void>((resolve) => { resolveDelete = resolve; }));
+      const { findByText, getAllByText } = render(<RolDetailScreen />);
+
+      await findByText('Soporte');
+      fireEvent.press(getAllByText('Eliminar definitivamente')[0]);
+      const confirmar = getAllByText('Eliminar definitivamente').slice(-1)[0];
+      fireEvent.press(confirmar);
+      fireEvent.press(confirmar);
+
+      await waitFor(() => expect(mockDeleteRol).toHaveBeenCalledTimes(1));
+      resolveDelete?.();
+    });
+
+    it('mapea ROL_TIENE_USUARIOS_ASIGNADOS a un mensaje claro', async () => {
+      mockParams = { codigo: 'SOPORTE' };
+      mockHasAccion = (accion) => accion === 'ROL_ELIMINAR';
+      mockGetRol.mockResolvedValueOnce(rolPersonalizado({ activo: false }));
+      mockDeleteRol.mockRejectedValueOnce(
+        new ApiError({ code: 'ROL_TIENE_USUARIOS_ASIGNADOS', message: 'tiene usuarios', traceId: 't' }, 409)
+      );
+      const { findByText, getAllByText } = render(<RolDetailScreen />);
+
+      await findByText('Soporte');
+      fireEvent.press(getAllByText('Eliminar definitivamente')[0]);
+      fireEvent.press(getAllByText('Eliminar definitivamente').slice(-1)[0]);
+
+      expect(await findByText('El rol tiene usuarios asignados y no puede eliminarse.')).toBeTruthy();
+      expect(mockRouterReplace).not.toHaveBeenCalled();
+    });
+
+    it('mapea ROLE_NOT_FOUND (404) a un mensaje claro', async () => {
+      mockParams = { codigo: 'SOPORTE' };
+      mockHasAccion = (accion) => accion === 'ROL_ELIMINAR';
+      mockGetRol.mockResolvedValueOnce(rolPersonalizado({ activo: false }));
+      mockDeleteRol.mockRejectedValueOnce(
+        new ApiError({ code: 'ROLE_NOT_FOUND', message: 'no existe', traceId: 't' }, 404)
+      );
+      const { findByText, getAllByText } = render(<RolDetailScreen />);
+
+      await findByText('Soporte');
+      fireEvent.press(getAllByText('Eliminar definitivamente')[0]);
+      fireEvent.press(getAllByText('Eliminar definitivamente').slice(-1)[0]);
+
+      expect(await findByText('Este rol ya no existe.')).toBeTruthy();
+    });
   });
 });

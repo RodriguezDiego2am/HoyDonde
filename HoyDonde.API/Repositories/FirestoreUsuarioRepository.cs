@@ -13,6 +13,7 @@ namespace HoyDonde.API.Repositories
         private const string PersonasCollection = "personas";
         private const string UsuariosCollection = "usuarios";
         private const string RolesSubcollectionName = "roles";
+        private const string RolesCollection = "roles";
         private const string IdentidadesExternasCollection = "identidades_externas";
 
         public FirestoreUsuarioRepository(FirestoreDb firestore)
@@ -181,11 +182,23 @@ namespace HoyDonde.API.Repositories
         {
             var usuarioRef = _firestore.Collection(UsuariosCollection).Document(usuarioId);
             var usuarioRolRef = usuarioRef.Collection(RolesSubcollectionName).Document(rolCodigo);
+            var rolRef = _firestore.Collection(RolesCollection).Document(rolCodigo);
 
             return _firestore.RunTransactionAsync(async transaction =>
             {
                 var usuarioSnapshot = await transaction.GetSnapshotAsync(usuarioRef);
                 if (!usuarioSnapshot.Exists) throw new UsuarioNoEncontradoException(usuarioId);
+
+                // Lectura transaccional del Rol (docs/api-mvp-plan.md §12): SecurityAdminService
+                // ya valida la existencia del Rol ANTES de llamar acá, pero esa lectura previa no
+                // es transaccional -no alcanza para serializar correctamente contra una baja
+                // física concurrente (FirestoreRolRepository.EliminarAsync) que borre el Rol entre
+                // esa validación previa y este commit-. Leerlo DENTRO de esta misma transacción
+                // hace que Firestore detecte el conflicto real (ambas transacciones tocan el
+                // mismo documento Rol) y reintente/aborte según corresponda, en vez de dejar una
+                // asignación huérfana apuntando a un Rol ya borrado.
+                var rolSnapshot = await transaction.GetSnapshotAsync(rolRef);
+                if (!rolSnapshot.Exists) throw new RolNoEncontradoException(rolCodigo);
 
                 var usuarioRolSnapshot = await transaction.GetSnapshotAsync(usuarioRolRef);
 

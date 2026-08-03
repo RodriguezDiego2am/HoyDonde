@@ -79,6 +79,17 @@ namespace HoyDonde.API.Controllers
             return Ok(roles);
         }
 
+        [HttpDelete("roles/{codigo}")]
+        [Authorize(Policy = Acciones.RolEliminar)]
+        public async Task<IActionResult> EliminarRol(string codigo)
+        {
+            var actor = GetActorExternalSubjectId();
+            if (string.IsNullOrEmpty(actor)) return Unauthorized();
+
+            await _service.EliminarRolAsync(actor, codigo);
+            return Ok(new { message = "Rol eliminado." });
+        }
+
         [HttpGet("roles/{codigo}")]
         [Authorize(Policy = Acciones.RolEditar)]
         public async Task<IActionResult> ObtenerRol(string codigo)

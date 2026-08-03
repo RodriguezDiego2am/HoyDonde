@@ -132,5 +132,34 @@ namespace HoyDonde.API.Tests
 
             Assert.Equal("USUARIO_DESACTIVAR", auditCapturado!.Operacion);
         }
+
+        // ---- Baja física de un Rol (docs/api-mvp-plan.md §12) ----
+
+        [Fact]
+        public async Task EliminarRolAsync_AuditaComoRolEliminar_AndDelegatesToRepository()
+        {
+            var (service, rolRepository, _, _, _) = CreateSut();
+            SecurityAudit? auditCapturado = null;
+            rolRepository.Setup(r => r.EliminarAsync("SOPORTE", It.IsAny<SecurityAudit>()))
+                .Callback<string, SecurityAudit>((_, audit) => auditCapturado = audit)
+                .Returns(Task.CompletedTask);
+
+            await service.EliminarRolAsync(ActorUid, "SOPORTE");
+
+            Assert.Equal("ROL_ELIMINAR", auditCapturado!.Operacion);
+            Assert.Equal("Rol", auditCapturado.TargetTipo);
+            Assert.Equal("SOPORTE", auditCapturado.TargetId);
+            rolRepository.Verify(r => r.EliminarAsync("SOPORTE", It.IsAny<SecurityAudit>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task EliminarRolAsync_PropagaExcepcionDelRepositorio()
+        {
+            var (service, rolRepository, _, _, _) = CreateSut();
+            rolRepository.Setup(r => r.EliminarAsync("ORGANIZADOR", It.IsAny<SecurityAudit>()))
+                .ThrowsAsync(new RolProtegidoException("ORGANIZADOR"));
+
+            await Assert.ThrowsAsync<RolProtegidoException>(() => service.EliminarRolAsync(ActorUid, "ORGANIZADOR"));
+        }
     }
 }

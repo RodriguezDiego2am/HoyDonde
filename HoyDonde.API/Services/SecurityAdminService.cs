@@ -71,6 +71,14 @@ namespace HoyDonde.API.Services
             await _rolRepository.SetActivoAsync(codigo, activo, audit);
         }
 
+        public async Task EliminarRolAsync(string actorExternalSubjectId, string codigo)
+        {
+            var actor = await ResolveActorAsync(actorExternalSubjectId);
+            var audit = NuevoAudit(actor, "ROL_ELIMINAR", "Rol", codigo, $"codigo={codigo}");
+
+            await _rolRepository.EliminarAsync(codigo, audit);
+        }
+
         public async Task<IReadOnlyList<RolResponseDto>> ListarRolesAsync()
         {
             var roles = await _rolRepository.GetAllAsync();

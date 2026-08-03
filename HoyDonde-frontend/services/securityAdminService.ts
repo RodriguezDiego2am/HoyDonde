@@ -79,6 +79,11 @@ export const securityAdminService = {
     await apiClient.post(`/security/roles/${codigo}/${activo ? 'activar' : 'desactivar'}`);
   },
 
+  /** DELETE /api/security/roles/{codigo} — Policy ROL_ELIMINAR. Baja física: solo un rol personalizado, inactivo, sin usuarios asignados. */
+  deleteRol: async (codigo: string): Promise<void> => {
+    await apiClient.delete(`/security/roles/${codigo}`);
+  },
+
   /** GET /api/security/acciones — Policy ROL_ASIGNAR_ACCION. Catálogo completo, siempre las mismas 20. */
   listAcciones: async (): Promise<AccionResponse[]> => {
     const response = await apiClient.get<AccionResponse[]>('/security/acciones');

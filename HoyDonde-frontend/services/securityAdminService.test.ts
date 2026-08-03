@@ -55,6 +55,12 @@ describe('securityAdminService', () => {
     expect(postSpy).toHaveBeenCalledWith('/security/roles/SOPORTE/desactivar');
   });
 
+  it('deleteRol llama a DELETE /security/roles/{codigo}', async () => {
+    const deleteSpy = jest.spyOn(apiClient, 'delete').mockResolvedValue({ data: {} } as any);
+    await securityAdminService.deleteRol('SOPORTE');
+    expect(deleteSpy).toHaveBeenCalledWith('/security/roles/SOPORTE');
+  });
+
   it('listAcciones llama a GET /security/acciones', async () => {
     const getSpy = jest.spyOn(apiClient, 'get').mockResolvedValue({ data: [] } as any);
     await securityAdminService.listAcciones();

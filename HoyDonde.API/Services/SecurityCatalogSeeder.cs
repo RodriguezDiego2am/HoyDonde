@@ -47,6 +47,7 @@ namespace HoyDonde.API.Services
             (Acciones.RolActivar, "Activar o desactivar un rol."),
             (Acciones.RolAsignarAccion, "Asignar una acción a un rol."),
             (Acciones.RolQuitarAccion, "Quitar una acción de un rol."),
+            (Acciones.RolEliminar, "Eliminar físicamente un rol personalizado inactivo sin usuarios asignados."),
             (Acciones.UsuarioAsignarRol, "Asignar un rol a un usuario."),
             (Acciones.UsuarioQuitarRol, "Quitar un rol de un usuario."),
             (Acciones.UsuarioVerPermisosEfectivos, "Consultar los permisos efectivos de un usuario."),
@@ -61,7 +62,7 @@ namespace HoyDonde.API.Services
             ["ADMINISTRADOR"] = new[]
             {
                 Acciones.UsuarioCrearAdmin, Acciones.UsuarioCrearOrganizador,
-                Acciones.RolCrear, Acciones.RolEditar, Acciones.RolActivar, Acciones.RolAsignarAccion, Acciones.RolQuitarAccion,
+                Acciones.RolCrear, Acciones.RolEditar, Acciones.RolActivar, Acciones.RolAsignarAccion, Acciones.RolQuitarAccion, Acciones.RolEliminar,
                 Acciones.UsuarioAsignarRol, Acciones.UsuarioQuitarRol, Acciones.UsuarioVerPermisosEfectivos, Acciones.UsuarioDesactivar,
                 Acciones.ReporteVerGlobal,
             },

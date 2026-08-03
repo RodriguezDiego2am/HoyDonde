@@ -15,6 +15,13 @@ namespace HoyDonde.API.Repositories
         private const string CollectionName = "roles";
         private const string AccionesSubcollectionName = "acciones";
         private const string AccionesCollectionName = "acciones";
+        private const string UsuariosCollectionName = "usuarios";
+        // OJO: la subcolección usuarios/{UsuarioId}/roles (UsuarioRol, Etapa 2) comparte el mismo
+        // nombre de colección ("roles") que CollectionName de acá arriba (catálogo de Rol,
+        // Etapa 1). Una CollectionGroup("roles") devuelve documentos de ambos orígenes -ver
+        // EliminarAsync más abajo, mismo criterio de descarte que
+        // FirestoreUsuarioRepository.GetUsuarioIdsConRolActivoAsync/UltimoAdministradorGuard-.
+        private const string UsuarioRolesSubcollectionName = "roles";
 
         public FirestoreRolRepository(FirestoreDb firestore)
         {
@@ -191,6 +198,45 @@ namespace HoyDonde.API.Repositories
                 }
 
                 transaction.Delete(asignacionRef);
+                SecurityAuditWriter.Write(_firestore, transaction, auditEntry);
+            });
+        }
+
+        public Task EliminarAsync(string codigo, SecurityAudit auditEntry)
+        {
+            var rolRef = _firestore.Collection(CollectionName).Document(codigo);
+            var accionesRef = rolRef.Collection(AccionesSubcollectionName);
+
+            return _firestore.RunTransactionAsync(async transaction =>
+            {
+                var rolSnapshot = await transaction.GetSnapshotAsync(rolRef);
+                if (!rolSnapshot.Exists) throw new RolNoEncontradoException(codigo);
+
+                if (RolesEsenciales.EsEsencial(codigo)) throw new RolProtegidoException(codigo);
+
+                if (rolSnapshot.ConvertTo<Rol>().Activo) throw new RolDebeEstarInactivoException(codigo);
+
+                // Sin filtro de Activo -a diferencia de GetUsuarioIdsConRolActivoAsync/
+                // UltimoAdministradorGuard-: una asignación UsuarioRol INACTIVA también debe
+                // bloquear la baja física (condición #4 de docs/api-mvp-plan.md §12), no solo una
+                // activa. Este mismo read, hecho DENTRO de la transacción, es lo que le permite a
+                // Firestore detectar y reintentar/abortar si una asignación nueva aparece
+                // concurrentemente antes del commit.
+                var asignacionesQuery = _firestore.CollectionGroup(UsuarioRolesSubcollectionName);
+                var asignacionesSnapshot = await transaction.GetSnapshotAsync(asignacionesQuery);
+                var tieneAsignacion = asignacionesSnapshot.Documents
+                    .Where(d => d.Id == codigo)
+                    .Select(d => d.Reference.Parent.Parent)
+                    .Any(usuarioRef => usuarioRef != null && usuarioRef.Parent.Id == UsuariosCollectionName);
+                if (tieneAsignacion) throw new RolTieneUsuariosAsignadosException(codigo);
+
+                var accionesSnapshot = await transaction.GetSnapshotAsync(accionesRef);
+                foreach (var accionDoc in accionesSnapshot.Documents)
+                {
+                    transaction.Delete(accionDoc.Reference);
+                }
+
+                transaction.Delete(rolRef);
                 SecurityAuditWriter.Write(_firestore, transaction, auditEntry);
             });
         }

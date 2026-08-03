@@ -4,9 +4,10 @@ namespace HoyDonde.API.Authorization
 {
     // Códigos de Accion centralizados (docs/security-refactor-plan.md §3/§7, Etapa 5): única
     // fuente de verdad para policies, atributos [Authorize(Policy=...)] y el catálogo sembrado
-    // por SecurityCatalogSeeder. El catálogo tiene exactamente 22 acciones (docs/api-mvp-plan.md
-    // §11: REPORTE_VER_GLOBAL/REPORTE_VER_PROPIO agregadas para el módulo de reportes); no
-    // agregar códigos nuevos acá sin agregarlos también al seeder (y viceversa).
+    // por SecurityCatalogSeeder. El catálogo tiene exactamente 23 acciones (docs/api-mvp-plan.md
+    // §11: REPORTE_VER_GLOBAL/REPORTE_VER_PROPIO del módulo de reportes; §12: ROL_ELIMINAR de la
+    // baja física de roles); no agregar códigos nuevos acá sin agregarlos también al seeder (y
+    // viceversa).
     public static class Acciones
     {
         public const string UsuarioCrearAdmin = "USUARIO_CREAR_ADMIN";
@@ -25,6 +26,7 @@ namespace HoyDonde.API.Authorization
         public const string RolActivar = "ROL_ACTIVAR";
         public const string RolAsignarAccion = "ROL_ASIGNAR_ACCION";
         public const string RolQuitarAccion = "ROL_QUITAR_ACCION";
+        public const string RolEliminar = "ROL_ELIMINAR";
         public const string UsuarioAsignarRol = "USUARIO_ASIGNAR_ROL";
         public const string UsuarioQuitarRol = "USUARIO_QUITAR_ROL";
         public const string UsuarioVerPermisosEfectivos = "USUARIO_VER_PERMISOS_EFECTIVOS";
@@ -37,7 +39,7 @@ namespace HoyDonde.API.Authorization
             UsuarioCrearAdmin, UsuarioCrearOrganizador, ControlCrear,
             EventoCrear, EventoEditarPropio, EventoPublicarPropio, EventoCancelarPropio, EventoVerPropios,
             TicketComprar, TicketVerPropio, TicketValidar,
-            RolCrear, RolEditar, RolActivar, RolAsignarAccion, RolQuitarAccion,
+            RolCrear, RolEditar, RolActivar, RolAsignarAccion, RolQuitarAccion, RolEliminar,
             UsuarioAsignarRol, UsuarioQuitarRol, UsuarioVerPermisosEfectivos, UsuarioDesactivar,
             ReporteVerGlobal, ReporteVerPropio,
         };

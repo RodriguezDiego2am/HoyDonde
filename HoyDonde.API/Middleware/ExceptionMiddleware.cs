@@ -64,6 +64,9 @@ namespace HoyDonde.API.Middleware
                 [typeof(RolYaExisteException)] = (HttpStatusCode.Conflict, "ROLE_ALREADY_EXISTS", ex => ex.Message),
                 [typeof(AccionYaExisteException)] = (HttpStatusCode.Conflict, "ACTION_ALREADY_EXISTS", ex => ex.Message),
                 [typeof(UltimoAdministradorException)] = (HttpStatusCode.Conflict, "LAST_ADMINISTRATOR", ex => ex.Message),
+                [typeof(RolProtegidoException)] = (HttpStatusCode.Conflict, "ROL_PROTEGIDO", ex => ex.Message),
+                [typeof(RolDebeEstarInactivoException)] = (HttpStatusCode.Conflict, "ROL_DEBE_ESTAR_INACTIVO", ex => ex.Message),
+                [typeof(RolTieneUsuariosAsignadosException)] = (HttpStatusCode.Conflict, "ROL_TIENE_USUARIOS_ASIGNADOS", ex => ex.Message),
             };
 
         public ExceptionMiddleware(

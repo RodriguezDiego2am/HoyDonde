@@ -17,6 +17,10 @@ namespace HoyDonde.API.Services
 
         Task<IReadOnlyList<RolResponseDto>> ListarRolesAsync();
 
+        // Baja física (docs/api-mvp-plan.md §12), policy ROL_ELIMINAR. Ver
+        // IRolRepository.EliminarAsync para las condiciones exactas y las excepciones tipadas.
+        Task EliminarRolAsync(string actorExternalSubjectId, string codigo);
+
         Task<RolResponseDto> ObtenerRolAsync(string codigo);
 
         Task<IReadOnlyList<AccionResponseDto>> ListarAccionesAsync();

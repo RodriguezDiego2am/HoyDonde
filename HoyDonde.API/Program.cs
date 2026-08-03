@@ -219,6 +219,10 @@ builder.Services.AddScoped<ISecurityAdminService, SecurityAdminService>();
 builder.Services.AddScoped<IReporteService, ReporteService>();
 builder.Services.AddScoped<SeedReportActionsCommand>();
 
+// Baja física de roles (docs/api-mvp-plan.md §12): comando dedicado que crea únicamente la
+// Accion ROL_ELIMINAR contra un Firestore real ya existente.
+builder.Services.AddScoped<SeedRoleDeletionActionCommand>();
+
 // Reporte Admin de eventos globales y auditoría de seguridad (docs/api-mvp-plan.md §11.3, pasos
 // 3-4): reutilizan ReporteFiltroValidator/ReporteMetricasCalculator (eventos) y agregan la lectura
 // de solo lectura de security_audits.
@@ -254,6 +258,21 @@ if (args.Length > 0 && string.Equals(args[0], "seed-report-actions", StringCompa
     using (var scope = app.Services.CreateScope())
     {
         var command = scope.ServiceProvider.GetRequiredService<SeedReportActionsCommand>();
+        Environment.ExitCode = await command.RunAsync();
+    }
+    Log.CloseAndFlush();
+    return;
+}
+
+// Comando dedicado de la baja física de roles (docs/api-mvp-plan.md §12):
+// "dotnet run --project HoyDonde.API -- seed-role-deletion-action". Igual criterio que
+// seed-report-actions: no es un endpoint HTTP, no levanta el servidor. Crea únicamente la
+// Accion ROL_ELIMINAR; nunca crea/edita roles ni asigna acciones a roles.
+if (args.Length > 0 && string.Equals(args[0], "seed-role-deletion-action", StringComparison.OrdinalIgnoreCase))
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var command = scope.ServiceProvider.GetRequiredService<SeedRoleDeletionActionCommand>();
         Environment.ExitCode = await command.RunAsync();
     }
     Log.CloseAndFlush();

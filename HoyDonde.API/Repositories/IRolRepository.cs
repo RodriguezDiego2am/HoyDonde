@@ -46,5 +46,14 @@ namespace HoyDonde.API.Repositories
         // RolNoEncontradoException si el rol no existe, o AccionNoEncontradaException si la
         // Accion no existe en el catálogo (distinto de "existe pero no asignada").
         Task QuitarAccionAsync(string rolCodigo, string accionCodigo, SecurityAudit auditEntry);
+
+        // Baja física (docs/api-mvp-plan.md §12): borra el documento Rol y todas sus
+        // RolAccionAsignacion (subcolección roles/{codigo}/acciones), nunca la Accion del
+        // catálogo ni ningún Usuario. Todo en una única transacción Firestore. Falla, sin
+        // escribir nada, con: RolNoEncontradoException (el rol no existe), RolProtegidoException
+        // (es uno de los 4 roles esenciales), RolDebeEstarInactivoException (Activo == true), o
+        // RolTieneUsuariosAsignadosException (existe al menos una UsuarioRol para este código,
+        // activa o inactiva).
+        Task EliminarAsync(string codigo, SecurityAudit auditEntry);
     }
 }
