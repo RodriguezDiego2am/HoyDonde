@@ -418,3 +418,107 @@ No toda entidad necesita las dos formas de baja: la decisión es caso por caso, 
 - **`ControlAsignacion` u otras asociaciones:** una eventual baja física transaccional con su propio registro de auditoría queda para analizar más adelante.
 
 Cualquier baja física que se implemente en el futuro necesita, como mínimo: confirmación reforzada, verificación de referencias antes de borrar, autorización explícita, registro de auditoría y tests dedicados — nunca un botón "Eliminar" simple. La pasarela de pago real y el `CodigoValidacion` corto (§7, Frontend 3) siguen igual de pendientes que antes de esta nota.
+
+---
+
+## 11. Módulo de reportes — diseño técnico (auditoría de solo lectura, no implementado)
+
+Verificado contra el código real (Event/Ticket/TicketType/SecurityAudit/Usuario/Persona/Rol/Accion, servicios, repositorios, `firestore.indexes.json`, `Acciones.cs`, `SecurityCatalogSeeder`, `Program.cs`) al cierre de Frontend 5 (filtros de Cartelera). Nada de esta sección está implementado.
+
+### 11.1 Alcance cerrado
+
+Tres reportes JSON, los tres aprobados para diseño (nunca PDF desde el backend):
+
+- **A. Administrador — actividad global de eventos.** Filtros: `fechaDesde`/`fechaHasta` (sobre `Event.FechaInicio`), `estado`, `categoria`, `organizadorPersonaId` (opcional, arbitrario — solo admin).
+- **B. Organizador — rendimiento propio.** Mismos filtros de fecha/estado/categoria, más `eventId` opcional (ownership verificado server-side) y `ticketTypeId` opcional (requiere `eventId`, acota desglose y métricas a ese tipo). El organizador nunca se acepta del cliente: sale siempre de `IAuthenticatedPersonaResolver`.
+- **C. Administrador — auditoría de seguridad. Aprobado para el primer corte** con filtros por fecha, operación, actor (`actorUsuarioId`) y objetivo (`targetTipo` ∈ `Rol`/`Usuario`/`RolAccion`). El filtro específico "por Acción" queda **postergado** (§11.8) y `SecurityAudit` **no se amplía ahora**. Los datos históricos nunca se completan ni se inventan retroactivamente para calzar con un filtro que no existía cuando se escribieron.
+
+Rango UTC: Desde inclusiva, Hasta exclusiva. El frontend resuelve día local → UTC (mismo patrón que Cartelera, `utils/datetime.ts`). **A/B:** rango obligatorio, sin default, máximo **366 días** (`ReporteRangoInvalidoException` → 400) — agregan sobre todos los tickets de los eventos en rango, costo real de lectura. **C:** rango opcional con **default 30 días** y **máximo 366 días** — aunque el volumen esperado de `security_audits` es bajo, igual se fija un máximo para no dejar sin cota una lectura si se pasa un rango explícito enorme.
+
+Ningún reporte usa "recaudación" ni "cobrado": el MVP no procesa pagos reales (§10). El monto de A/B se llama **"importe emitido"**, con aclaración textual explícita en la respuesta y en el PDF.
+
+### 11.2 Viabilidad de métricas (A y B)
+
+| Métrica | Fuente | Fórmula | Viable | Nota |
+|---|---|---|---|---|
+| Cantidad de eventos | `Event` en rango/filtros | `COUNT(Event)` | Sí | Rango sobre `FechaInicio`, igual campo que Cartelera. |
+| Entradas emitidas | `Ticket.EventoId` | `COUNT(Ticket)` por evento | Sí | Cada `Ticket` existe únicamente si se emitió; no hay estado "reservado". |
+| Entradas usadas | `Ticket.Estado` | `COUNT(Estado==Usado)` | Sí | Persistido, nunca reescrito por cancelación (§Tickets). |
+| Entradas anuladas | `Ticket.Estado` | `COUNT(Estado==Anulado)` | Parcial | `Anulado` es un valor de enum sin ningún flujo real que lo escriba hoy (verificado: ningún servicio/endpoint transiciona un ticket a `Anulado`). El reporte debe mostrar el conteo real (hoy siempre 0) y no debe inventar una funcionalidad de anulación que no existe. |
+| Entradas pendientes (no usadas, no anuladas) | `Ticket.Estado` | `COUNT(Estado==Emitido)` | Sí | Distinta de "anuladas": no mezclar ambas en una sola cifra (pedido §3/§4). |
+| Stock disponible | `TicketType.CantidadDisponible` | `SUM` por evento/tipo | Sí, con matiz | Es stock **restante**, no capacidad inicial: solo decrece en `BuyTicketsAsync`, nunca se repone (no hay flujo de reposición ni de anulación-repone-stock). |
+| Capacidad inicial | `Event.CapacidadMaxima` | Snapshot tomado en `CreateEventAsync`/`UpdateEventAsync` | Sí, a nivel evento | Es la única fuente confiable: se fija una sola vez y `UpdateEventAsync` solo corre en `Borrador` (antes de cualquier venta), así que nunca queda desincronizada. No existe un campo equivalente por `TicketType`; reconstruirla por tipo como `CantidadDisponible actual + COUNT(Ticket de ese TicketTypeId)` es matemáticamente correcto bajo el código actual (sin reposición), pero es una **derivación**, no un dato guardado — debe documentarse como tal, no como hecho persistido. |
+| % Ocupación (venta) | `Emitidas / CapacidadMaxima` | — | Sí | Cuánto del inventario se vendió. |
+| % Asistencia | `Usadas / Emitidas` | — | Sí | Cuánto de lo vendido efectivamente ingresó. Solo tiene sentido pleno tras `FechaFin`; se muestra igual para eventos en curso, aclarando que es parcial. |
+| % Utilización | `Usadas / CapacidadMaxima` | — | Sí, complementaria | Combina venta + asistencia; se ofrece como dato adicional, nunca sustituye a los dos anteriores (pedido §4: no mezclar semánticas). |
+| Importe emitido | `SUM(Ticket.PrecioPagado)` | — | Sí, con aclaración | `PrecioPagado` es fotografía inmutable tomada en la compra (nunca se recalcula); sumarlo es válido para "cuánto se emitió", nunca para "cuánto se cobró". |
+
+Eventos cancelados/finalizados: sus tickets **no** se reescriben (§Tickets), así que el reporte usa siempre `Ticket.Estado` histórico, nunca `Utilizable`/`MotivoNoUtilizable` (esos son derivados para la UX del Cliente, no para auditoría). La fotografía de cada `Ticket` (`FechaInicio`/`FechaFin`/nombre/precio) nunca puede divergir del `Event` referenciado, porque `UpdateEventAsync` solo corre en `Borrador` y ningún ticket existe antes de `Publicado`; no hay caso real de "ticket histórico cuyo evento cambió sus fechas".
+
+Cuando el reporte B recibe `ticketTypeId`, toda la tabla anterior se recalcula únicamente sobre tickets de ese tipo dentro del evento indicado: stock disponible, capacidad inicial derivada, ocupación, asistencia e importe emitido quedan acotados a ese tipo, y el desglose "por tipo de entrada" colapsa a una sola fila (la seleccionada) en vez de listar todos los tipos del evento.
+
+### 11.3 Endpoints propuestos
+
+- `GET /api/reports/admin/events` — policy `REPORTE_VER_GLOBAL`. Query: `fechaDesde`, `fechaHasta` (obligatorios), `estado?` (`Borrador`/`Publicado`/`Cancelado`; `Finalizado` se filtra sobre el estado efectivo, no el persistido), `categoria?`, `organizadorPersonaId?`. 400 `REPORT_RANGE_INVALID` si falta el rango o excede 366 días. Respuesta: resumen agregado + detalle por evento (y por tipo de entrada dentro de cada evento). Sin paginación: conjunto acotado por el rango. **Sin `eventId`:** este reporte es de actividad agregada por filtros, no de drill-down a un evento puntual — ese drill-down ya se logra combinando `organizadorPersonaId` con un rango de fecha ajustado a ese evento, sin sumar un parámetro nuevo ni una rama de código que salte toda la estrategia de rango/índice de §11.4.
+- `GET /api/reports/organizer/events` — policy `REPORTE_VER_PROPIO`. Mismos query params de fecha/estado/categoria **sin** `organizadorPersonaId` (nunca aceptado del cliente; ownership vía `IAuthenticatedPersonaResolver`, igual que `GetByOrganizerIdAsync`), más `eventId?` (si no pertenece al organizador autenticado: `EventOwnershipException` → 403 `EVENT_OWNERSHIP`; si no existe: `EventNotFoundException` → 404, mismos códigos que `EventService`) y `ticketTypeId?` (solo válido junto con `eventId`; sin `eventId` es 400 `REPORT_VALIDATION_ERROR`; si no pertenece al evento, 404). Mismo DTO de respuesta que A, sin el campo `OrganizadorPersonaId` por evento (es siempre el propio).
+- `GET /api/reports/admin/security-audits` — policy `REPORTE_VER_GLOBAL`. Query: `fechaDesde?`/`fechaHasta?` (default últimos 30 días si se omiten, máximo 366 días si se informan), `operacion?`, `actorUsuarioId?`, `targetTipo?` (`Rol`/`Usuario`/`RolAccion` — sin `Accion` independiente, §11.8), `targetId?` (match exacto, no substring). Respuesta: lista con `Timestamp`, `Operacion`, `ActorUsuarioId`, `ActorEmail` (resuelto en batch desde `Usuario`, nunca UID/`ExternalSubjectId`), `TargetTipo`, `TargetId`, `Detalle`.
+
+DTOs nuevos mínimos (`ReporteEventosResponseDto`, `ReporteEventoDetalleDto`, `ReporteTicketTypeDetalleDto`, `SecurityAuditReporteDto`): nunca exponen modelos Firestore, UID, `ExternalSubjectId`, ni `PrecioPagado`/estado renombrados como "recaudación".
+
+### 11.4 Consultas Firestore e índices
+
+**Eventos — estrategia corregida.** La consulta de catálogo (`SearchEventsAsync`) fija `Estado==Publicado && FechaFin>=now`; el reporte necesita eventos en *cualquier* estado, así que es una consulta distinta, no una reutilización.
+
+- **Admin sin `organizadorPersonaId`:** query server-side solo por rango de `FechaInicio` (Desde inclusiva, Hasta exclusiva), `orderBy(FechaInicio, id)` — índice automático de campo simple, sin índice compuesto. `Estado`/`Categoria` se filtran en memoria sobre ese conjunto ya acotado por fecha.
+- **Admin con `organizadorPersonaId`:** se agrega `WhereEqualTo(OrganizadorPersonaId, valor)` a la misma query (equality + rango) — usa el índice compuesto declarado abajo. `Estado`/`Categoria` siguen en memoria.
+- **Organizador:** `WhereEqualTo(OrganizadorPersonaId, personaIdResuelto)` es **siempre** parte de la query Firestore, nunca solo un filtro aplicado en memoria después de leer — el ownership queda acotado por la propia consulta, no depende únicamente de que el código de la app filtre bien después. Misma forma de query e índice que el caso anterior. `Estado`/`Categoria` en memoria.
+- **Si `eventId` viene informado (solo B):** se salta la query por rango — lectura directa de `events/{eventId}`, se verifica `OrganizadorPersonaId` contra el actor resuelto (403/404 igual que `EventService.GetOwnedEventOrThrowAsync`) y se sigue directo a tickets. No usa ni necesita el índice compuesto.
+
+**Índice compuesto nuevo propuesto (uno solo):**
+
+```text
+events: OrganizadorPersonaId ASC, FechaInicio ASC
+```
+
+Cubre tanto "Admin con organizador" como "Organizador": ambas son la misma forma de query (una equality + un rango, mismo `orderBy`). "Admin sin organizador" no lo necesita — un solo campo en rango ya cubierto por el índice automático de campo simple. **Se corrige la afirmación anterior de "cero índices nuevos": es un índice nuevo, no cero.**
+
+**Tickets.** Con los `EventId` resultantes, `WhereIn("EventoId", chunk)` en lotes de ≤30 (límite real de Firestore) — round-trips = `ceil(cantidadEventos / 30)`, no uno por evento (mismo patrón que `GetEventosByIdsAsync`/`GetByPersonaIdsAsync`, ya usado en el código). Si además viene `ticketTypeId` junto con `eventId` (B), se agrega `WhereEqualTo(TicketTypeId, valor)` a la query de tickets de ese evento — equality-only sobre dos campos, sin índice nuevo (Firestore no requiere índice compuesto para queries de solo igualdad). `Estado` se sigue agregando en memoria sobre el lote ya acotado.
+
+**Auditoría (C).** Sin cambios respecto al índice: `security_audits` no tiene ningún índice compuesto declarado hoy ni lo necesita. Rango obligatorio-con-default sobre `Timestamp` (índice automático de campo simple, orden por `Timestamp`+id) y `Operacion`/`ActorUsuarioId`/`TargetTipo`/`TargetId` como filtro en memoria — volumen esperado bajo (solo mutaciones administrativas), consistente con "conjunto acotado del período" en vez de paginación con cursor sobre esos filtros.
+
+**Lecturas estimadas:** 1 query de eventos (o 1 lectura directa si viene `eventId`) + `ceil(N_eventos/30)` queries de tickets + resolución batch de `Usuario` para C (por `GetAllSnapshotsAsync` sobre IDs de actor distintos, mismo patrón que `GetEventosByIdsAsync`). Sin N+1 en ningún caso. Consistencia: lecturas no transaccionales (reportes, no invariantes de negocio) — una venta concurrente durante la generación puede quedar fuera o dentro según el momento exacto del snapshot; aceptable para un reporte, no para el flujo transaccional de compra/validación.
+
+### 11.5 Acciones y seed — decisión final
+
+`Acciones.cs`/`Program.cs` ya registran una policy por cada entrada de `Acciones.Todas` (`foreach (var accion in Acciones.Todas) options.AddPolicy(...)`), así que agregar `REPORTE_VER_GLOBAL`/`REPORTE_VER_PROPIO` a esa lista alcanza para las policies — sin tocar `Program.cs`. `Acciones.Todas` pasa de 20 a 22; ningún test hoy afirma el número 20 (se revisó `SecurityCatalogSeederTests`, `SecurityAdminControllerTests`; el "20" solo aparece en comentarios/documentación, que hay que actualizar: `Acciones.cs`, `API_Documentation.md`, `CLAUDE.md`).
+
+**Hallazgo que condiciona el seed:** `SecurityCatalogSeeder.SeedAsync()` no corre en cada arranque de la API — solo se invoca desde `bootstrap-admin` (`Commands/BootstrapAdminCommand.cs`), que se niega a ejecutarse si ya existe un Administrador efectivo, y desde tests. Contra el Firestore real (`hoydonde-f5a05`) ya hay un Administrador, así que `SeedAsync()` **no volverá a correr nunca** en producción. Además, el loop de asignación Rol→Acción del seeder usa `IRolRepository.AssignAccionAsync` (Set crudo, sin auditoría) sobre **todos** los roles sembrados en cada corrida — si alguna vez se re-ejecutara completo, re-otorgaría silenciosamente cualquier acción que un Administrador hubiera revocado deliberadamente a un rol base.
+
+**Instalaciones nuevas (dev/test/emulador):** `SecurityCatalogSeeder` se actualiza a **22 acciones** directamente: `AccionesIniciales` suma `REPORTE_VER_GLOBAL`/`REPORTE_VER_PROPIO`, y `AccionesPorRol` suma `REPORTE_VER_GLOBAL` a `ADMINISTRADOR` y `REPORTE_VER_PROPIO` a `ORGANIZADOR`. Es seguro ahí porque `SeedAsync()` corre sobre un catálogo recién creado, sin ninguna personalización previa que pisar.
+
+**Firestore real ya existente:** un comando dedicado e idempotente, aparte de `bootstrap-admin` y de `SeedAsync()`, que **solo crea** los dos documentos `Accion` (`IAccionRepository.CreateAsync`, atrapa `AccionYaExisteException`) — **no asigna ninguna acción a ningún rol**. El Administrador las asigna después desde la UI (`/admin/roles`, flujo ya auditado de `/api/security`) a los roles que decida (naturalmente `ADMINISTRADOR`/`ORGANIZADOR`, pero queda a su criterio). Así, reejecutar el comando nunca repone una asignación que el Administrador haya quitado: el comando no vuelve a tocar asignaciones una vez creadas las Acciones.
+
+**Orden operativo:** (1) ejecutar el comando dedicado → quedan creadas `REPORTE_VER_GLOBAL`/`REPORTE_VER_PROPIO`, sin efecto en ningún rol; (2) un Administrador las asigna desde `/admin/roles`; (3) cada sesión afectada corre `refreshSessionPermissions()` (o vuelve a loguearse) para que el reporte aparezca habilitado — mismo patrón ya verificado en el cierre de Frontend 4 (CLAUDE.md, quitar/reponer `EVENTO_CREAR`).
+
+### 11.6 PDF (frontend)
+
+Estrategia validada: API devuelve JSON puro; el frontend construye HTML propio y usa `expo-print` (`Print.printToFileAsync`) + `expo-sharing` (`Sharing.shareAsync`) — ambos compatibles con Expo SDK 54/Expo Go, sin dependencias nativas nuevas para instalar. Contenido mínimo: título, alcance (Admin/Organizador + filtros aplicados en texto legible), fecha de generación, resumen, detalle por evento/tipo, aclaración fija de pagos simulados, identidad visual "Cartelera urbana" (§6: tipografía Archivo, paleta Papel/Tinta/Tomate). Todo texto interpolado en el HTML debe escaparse (entidades HTML básicas) antes de insertarlo — el HTML lo genera el propio frontend, no un motor de plantillas con datos de terceros, pero nombres de evento/organizador vienen de datos de usuario y deben tratarse como no confiables igual. Android: `expo-print` genera el PDF en caché local, `expo-sharing` abre el selector nativo. iOS: mismo flujo. Web (Expo Web): `expo-print` no genera archivo descargable igual que en nativo — fallback razonable es abrir un `window.print()` o vista HTML imprimible, a decidir en implementación. Riesgo de volumen: un reporte con muchos eventos/tickets genera HTML grande → PDF lento o pesado en el dispositivo; el máximo de rango (366 días, §11.1) y el "conjunto acotado" ya mitigan esto, pero conviene un tope adicional de filas en el detalle antes de generar el PDF (a definir en implementación, no bloqueante para el diseño).
+
+### 11.7 Pantallas propuestas
+
+`/admin/reports` y `/organizer/reports`: selector de reporte (Admin: Eventos global / Auditoría; Organizador: solo Eventos propio), filtros (reutilizar `EventFilterPanel`/`SegmentedDateField` de Cartelera para fecha; nuevos selects para estado/categoría/organizador/evento/tipo de entrada/operación/actor), vista previa del resumen agregado antes de generar PDF, estados loading/empty/error explícitos, botón "Generar y compartir PDF". Los selects de `organizadorPersonaId` (Admin), `eventId`/`ticketTypeId` (Organizador) y `actorUsuarioId`/`targetId` (auditoría) siempre se muestran por nombre/email en la UI; el id viaja internamente en la request, nunca se pega a mano ni se expone en pantalla. Gate exclusivamente por `hasAccion(ACCIONES.REPORTE_VER_GLOBAL | REPORTE_VER_PROPIO)`, mismo patrón que `AdminHubScreen`/`OrganizerEventsListScreen`. Requiere agregar las dos entradas a `HoyDonde-frontend/constants/acciones.ts` (espejo de `Acciones.cs`).
+
+### 11.8 Decisiones tomadas en esta iteración
+
+- **Reporte C aprobado para el primer corte** con filtros por fecha, operación, actor (`actorUsuarioId`) y objetivo `Rol`/`Usuario`/`RolAccion`. El filtro específico "por Acción" queda **postergado**: no existe ningún endpoint que cree/edite una `Accion` por HTTP (solo se siembra al arrancar), así que nunca hay un audit con `TargetTipo=="Accion"`; lo más cercano es `Operacion ∈ {ROL_ASIGNAR_ACCION, ROL_QUITAR_ACCION}` con `TargetTipo=="RolAccion"` y `TargetId` empaquetado como `"{rol}/{accion}"` (string compuesto, no filtrable por accion sola sin *substring* en memoria). **`SecurityAudit` no se amplía ahora** para resolver esto; los audits históricos nunca se completan ni se inventan retroactivamente para calzar con un filtro que no existía cuando se escribieron.
+- **Estrategia Firestore corregida** (§11.4): se declara **un** índice compuesto nuevo (`events: OrganizadorPersonaId ASC, FechaInicio ASC`), no cero. `Estado`/`Categoria` siguen filtrándose en memoria; el ownership del Organizador es siempre parte de la query Firestore, nunca solo un filtro posterior en memoria.
+- **Seed resuelto** (§11.5): `SecurityCatalogSeeder` pasa a 22 acciones para instalaciones nuevas; contra el Firestore real ya existente, un comando dedicado crea únicamente las dos `Accion` y no toca ninguna asignación — el Administrador asigna desde la UI. Orden operativo documentado en §11.5.
+- **Sin decisión pendiente, solo un hecho del código actual:** `Anulado` no tiene ningún flujo que lo escriba hoy; el reporte lo muestra en 0, sin implementar aquí una funcionalidad de anulación (fuera de alcance, ver también §10).
+
+### 11.9 Etapas de implementación
+
+1. `Acciones.cs` (20 → 22) + actualización de `SecurityCatalogSeeder` para instalaciones nuevas + comando dedicado para el Firestore real (§11.5) + actualizar `acciones.ts`/documentación del "20" → "22".
+2. `GET /api/reports/organizer/events` (ownership obligatorio dentro de la query, `eventId`/`ticketTypeId` opcionales, índice compuesto nuevo, tests de fórmulas/límites/rango/chunking/ownership).
+3. `GET /api/reports/admin/events` (mismos filtros de fecha/estado/categoría + `organizadorPersonaId` opcional, reusa el mismo índice cuando está presente, camino sin índice cuando no lo está).
+4. `GET /api/reports/admin/security-audits` (auditoría básica: fecha con default/máximo, operación, actor, objetivo `Rol`/`Usuario`/`RolAccion`).
+5. Pantallas `/organizer/reports` y `/admin/reports` + PDF (`expo-print`/`expo-sharing`), una vez el backend esté verde.
