@@ -14,6 +14,11 @@ jest.mock('expo-router', () => ({
   },
 }));
 
+let mockHasAccion: (accion: string) => boolean = () => true;
+jest.mock('@/context/AuthContext', () => ({
+  useAuth: () => ({ hasAccion: (accion: string) => mockHasAccion(accion) }),
+}));
+
 // eslint-disable-next-line import/first -- debe importarse después de los jest.mock de sus dependencias
 import { apiClient, ApiError, EventResponse } from '@/services/APIService';
 // eslint-disable-next-line import/first
@@ -39,6 +44,7 @@ describe('OrganizerEventsListScreen', () => {
     jest.restoreAllMocks();
     mockPush.mockClear();
     mockBack.mockClear();
+    mockHasAccion = () => true;
   });
 
   it('llama a GET /events/organizer/me y muestra los eventos propios con su estado', async () => {
@@ -97,5 +103,15 @@ describe('OrganizerEventsListScreen', () => {
     fireEvent.press(await findByText('+ Crear evento'));
 
     expect(mockPush).toHaveBeenCalledWith('/organizer/new');
+  });
+
+  it('oculta "Crear evento" cuando el Organizador no tiene la acción EVENTO_CREAR (demo de permisos configurables)', async () => {
+    mockHasAccion = () => false;
+    jest.spyOn(apiClient, 'get').mockResolvedValue({ data: [] } as any);
+
+    const { findByText, queryByText } = render(<OrganizerEventsListScreen />);
+
+    expect(await findByText('Todavía no creaste ningún evento.')).toBeTruthy();
+    expect(queryByText('+ Crear evento')).toBeNull();
   });
 });

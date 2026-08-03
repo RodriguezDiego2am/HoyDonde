@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -10,9 +10,13 @@ jest.mock('expo-router', () => ({
   },
 }));
 
+// eslint-disable-next-line import/first -- debe importarse después de los jest.mock de sus dependencias
+import { ApiError } from '@/services/apiError';
+
 type MockUser = { uid: string; email: string | null; roles: string[]; acciones: string[] } | null;
 let mockUser: MockUser = null;
 let mockHasAccion: (accion: string) => boolean = () => false;
+const mockRefreshSessionPermissions = jest.fn().mockResolvedValue(undefined);
 jest.mock('@/context/AuthContext', () => ({
   useAuth: () => ({
     user: mockUser,
@@ -21,10 +25,11 @@ jest.mock('@/context/AuthContext', () => ({
     retrySync: jest.fn(),
     logout: jest.fn().mockResolvedValue(undefined),
     hasAccion: (accion: string) => mockHasAccion(accion),
+    refreshSessionPermissions: (...args: unknown[]) => mockRefreshSessionPermissions(...args),
   }),
 }));
 
-// eslint-disable-next-line import/first -- debe importarse después de los jest.mock de sus dependencias
+// eslint-disable-next-line import/first
 import ProfileScreen from './explore';
 
 describe('ProfileScreen — panel gated por acciones', () => {
@@ -32,6 +37,7 @@ describe('ProfileScreen — panel gated por acciones', () => {
     jest.clearAllMocks();
     mockUser = { uid: 'uid-1', email: 'test@hoydonde.com', roles: ['ORGANIZADOR'], acciones: [] };
     mockHasAccion = () => false;
+    mockRefreshSessionPermissions.mockResolvedValue(undefined);
   });
 
   it('no muestra ninguna entrada del panel sin ninguna acción habilitada (Cliente)', () => {
@@ -92,5 +98,26 @@ describe('ProfileScreen — panel gated por acciones', () => {
     expect(queryByText('Administración')).toBeNull();
     expect(queryByText('Organización')).toBeNull();
     expect(queryByText('Control')).toBeNull();
+  });
+
+  it('"Actualizar permisos" llama a refreshSessionPermissions', async () => {
+    const { getByText } = render(<ProfileScreen />);
+
+    fireEvent.press(getByText('Actualizar permisos'));
+
+    await waitFor(() => expect(mockRefreshSessionPermissions).toHaveBeenCalledTimes(1));
+  });
+
+  it('un error de refresh se muestra sin borrar el resto del Perfil', async () => {
+    mockRefreshSessionPermissions.mockRejectedValueOnce(
+      new ApiError({ code: 'NETWORK_ERROR', message: 'No se pudieron actualizar los permisos. Probá de nuevo.', traceId: '' })
+    );
+    const { getByText, findByText } = render(<ProfileScreen />);
+
+    fireEvent.press(getByText('Actualizar permisos'));
+
+    expect(await findByText('No se pudieron actualizar los permisos. Probá de nuevo.')).toBeTruthy();
+    // La sesión sigue mostrando el email: un refresh fallido nunca reemplaza el Perfil por nada.
+    expect(getByText('test@hoydonde.com')).toBeTruthy();
   });
 });

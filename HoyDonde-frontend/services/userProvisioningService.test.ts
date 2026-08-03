@@ -12,6 +12,23 @@ describe('userProvisioningService', () => {
     jest.restoreAllMocks();
   });
 
+  it('registerAdmin envía exactamente {email, password} a /users/admin', async () => {
+    const postSpy = jest
+      .spyOn(apiClient, 'post')
+      .mockResolvedValue({ data: { message: 'Administrador creado exitosamente.', usuarioId: 'u-0', personaId: 'p-0' } } as any);
+
+    const result = await userProvisioningService.registerAdmin({
+      email: 'admin@hoydonde.com',
+      password: 'segura123',
+    });
+
+    expect(postSpy).toHaveBeenCalledWith('/users/admin', {
+      email: 'admin@hoydonde.com',
+      password: 'segura123',
+    });
+    expect(result.message).toBe('Administrador creado exitosamente.');
+  });
+
   it('registerOrganizador envía exactamente {email, password} a /users/organizador', async () => {
     const postSpy = jest
       .spyOn(apiClient, 'post')

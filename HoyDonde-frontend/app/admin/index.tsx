@@ -1,3 +1,3 @@
-import CreateOrganizadorScreen from '../../screens/admin/CreateOrganizadorScreen';
+import AdminHubScreen from '../../screens/admin/AdminHubScreen';
 
-export default CreateOrganizadorScreen;
+export default AdminHubScreen;

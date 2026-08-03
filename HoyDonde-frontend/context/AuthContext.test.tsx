@@ -1,6 +1,6 @@
 /* eslint-disable import/first -- los jest.mock deben preceder al import de AuthContext que los usa */
 import React from 'react';
-import { Pressable, Text } from 'react-native';
+import { AppState, Pressable, Text } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 let mockAuthStateCallback: ((user: unknown) => void) | null = null;
@@ -29,7 +29,17 @@ import { AuthProvider, useAuth } from './AuthContext';
 import type { RegisterClienteInput } from './AuthContext';
 
 function AuthProbe() {
-  const { user, initializing, syncError, loginWithEmail, registerCliente, retrySync, logout, hasAccion } = useAuth();
+  const {
+    user,
+    initializing,
+    syncError,
+    loginWithEmail,
+    registerCliente,
+    retrySync,
+    logout,
+    hasAccion,
+    refreshSessionPermissions,
+  } = useAuth();
   const register = (data: RegisterClienteInput) => () => registerCliente(data).catch(() => {});
 
   return (
@@ -45,6 +55,7 @@ function AuthProbe() {
       />
       <Pressable testID="retry" onPress={() => retrySync()} />
       <Pressable testID="logout" onPress={() => logout()} />
+      <Pressable testID="refreshPermissions" onPress={() => refreshSessionPermissions().catch(() => {})} />
     </>
   );
 }
@@ -237,5 +248,132 @@ describe('AuthContext', () => {
     fireEvent.press(getByTestId('logout'));
 
     await waitFor(() => expect(mockSignOut).toHaveBeenCalledTimes(1));
+  });
+
+  function getAppStateChangeHandler(): (state: string) => void {
+    const calls = [...(AppState.addEventListener as jest.Mock).mock.calls].reverse();
+    const changeCall = calls.find((call) => call[0] === 'change');
+    if (!changeCall) throw new Error('AppState "change" listener was not registered');
+    return changeCall[1];
+  }
+
+  describe('refreshSessionPermissions', () => {
+    it('reconsulta /api/auth/sync y actualiza roles/acciones sin tocar uid/usuarioId', async () => {
+      mockSync.mockResolvedValueOnce({
+        usuarioId: 'usuario-organizador',
+        personaId: 'persona-organizador',
+        roles: ['ORGANIZADOR'],
+        acciones: ['EVENTO_CREAR'],
+      });
+      const { getByTestId } = renderAuth();
+      await act(async () => {
+        mockAuthStateCallback?.(fakeUser('uid-org', 'organizador@hoydonde.com'));
+      });
+
+      mockSync.mockResolvedValueOnce({
+        usuarioId: 'usuario-organizador',
+        personaId: 'persona-organizador',
+        roles: ['ORGANIZADOR'],
+        acciones: [],
+      });
+      fireEvent.press(getByTestId('refreshPermissions'));
+
+      await waitFor(() =>
+        expect(JSON.parse(getByTestId('user').props.children)).toMatchObject({ uid: 'uid-org', acciones: [] })
+      );
+      expect(mockSync).toHaveBeenCalledTimes(2);
+    });
+
+    it('dos llamadas concurrentes reutilizan la misma solicitud en vuelo', async () => {
+      mockSync.mockResolvedValueOnce({
+        usuarioId: 'usuario-organizador',
+        personaId: 'persona-organizador',
+        roles: ['ORGANIZADOR'],
+        acciones: ['EVENTO_CREAR'],
+      });
+      const { getByTestId } = renderAuth();
+      await act(async () => {
+        mockAuthStateCallback?.(fakeUser('uid-org', 'organizador@hoydonde.com'));
+      });
+
+      let resolveRefresh!: (value: unknown) => void;
+      mockSync.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveRefresh = resolve;
+        })
+      );
+
+      fireEvent.press(getByTestId('refreshPermissions'));
+      fireEvent.press(getByTestId('refreshPermissions'));
+      fireEvent.press(getByTestId('refreshPermissions'));
+
+      // 1 sync del login + 1 solo del refresh, aunque se haya presionado tres veces.
+      expect(mockSync).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        resolveRefresh({
+          usuarioId: 'usuario-organizador',
+          personaId: 'persona-organizador',
+          roles: ['ORGANIZADOR'],
+          acciones: ['EVENTO_CREAR'],
+        });
+      });
+      expect(mockSync).toHaveBeenCalledTimes(2);
+    });
+
+    it('un refresh fallido conserva la sesión vigente en vez de reemplazarla', async () => {
+      mockSync.mockResolvedValueOnce({
+        usuarioId: 'usuario-organizador',
+        personaId: 'persona-organizador',
+        roles: ['ORGANIZADOR'],
+        acciones: ['EVENTO_CREAR'],
+      });
+      const { getByTestId } = renderAuth();
+      await act(async () => {
+        mockAuthStateCallback?.(fakeUser('uid-org', 'organizador@hoydonde.com'));
+      });
+
+      mockSync.mockRejectedValueOnce(new Error('network down'));
+      fireEvent.press(getByTestId('refreshPermissions'));
+
+      await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(2));
+      // La sesión sigue intacta: ni se borra el usuario ni se pisan sus acciones por un error.
+      expect(JSON.parse(getByTestId('user').props.children)).toMatchObject({
+        uid: 'uid-org',
+        acciones: ['EVENTO_CREAR'],
+      });
+    });
+
+    it('vuelve a sincronizar al volver la app al primer plano', async () => {
+      mockSync.mockResolvedValueOnce({
+        usuarioId: 'usuario-organizador',
+        personaId: 'persona-organizador',
+        roles: ['ORGANIZADOR'],
+        acciones: ['EVENTO_CREAR'],
+      });
+      renderAuth();
+      await act(async () => {
+        mockAuthStateCallback?.(fakeUser('uid-org', 'organizador@hoydonde.com'));
+      });
+
+      mockSync.mockResolvedValue({
+        usuarioId: 'usuario-organizador',
+        personaId: 'persona-organizador',
+        roles: ['ORGANIZADOR'],
+        acciones: ['EVENTO_CREAR'],
+      });
+      const handleAppStateChange = getAppStateChangeHandler();
+
+      await act(async () => {
+        handleAppStateChange('active');
+      });
+      await waitFor(() => expect(mockSync).toHaveBeenCalledTimes(2));
+
+      // Un segundo regreso a foreground inmediatamente después no dispara otra request (spam).
+      await act(async () => {
+        handleAppStateChange('active');
+      });
+      expect(mockSync).toHaveBeenCalledTimes(2);
+    });
   });
 });

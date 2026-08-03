@@ -24,7 +24,8 @@ Este archivo evita repetir DTOs completos, inventarios de archivos, pseudocódig
 | Frontend 1 | Cerrada | Catálogo, compra de demostración y Mis entradas con QR; validado a mano en Expo Go contra API/Firestore reales |
 | Frontend 2 | Cerrada (circuito mínimo) | Alta de Organizador, ciclo de vida de eventos y alta/asignación de Control; validado a mano en Expo Go |
 | Frontend 3 | Cerrada | Validación de Control por QR (`expo-camera`) e ingreso manual, verificada end-to-end con cámara física, API y Firestore reales; recorrido real de los cuatro perfiles (Admin, Organizador, Cliente, Control) completado |
-| Frontend 4–5 | Pendiente | Administración avanzada de roles/acciones, filtros de eventos, reportes y QA final |
+| Frontend 4 | Cerrada | Administración de roles/acciones/usuarios operable desde la interfaz por acción efectiva; modificación de permisos verificada a mano (quitar/reponer `EVENTO_CREAR`) |
+| Frontend 5 | Pendiente | Filtros de Cartelera, reportes y QA final |
 
 Al cerrar una etapa se actualizan únicamente esta tabla, su breve resultado y la última verificación. No se conserva un diario de implementación dentro de este archivo.
 
@@ -333,9 +334,9 @@ La identidad se aplica durante Frontend 0; no requiere otro documento extenso ni
 - Activar/desactivar usuarios.
 - Mostrar correctamente el rechazo del guard del último Administrador.
 
-**Cierre**
+**Cierre — implementado y validado a mano.** Administración de roles, acciones y usuarios operada íntegramente desde la interfaz (`/admin`, `/admin/altas`, `/admin/roles`, `/admin/usuarios`), sin hardcodear relaciones rol→acción. Verificado contra Firebase/API/Firestore reales: un Admin le quitó `EVENTO_CREAR` al rol `ORGANIZADOR`, el Organizador actualizó permisos (`refreshSessionPermissions`) y perdió "Crear evento"; se lo reasignaron y, tras actualizar de nuevo, la opción volvió a aparecer.
 
-El módulo de seguridad configurable se opera íntegramente desde la interfaz sin hardcodear relaciones rol→acción.
+Filtros de Cartelera, reportes/analíticas y el QA final (Frontend 5) siguen pendientes.
 
 ### Frontend 5 — Cierre
 
@@ -403,3 +404,15 @@ La cuenta de servicio del backend nunca se copia al frontend.
 - Jobs para persistir `Finalizado`.
 
 Estas capacidades solo se incorporan mediante una decisión nueva de producto; no deben aparecer como mejoras espontáneas durante las etapas del MVP.
+
+### Bajas lógica y física (evaluar por tipo de entidad, no implementado)
+
+No toda entidad necesita las dos formas de baja: la decisión es caso por caso, según integridad referencial, auditoría y reglas de negocio — nunca una regla uniforme ("todo tiene baja física" o "todo es solo lógico").
+
+- **Roles personalizados:** baja física solo si el rol no está asignado a ningún usuario y no es uno de los 4 roles base sembrados (`ADMINISTRADOR`/`CLIENTE`/`ORGANIZADOR`/`CONTROL`).
+- **Eventos:** baja física solo para un `Borrador` sin tickets emitidos ni Control asignado. Con historial (compras, validaciones), la baja es lógica: cancelar/archivar, nunca borrar el documento.
+- **Usuarios:** desactivar (`Usuario.IsActive = false`) sigue siendo la operación ordinaria (ya implementada). Una baja física exigiría coordinar Firebase Auth, `IdentidadExterna`, `Persona`, `UsuarioRol` y toda referencia de dominio (tickets, eventos, `ControlAsignacion`) — no se implementa sin ese análisis.
+- **Tickets y `security_audits`:** conservan su historial siempre; sin baja física ordinaria.
+- **`ControlAsignacion` u otras asociaciones:** una eventual baja física transaccional con su propio registro de auditoría queda para analizar más adelante.
+
+Cualquier baja física que se implemente en el futuro necesita, como mínimo: confirmación reforzada, verificación de referencias antes de borrar, autorización explícita, registro de auditoría y tests dedicados — nunca un botón "Eliminar" simple. La pasarela de pago real y el `CodigoValidacion` corto (§7, Frontend 3) siguen igual de pendientes que antes de esta nota.

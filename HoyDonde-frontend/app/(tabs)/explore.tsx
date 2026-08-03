@@ -1,5 +1,5 @@
-import React from 'react';
-import { ActivityIndicator, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import type { Href } from 'expo-router';
 
@@ -10,11 +10,29 @@ import { TicketCard } from '@/components/ui/TicketCard';
 import { ACCIONES } from '@/constants/acciones';
 import { colors, fonts, spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { ApiError } from '@/services/apiError';
 
 const ACCIONES_PREVIEW_LIMIT = 6;
 
 export default function ProfileScreen() {
-  const { user, initializing, syncError, retrySync, logout, hasAccion } = useAuth();
+  const { user, initializing, syncError, retrySync, logout, hasAccion, refreshSessionPermissions } = useAuth();
+  const [refreshingPermisos, setRefreshingPermisos] = useState(false);
+  const [permisosError, setPermisosError] = useState<string | null>(null);
+
+  const handleRefreshPermisos = async () => {
+    if (refreshingPermisos) return;
+    setRefreshingPermisos(true);
+    setPermisosError(null);
+    try {
+      await refreshSessionPermissions();
+    } catch (error) {
+      setPermisosError(
+        error instanceof ApiError ? error.message : 'No se pudieron actualizar los permisos. Probá de nuevo.'
+      );
+    } finally {
+      setRefreshingPermisos(false);
+    }
+  };
 
   if (initializing) {
     return (
@@ -35,14 +53,24 @@ export default function ProfileScreen() {
 
     // La visibilidad de cada entrada del panel se decide por acción efectiva del usuario
     // (nunca por nombre de rol): el backend sigue siendo la autoridad final en cada endpoint.
-    const puedeAdministrar = hasAccion(ACCIONES.USUARIO_CREAR_ORGANIZADOR);
+    // Mismo criterio que AdminHubScreen para decidir si mostrar el botón "Administración".
+    const puedeAdministrar =
+      hasAccion(ACCIONES.USUARIO_CREAR_ADMIN) ||
+      hasAccion(ACCIONES.USUARIO_CREAR_ORGANIZADOR) ||
+      hasAccion(ACCIONES.ROL_EDITAR) ||
+      hasAccion(ACCIONES.USUARIO_VER_PERMISOS_EFECTIVOS);
     const puedeOrganizar = hasAccion(ACCIONES.EVENTO_VER_PROPIOS);
     const puedeControlar = hasAccion(ACCIONES.TICKET_VALIDAR);
     const tienePanel = puedeAdministrar || puedeOrganizar || puedeControlar;
 
     return (
       <SafeAreaView style={styles.safe}>
-        <ScrollView contentContainerStyle={styles.scroll}>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          refreshControl={
+            <RefreshControl refreshing={refreshingPermisos} onRefresh={handleRefreshPermisos} tintColor={colors.ink} />
+          }
+        >
           <View style={styles.header}>
             <Text style={styles.eyebrow}>TU CUENTA</Text>
             <Text style={styles.title}>Perfil</Text>
@@ -117,6 +145,16 @@ export default function ProfileScreen() {
               </View>
             </>
           ) : null}
+
+          <View style={styles.refreshPermisosRow}>
+            <ActionButton
+              label="Actualizar permisos"
+              variant="ghost"
+              onPress={handleRefreshPermisos}
+              loading={refreshingPermisos}
+            />
+            {permisosError ? <Text style={styles.errorText}>{permisosError}</Text> : null}
+          </View>
 
           <View style={styles.logoutRow}>
             <ActionButton label="Cerrar sesión" variant="ghost" onPress={handleLogout} />
@@ -313,6 +351,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
+  },
+  refreshPermisosRow: {
+    marginTop: spacing.lg,
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   logoutRow: {
     marginTop: spacing.xl,

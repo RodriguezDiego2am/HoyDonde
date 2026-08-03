@@ -9,7 +9,9 @@ import { AsyncStateView } from '@/components/ui/AsyncStateView';
 import { EditorialHeader } from '@/components/ui/EditorialHeader';
 import { StatusStamp, eventEstadoTone } from '@/components/ui/StatusStamp';
 import { TicketCard } from '@/components/ui/TicketCard';
+import { ACCIONES } from '@/constants/acciones';
 import { colors, fonts, spacing } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
 import { ApiError, EventResponse, eventService } from '@/services/APIService';
 import { formatFechaHora } from '@/utils/format';
 
@@ -24,6 +26,8 @@ function fetchErrorMessage(error: unknown): string {
 
 /** Panel del Organizador (API-MVP 1, GET /events/organizer/me): sus eventos, cualquier estado. */
 export default function OrganizerEventsListScreen() {
+  const { hasAccion } = useAuth();
+  const puedeCrearEvento = hasAccion(ACCIONES.EVENTO_CREAR);
   const [events, setEvents] = useState<EventResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -94,9 +98,11 @@ export default function OrganizerEventsListScreen() {
     <View style={styles.container}>
       <EditorialHeader eyebrow="ORGANIZACIÓN" title="Mis eventos" onRefresh={onRefresh} showBack />
 
-      <View style={styles.newButtonRow}>
-        <ActionButton label="+ Crear evento" onPress={() => router.push('/organizer/new')} />
-      </View>
+      {puedeCrearEvento ? (
+        <View style={styles.newButtonRow}>
+          <ActionButton label="+ Crear evento" onPress={() => router.push('/organizer/new')} />
+        </View>
+      ) : null}
 
       {loading ? (
         <AsyncStateView variant="loading" message="Cargando" />

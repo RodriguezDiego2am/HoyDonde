@@ -7,6 +7,11 @@ export interface UsuarioProvisioningResponse {
   personaId: string;
 }
 
+export interface RegisterAdminPayload {
+  email: string;
+  password: string;
+}
+
 export interface RegisterOrganizadorPayload {
   email: string;
   password: string;
@@ -20,6 +25,12 @@ export interface RegisterControlPayload {
 
 /** Altas privilegiadas (Admin/Organizador/Control), nunca autoregistro (API_Documentation.md §6). */
 export const userProvisioningService = {
+  /** POST /api/users/admin — Policy USUARIO_CREAR_ADMIN. Solo un Administrador. */
+  registerAdmin: async (payload: RegisterAdminPayload): Promise<UsuarioProvisioningResponse> => {
+    const response = await apiClient.post<UsuarioProvisioningResponse>('/users/admin', payload);
+    return response.data;
+  },
+
   /** POST /api/users/organizador — Policy USUARIO_CREAR_ORGANIZADOR. Solo un Administrador. */
   registerOrganizador: async (payload: RegisterOrganizadorPayload): Promise<UsuarioProvisioningResponse> => {
     const response = await apiClient.post<UsuarioProvisioningResponse>('/users/organizador', payload);
