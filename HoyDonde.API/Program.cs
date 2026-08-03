@@ -213,6 +213,12 @@ builder.Services.AddScoped<IControlAsignacionRepository, FirestoreControlAsignac
 // configurable de roles/acciones/usuarios, con el guard transaccional del último Administrador.
 builder.Services.AddScoped<ISecurityAdminService, SecurityAdminService>();
 
+// Módulo de reportes (docs/api-mvp-plan.md §11): reporte de solo lectura de eventos propios del
+// Organizador, y el comando dedicado que crea únicamente las dos Acciones nuevas contra un
+// Firestore real ya existente.
+builder.Services.AddScoped<IReporteService, ReporteService>();
+builder.Services.AddScoped<SeedReportActionsCommand>();
+
 
 var app = builder.Build();
 
@@ -227,6 +233,22 @@ if (args.Length > 0 && string.Equals(args[0], "bootstrap-admin", StringCompariso
     {
         var command = scope.ServiceProvider.GetRequiredService<BootstrapAdminCommand>();
         Environment.ExitCode = await command.RunAsync(args);
+    }
+    Log.CloseAndFlush();
+    return;
+}
+
+// Comando dedicado del módulo de reportes (docs/api-mvp-plan.md §11.5):
+// "dotnet run --project HoyDonde.API -- seed-report-actions". Igual criterio que bootstrap-admin:
+// no es un endpoint HTTP, no levanta el servidor. Crea únicamente las dos Acciones nuevas
+// (REPORTE_VER_GLOBAL/REPORTE_VER_PROPIO) contra un Firestore real que ya tiene el catálogo de
+// seguridad instalado; nunca crea/edita roles ni asigna acciones a roles.
+if (args.Length > 0 && string.Equals(args[0], "seed-report-actions", StringComparison.OrdinalIgnoreCase))
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var command = scope.ServiceProvider.GetRequiredService<SeedReportActionsCommand>();
+        Environment.ExitCode = await command.RunAsync();
     }
     Log.CloseAndFlush();
     return;

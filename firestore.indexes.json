@@ -39,6 +39,14 @@
         { "fieldPath": "FechaFin", "order": "ASCENDING" },
         { "fieldPath": "FechaInicio", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "OrganizadorPersonaId", "order": "ASCENDING" },
+        { "fieldPath": "FechaInicio", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

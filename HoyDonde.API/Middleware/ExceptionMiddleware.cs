@@ -38,6 +38,8 @@ namespace HoyDonde.API.Middleware
             new Dictionary<Type, (HttpStatusCode, string, Func<Exception, string>)>
             {
                 [typeof(EventValidationException)] = (HttpStatusCode.BadRequest, "EVENT_VALIDATION_ERROR", ex => ex.Message),
+                [typeof(ReporteRangoInvalidoException)] = (HttpStatusCode.BadRequest, "REPORT_RANGE_INVALID", ex => ex.Message),
+                [typeof(ReporteFiltroInvalidoException)] = (HttpStatusCode.BadRequest, "REPORT_FILTER_INVALID", ex => ex.Message),
                 [typeof(ArgumentException)] = (HttpStatusCode.BadRequest, "VALIDATION_ERROR", ex => ex.Message),
 
                 [typeof(EventNotFoundException)] = (HttpStatusCode.NotFound, "EVENT_NOT_FOUND", ex => ex.Message),

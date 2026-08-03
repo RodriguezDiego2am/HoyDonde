@@ -65,6 +65,7 @@ namespace HoyDonde.API.Tests
         public Mock<IRolRepository> MockRolRepository { get; } = new();
         public Mock<IAccionRepository> MockAccionRepository { get; } = new();
         public Mock<ISecurityAdminService> MockSecurityAdminService { get; } = new();
+        public Mock<IReporteService> MockReporteService { get; } = new();
 
         // Etapa 5 del refactor de seguridad: concede, para el uid dado, exactamente los
         // accionCodigos indicados (via un único rol de prueba), dejando MockUsuarioRepository/
@@ -171,12 +172,21 @@ namespace HoyDonde.API.Tests
                 var securityAdminServiceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ISecurityAdminService));
                 if (securityAdminServiceDescriptor != null) services.Remove(securityAdminServiceDescriptor);
 
+                // Módulo de reportes: ReporteController se prueba contra MockReporteService
+                // directamente, mismo patrón que MockEventService. La implementación real
+                // (ReporteService, dependiente de FirestoreDb) se cubre en tests de servicio
+                // (ReporteMetricasCalculatorTests/ReporteFiltroValidatorTests) y de integración
+                // (Integration/ReporteServiceEmulatorTests).
+                var reporteServiceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IReporteService));
+                if (reporteServiceDescriptor != null) services.Remove(reporteServiceDescriptor);
+
                 // Add Mocks
                 services.AddSingleton(MockEventService.Object);
                 services.AddSingleton(MockUserService.Object);
                 services.AddSingleton(MockAuthService.Object);
                 services.AddSingleton(MockTicketService.Object);
                 services.AddSingleton(MockSecurityAdminService.Object);
+                services.AddSingleton(MockReporteService.Object);
                 services.AddSingleton(Mock.Of<ITicketValidationStore>());
                 // Etapa 5: estos tres quedan como Mock<T> reales (no Mock.Of<T> anónimos) para que
                 // GrantAccion pueda configurarlos por test y AccionAuthorizationHandler resuelva

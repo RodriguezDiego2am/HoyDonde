@@ -38,6 +38,12 @@ namespace HoyDonde.API.Tests.Integration
 
             var accionesAdmin = await rolRepository.GetAccionCodigosAsync("ADMINISTRADOR");
             Assert.Contains("USUARIO_ASIGNAR_ROL", accionesAdmin);
+
+            // Módulo de reportes (docs/api-mvp-plan.md §11.5): instalaciones nuevas quedan con
+            // ADMINISTRADOR->REPORTE_VER_GLOBAL y ORGANIZADOR->REPORTE_VER_PROPIO.
+            Assert.Contains("REPORTE_VER_GLOBAL", accionesAdmin);
+            var accionesOrganizador = await rolRepository.GetAccionCodigosAsync("ORGANIZADOR");
+            Assert.Contains("REPORTE_VER_PROPIO", accionesOrganizador);
         }
     }
 }

@@ -35,11 +35,21 @@ namespace HoyDonde.API.Tests
 
             accionRepository.Verify(r => r.CreateAsync(It.Is<Accion>(x => x.Codigo == "TICKET_VALIDAR")), Times.Once);
             accionRepository.Verify(r => r.CreateAsync(It.Is<Accion>(x => x.Codigo == "ROL_CREAR")), Times.Once);
+            // Módulo de reportes (docs/api-mvp-plan.md §11.5): 20 -> 22 acciones para
+            // instalaciones nuevas.
+            accionRepository.Verify(r => r.CreateAsync(It.Is<Accion>(x => x.Codigo == "REPORTE_VER_GLOBAL")), Times.Once);
+            accionRepository.Verify(r => r.CreateAsync(It.Is<Accion>(x => x.Codigo == "REPORTE_VER_PROPIO")), Times.Once);
 
             rolRepository.Verify(r => r.AssignAccionAsync("CONTROL", "TICKET_VALIDAR", SecurityCatalogSeeder.SeedActor), Times.Once);
             rolRepository.Verify(r => r.AssignAccionAsync("CLIENTE", "TICKET_COMPRAR", SecurityCatalogSeeder.SeedActor), Times.Once);
             rolRepository.Verify(r => r.AssignAccionAsync("ORGANIZADOR", "EVENTO_CREAR", SecurityCatalogSeeder.SeedActor), Times.Once);
             rolRepository.Verify(r => r.AssignAccionAsync("ADMINISTRADOR", "USUARIO_DESACTIVAR", SecurityCatalogSeeder.SeedActor), Times.Once);
+            rolRepository.Verify(r => r.AssignAccionAsync("ADMINISTRADOR", "REPORTE_VER_GLOBAL", SecurityCatalogSeeder.SeedActor), Times.Once);
+            rolRepository.Verify(r => r.AssignAccionAsync("ORGANIZADOR", "REPORTE_VER_PROPIO", SecurityCatalogSeeder.SeedActor), Times.Once);
+            // Las otras 20 acciones nunca reciben una asignación de reporte: ORGANIZADOR jamás ve
+            // REPORTE_VER_GLOBAL, ni ADMINISTRADOR ve REPORTE_VER_PROPIO.
+            rolRepository.Verify(r => r.AssignAccionAsync("ORGANIZADOR", "REPORTE_VER_GLOBAL", It.IsAny<string>()), Times.Never);
+            rolRepository.Verify(r => r.AssignAccionAsync("ADMINISTRADOR", "REPORTE_VER_PROPIO", It.IsAny<string>()), Times.Never);
         }
 
         [Fact]

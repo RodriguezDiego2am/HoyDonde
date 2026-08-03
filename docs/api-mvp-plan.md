@@ -421,9 +421,9 @@ Cualquier baja física que se implemente en el futuro necesita, como mínimo: co
 
 ---
 
-## 11. Módulo de reportes — diseño técnico (auditoría de solo lectura, no implementado)
+## 11. Módulo de reportes — diseño técnico
 
-Verificado contra el código real (Event/Ticket/TicketType/SecurityAudit/Usuario/Persona/Rol/Accion, servicios, repositorios, `firestore.indexes.json`, `Acciones.cs`, `SecurityCatalogSeeder`, `Program.cs`) al cierre de Frontend 5 (filtros de Cartelera). Nada de esta sección está implementado.
+Verificado contra el código real (Event/Ticket/TicketType/SecurityAudit/Usuario/Persona/Rol/Accion, servicios, repositorios, `firestore.indexes.json`, `Acciones.cs`, `SecurityCatalogSeeder`, `Program.cs`) al cierre de Frontend 5 (filtros de Cartelera). **Primer checkpoint backend implementado: §11.5 (acciones/comando) y el endpoint Organizador de §11.3 (`GET /api/reports/organizer/events`).** El resto de esta sección (reporte Admin, auditoría de seguridad, PDF/frontend) sigue sin implementar — ver §11.10.
 
 ### 11.1 Alcance cerrado
 
@@ -522,3 +522,9 @@ Estrategia validada: API devuelve JSON puro; el frontend construye HTML propio y
 3. `GET /api/reports/admin/events` (mismos filtros de fecha/estado/categoría + `organizadorPersonaId` opcional, reusa el mismo índice cuando está presente, camino sin índice cuando no lo está).
 4. `GET /api/reports/admin/security-audits` (auditoría básica: fecha con default/máximo, operación, actor, objetivo `Rol`/`Usuario`/`RolAccion`).
 5. Pantallas `/organizer/reports` y `/admin/reports` + PDF (`expo-print`/`expo-sharing`), una vez el backend esté verde.
+
+### 11.10 Checkpoint — estado real de implementación
+
+- **Implementado y verificado:** paso 1 (`Acciones.cs` 20→22, `SecurityCatalogSeeder` para instalaciones nuevas, comando `seed-report-actions`) y paso 2 (`GET /api/reports/organizer/events`, índice compuesto `events: OrganizadorPersonaId ASC, FechaInicio ASC`). Suite completa contra Firestore Emulator real: **468 passed, 0 failed, 0 skipped**.
+- **Pendiente, sin cambios de diseño respecto a §11.1–§11.9:** pasos 3–5 (reporte Admin, auditoría de seguridad, pantallas/PDF).
+- **Pendiente contra Firebase real** (deliberadamente no ejecutado en este checkpoint): desplegar el índice nuevo de `firestore.indexes.json` y correr `seed-report-actions` contra el proyecto real (`hoydonde-f5a05`).

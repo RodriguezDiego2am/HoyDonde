@@ -99,7 +99,7 @@ Firebase UID
 - Cada `[Authorize(Policy = "ACCION_CODIGO")]` se resuelve exclusivamente vía `AccionAuthorizationHandler` → `IPermissionService.TieneAccionAsync`, que recorre esa cadena completa en Firestore. **Nada lee un claim para autorizar.**
 - Un `Usuario` puede tener varios roles; un `Rol` puede otorgar varias acciones.
 - Si el `Usuario` está inactivo (`IsActive == false`), o la asignación de rol está inactiva, o el `Rol` está inactivo, o la `Accion` está inactiva, `TieneAccionAsync` devuelve `false` y el handler simplemente no llama a `context.Succeed(...)` — ASP.NET deniega por default, sin excepción ni 500. Esto es lo que hace que **un Usuario desactivado reciba 403 en cualquier endpoint protegido**, sin lógica adicional en el controller.
-- El catálogo tiene exactamente **20 acciones** (`Authorization/Acciones.cs`), sembradas por `SecurityCatalogSeeder` en 4 roles iniciales: `ADMINISTRADOR`, `ORGANIZADOR`, `CLIENTE`, `CONTROL`. Roles y acciones son entidades Firestore administrables (`/api/security`, §9), no enums ni constantes de código.
+- El catálogo tiene exactamente **22 acciones** (`Authorization/Acciones.cs`), sembradas por `SecurityCatalogSeeder` en 4 roles iniciales: `ADMINISTRADOR`, `ORGANIZADOR`, `CLIENTE`, `CONTROL`. Roles y acciones son entidades Firestore administrables (`/api/security`, §9), no enums ni constantes de código. Las dos últimas, `REPORTE_VER_GLOBAL` (`ADMINISTRADOR`) y `REPORTE_VER_PROPIO` (`ORGANIZADOR`), son del módulo de reportes (§15).
 - Una policy concedida **nunca es suficiente por sí sola** para tocar el recurso de otro actor: cada operación vuelve a leer el dueño/asignación real desde Firestore y lo compara contra el `PersonaId` del actor autenticado (`IAuthenticatedPersonaResolver`, §5). Ejemplos: `EVENTO_PUBLICAR_PROPIO` no alcanza para publicar el evento de otro organizador; `TICKET_VALIDAR` no alcanza para validar tickets de un evento al que ese Control no está asignado.
 
 ---
@@ -578,7 +578,7 @@ Explícitamente no implementadas (`docs/api-mvp-plan.md` §10) — no asumir que
 - Pagos reales, reservas temporales de stock, reventa de tickets.
 - QR firmado / validación offline.
 - Notificaciones push/email.
-- Analíticas de organizador (dashboards de ventas/asistencia).
+- Analíticas de organizador con pantalla/PDF (§15 documenta el backend ya implementado del reporte de eventos propios; falta la UI y la exportación).
 - Auditoría de dominio (`security_audits`-equivalente) para compras/validaciones/cambios de estado de evento — hoy solo hay `ILogger` estructurado.
 - Aprobación administrativa de eventos antes de publicar.
 - Transición `Finalizado` persistida vía job/scheduler (permanece derivada indefinidamente).
@@ -586,3 +586,75 @@ Explícitamente no implementadas (`docs/api-mvp-plan.md` §10) — no asumir que
 - Edición de un evento después de publicado (ni siquiera parcial).
 - Recuperación de contraseña vía UI del frontend.
 - Pantallas más allá del alcance de Frontend 0 (catálogo, login, registro de Cliente, perfil/logout) — Frontend 1–5 (`docs/api-mvp-plan.md` §7) permanecen pendientes; ver `CLAUDE.md`, "Frontend status".
+
+---
+
+## 15. Módulo de reportes — reporte de eventos propios del Organizador (docs/api-mvp-plan.md §11)
+
+Primer corte backend del módulo de reportes: solo el reporte del Organizador sobre sus propios eventos. El reporte Admin (actividad global), la auditoría de seguridad y el frontend/PDF **no** están implementados todavía (ver `docs/api-mvp-plan.md` §11 y "Estado" al final de esta sección).
+
+### Acciones nuevas
+
+`Authorization/Acciones.cs` suma `REPORTE_VER_GLOBAL` (reservada para el futuro reporte Admin) y `REPORTE_VER_PROPIO` (usada por el endpoint de abajo) — 20 → 22 acciones. `SecurityCatalogSeeder` las asigna a `ADMINISTRADOR`/`ORGANIZADOR` respectivamente, pero **solo para instalaciones nuevas** (dev/test/emulador): contra Firestore real, `SecurityCatalogSeeder.SeedAsync()` no vuelve a correr una vez que existe un Administrador efectivo.
+
+### Comando para Firestore real ya existente
+
+```bash
+dotnet run --project HoyDonde.API -- seed-report-actions
+```
+
+Crea únicamente los dos documentos `Accion` (`REPORTE_VER_GLOBAL`/`REPORTE_VER_PROPIO`), idempotente (informa "creada" o "ya existente" por acción, código de salida 0). **Nunca** crea/edita roles, **nunca** asigna una acción a un rol, **nunca** repone una asignación que un Administrador haya revocado. El Administrador asigna estas acciones a los roles que decida desde `/api/security` después de correr el comando; cada sesión afectada necesita `refreshSessionPermissions()` (o volver a loguearse) para verlo reflejado, mismo patrón que el resto de `/api/security`.
+
+### `GET /api/reports/organizer/events` — Policy: `REPORTE_VER_PROPIO`
+
+```
+GET /api/reports/organizer/events?fechaDesde=2026-01-01T00:00:00Z&fechaHasta=2026-02-01T00:00:00Z
+```
+
+| Query param | Obligatorio | Semántica |
+|---|---|---|
+| `fechaDesde` | Sí | UTC explícito (con `Z`/offset — nunca interpretado con la zona horaria del servidor), inclusiva sobre `Event.FechaInicio`. |
+| `fechaHasta` | Sí | UTC explícito, exclusiva sobre `Event.FechaInicio`. Rango máximo 366 días. |
+| `estado` | No | `Borrador`/`Publicado`/`Cancelado`/`Finalizado` (efectivo, igual criterio que `EventResponse.Estado`). |
+| `categoria` | No | `Event.EventCategory`. |
+| `eventId` | No | Debe ser un evento propio (ownership releído de Firestore, nunca confiado del cliente). |
+| `ticketTypeId` | Solo junto con `eventId` | Acota métricas y desglose a ese único tipo de entrada. |
+
+`organizadorPersonaId` **no existe** como parámetro: el organizador sale siempre de `IAuthenticatedPersonaResolver` (UID del token → `PersonaId`).
+
+Errores propios: rango ausente/invertido/sin UTC explícito/mayor a 366 días → 400 `REPORT_RANGE_INVALID`; `ticketTypeId` sin `eventId` → 400 `REPORT_FILTER_INVALID`. Reutiliza excepciones existentes para el resto: evento ajeno → 403 `EVENT_OWNERSHIP`; evento inexistente → 404 `EVENT_NOT_FOUND`; `ticketTypeId` que no pertenece al evento → 404 `TICKET_TYPE_INVALID`. Un evento propio fuera del rango/estado/categoría pedidos da un reporte vacío, nunca una fuga de datos.
+
+Ownership: sin `eventId`, la query Firestore siempre incluye `WhereEqualTo(OrganizadorPersonaId, actorPersonaId)` junto al rango de `FechaInicio` — nunca solo un filtro en memoria después de leer. `estado`/`categoria` se aplican en memoria sobre ese conjunto ya acotado. Los tickets de los eventos resultantes se leen con `WhereIn(EventoId, chunk)` en lotes de **máximo 30** (límite real de Firestore), nunca una lectura por evento; si no hay eventos, no se ejecuta ninguna query de tickets. Lectura no transaccional (reporte informativo): una compra concurrente durante la generación puede quedar dentro o fuera según el momento exacto del snapshot.
+
+Respuesta (`ReporteEventosResponseDto`):
+
+```json
+{
+  "fechaDesde": "2026-01-01T00:00:00Z",
+  "fechaHasta": "2026-02-01T00:00:00Z",
+  "aclaracionImporte": "El MVP no procesa pagos reales: \"importe emitido\" es la suma de los precios fotografiados en cada ticket al comprar, nunca una recaudación ni un cobro real.",
+  "resumen": {
+    "cantidadEventos": 1, "capacidadInicial": 10, "stockDisponible": 8,
+    "entradasEmitidas": 2, "entradasUsadas": 1, "entradasAnuladas": 0, "entradasPendientes": 1,
+    "porcentajeOcupacion": 20.0, "porcentajeAsistencia": 50.0, "porcentajeUtilizacion": 10.0,
+    "importeEmitido": 200.00
+  },
+  "eventos": [ { "eventId": "evento-...", "nombre": "...", "tiposDeEntrada": [ "..." ] } ]
+}
+```
+
+Nunca expone `OrganizadorPersonaId`, UID de Firebase, `UsuarioId` ni `ExternalSubjectId` (el organizador ya es el actor autenticado). El importe siempre se llama **"importe emitido"**, nunca "recaudación"/"cobrado"/"ganancia" — `PrecioPagado` es la fotografía inmutable tomada en la compra (§7.1/§9), sumarla es válido para "cuánto se emitió", nunca para "cuánto se cobró" (el MVP no procesa pagos reales). Capacidad a nivel evento sale de `Event.CapacidadMaxima`; por tipo de entrada es una **derivación** (`CantidadDisponible` actual + entradas ya emitidas de ese tipo), no un dato persistido. División por cero en cualquier porcentaje → `0`, nunca una excepción.
+
+### Índice Firestore nuevo
+
+```json
+{ "collectionGroup": "events", "fields": [
+  { "fieldPath": "OrganizadorPersonaId", "order": "ASCENDING" },
+  { "fieldPath": "FechaInicio", "order": "ASCENDING" } ] }
+```
+
+Agregado a `firestore.indexes.json` y probado contra el Firestore Emulator. **Todavía no desplegado contra el proyecto Firebase real** (`hoydonde-f5a05`) — pendiente como paso de despliegue explícito, fuera de esta entrega.
+
+### Estado
+
+Implementado y verificado contra Firestore Emulator real: **468 passed, 0 failed, 0 skipped** (suite completa). Pendiente: reporte Admin (`REPORTE_VER_GLOBAL` sembrada pero sin endpoint todavía), auditoría de seguridad como reporte, frontend/PDF, despliegue del índice y ejecución de `seed-report-actions` contra Firebase real.

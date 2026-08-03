@@ -4,8 +4,9 @@ namespace HoyDonde.API.Authorization
 {
     // Códigos de Accion centralizados (docs/security-refactor-plan.md §3/§7, Etapa 5): única
     // fuente de verdad para policies, atributos [Authorize(Policy=...)] y el catálogo sembrado
-    // por SecurityCatalogSeeder. El catálogo tiene exactamente 20 acciones; no agregar códigos
-    // nuevos acá sin agregarlos también al seeder (y viceversa).
+    // por SecurityCatalogSeeder. El catálogo tiene exactamente 22 acciones (docs/api-mvp-plan.md
+    // §11: REPORTE_VER_GLOBAL/REPORTE_VER_PROPIO agregadas para el módulo de reportes); no
+    // agregar códigos nuevos acá sin agregarlos también al seeder (y viceversa).
     public static class Acciones
     {
         public const string UsuarioCrearAdmin = "USUARIO_CREAR_ADMIN";
@@ -28,6 +29,8 @@ namespace HoyDonde.API.Authorization
         public const string UsuarioQuitarRol = "USUARIO_QUITAR_ROL";
         public const string UsuarioVerPermisosEfectivos = "USUARIO_VER_PERMISOS_EFECTIVOS";
         public const string UsuarioDesactivar = "USUARIO_DESACTIVAR";
+        public const string ReporteVerGlobal = "REPORTE_VER_GLOBAL";
+        public const string ReporteVerPropio = "REPORTE_VER_PROPIO";
 
         public static readonly IReadOnlyList<string> Todas = new[]
         {
@@ -36,6 +39,7 @@ namespace HoyDonde.API.Authorization
             TicketComprar, TicketVerPropio, TicketValidar,
             RolCrear, RolEditar, RolActivar, RolAsignarAccion, RolQuitarAccion,
             UsuarioAsignarRol, UsuarioQuitarRol, UsuarioVerPermisosEfectivos, UsuarioDesactivar,
+            ReporteVerGlobal, ReporteVerPropio,
         };
     }
 }

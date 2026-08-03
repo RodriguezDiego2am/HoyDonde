@@ -51,6 +51,9 @@ namespace HoyDonde.API.Services
             (Acciones.UsuarioQuitarRol, "Quitar un rol de un usuario."),
             (Acciones.UsuarioVerPermisosEfectivos, "Consultar los permisos efectivos de un usuario."),
             (Acciones.UsuarioDesactivar, "Activar o desactivar un usuario."),
+            // Módulo de reportes (docs/api-mvp-plan.md §11)
+            (Acciones.ReporteVerGlobal, "Consultar el reporte global de eventos de todos los organizadores."),
+            (Acciones.ReporteVerPropio, "Consultar el reporte de los propios eventos."),
         };
 
         private static readonly IReadOnlyDictionary<string, string[]> AccionesPorRol = new Dictionary<string, string[]>
@@ -60,11 +63,13 @@ namespace HoyDonde.API.Services
                 Acciones.UsuarioCrearAdmin, Acciones.UsuarioCrearOrganizador,
                 Acciones.RolCrear, Acciones.RolEditar, Acciones.RolActivar, Acciones.RolAsignarAccion, Acciones.RolQuitarAccion,
                 Acciones.UsuarioAsignarRol, Acciones.UsuarioQuitarRol, Acciones.UsuarioVerPermisosEfectivos, Acciones.UsuarioDesactivar,
+                Acciones.ReporteVerGlobal,
             },
             ["ORGANIZADOR"] = new[]
             {
                 Acciones.ControlCrear, Acciones.EventoCrear, Acciones.EventoEditarPropio,
                 Acciones.EventoPublicarPropio, Acciones.EventoCancelarPropio, Acciones.EventoVerPropios,
+                Acciones.ReporteVerPropio,
             },
             ["CLIENTE"] = new[] { Acciones.TicketComprar, Acciones.TicketVerPropio },
             ["CONTROL"] = new[] { Acciones.TicketValidar },

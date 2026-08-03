@@ -136,10 +136,12 @@ namespace HoyDonde.API.Tests.Integration
 
             var segundo = await sut.SyncClienteAsync(uid, "multi-rol@test.com", new SyncClienteRequest(null, null, null));
 
+            // Módulo de reportes (docs/api-mvp-plan.md §11.5): ORGANIZADOR también recibe
+            // REPORTE_VER_PROPIO en instalaciones nuevas, intercalado en orden ordinal ascendente.
             var accionesEsperadas = new List<string>
             {
                 "CONTROL_CREAR", "EVENTO_CANCELAR_PROPIO", "EVENTO_CREAR", "EVENTO_EDITAR_PROPIO",
-                "EVENTO_PUBLICAR_PROPIO", "EVENTO_VER_PROPIOS", "TICKET_COMPRAR", "TICKET_VER_PROPIO",
+                "EVENTO_PUBLICAR_PROPIO", "EVENTO_VER_PROPIOS", "REPORTE_VER_PROPIO", "TICKET_COMPRAR", "TICKET_VER_PROPIO",
             };
             Assert.Equal(accionesEsperadas, segundo.Acciones);
             Assert.Equal(segundo.Acciones.Distinct().Count(), segundo.Acciones.Count);
