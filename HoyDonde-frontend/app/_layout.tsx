@@ -40,6 +40,14 @@ export default function RootLayout() {
         <Stack.Screen name="login" />
         <Stack.Screen name="register" />
         <Stack.Screen name="events/[id]" />
+        <Stack.Screen name="admin/index" />
+        <Stack.Screen name="organizer/index" />
+        <Stack.Screen name="organizer/new" />
+        <Stack.Screen name="organizer/[id]/index" />
+        <Stack.Screen name="organizer/[id]/edit" />
+        <Stack.Screen name="organizer/[id]/control-new" />
+        <Stack.Screen name="organizer/[id]/control-assign" />
+        <Stack.Screen name="control/index" />
       </Stack>
     </AuthProvider>
   );

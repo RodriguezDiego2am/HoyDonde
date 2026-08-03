@@ -1,17 +1,20 @@
 import React from 'react';
 import { ActivityIndicator, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
+import type { Href } from 'expo-router';
 
 import { ActionButton } from '@/components/ui/ActionButton';
+import { SectionDivider } from '@/components/ui/SectionDivider';
 import { StatusStamp } from '@/components/ui/StatusStamp';
 import { TicketCard } from '@/components/ui/TicketCard';
+import { ACCIONES } from '@/constants/acciones';
 import { colors, fonts, spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 
 const ACCIONES_PREVIEW_LIMIT = 6;
 
 export default function ProfileScreen() {
-  const { user, initializing, syncError, retrySync, logout } = useAuth();
+  const { user, initializing, syncError, retrySync, logout, hasAccion } = useAuth();
 
   if (initializing) {
     return (
@@ -29,6 +32,13 @@ export default function ProfileScreen() {
   if (user) {
     const accionesPreview = user.acciones.slice(0, ACCIONES_PREVIEW_LIMIT);
     const accionesRestantes = user.acciones.length - accionesPreview.length;
+
+    // La visibilidad de cada entrada del panel se decide por acción efectiva del usuario
+    // (nunca por nombre de rol): el backend sigue siendo la autoridad final en cada endpoint.
+    const puedeAdministrar = hasAccion(ACCIONES.USUARIO_CREAR_ORGANIZADOR);
+    const puedeOrganizar = hasAccion(ACCIONES.EVENTO_VER_PROPIOS);
+    const puedeControlar = hasAccion(ACCIONES.TICKET_VALIDAR);
+    const tienePanel = puedeAdministrar || puedeOrganizar || puedeControlar;
 
     return (
       <SafeAreaView style={styles.safe}>
@@ -82,6 +92,31 @@ export default function ProfileScreen() {
               </View>
             ) : null}
           </TicketCard>
+
+          {tienePanel ? (
+            <>
+              <SectionDivider index="02" label="Panel" />
+              <View style={styles.panelRow}>
+                {puedeAdministrar ? (
+                  <ActionButton
+                    label="Administración"
+                    variant="secondary"
+                    onPress={() => router.push('/admin' as Href)}
+                  />
+                ) : null}
+                {puedeOrganizar ? (
+                  <ActionButton
+                    label="Organización"
+                    variant="secondary"
+                    onPress={() => router.push('/organizer' as Href)}
+                  />
+                ) : null}
+                {puedeControlar ? (
+                  <ActionButton label="Control" variant="secondary" onPress={() => router.push('/control' as Href)} />
+                ) : null}
+              </View>
+            </>
+          ) : null}
 
           <View style={styles.logoutRow}>
             <ActionButton label="Cerrar sesión" variant="ghost" onPress={handleLogout} />
@@ -273,6 +308,11 @@ const styles = StyleSheet.create({
   },
   buttonContainer: {
     marginTop: spacing.lg,
+  },
+  panelRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
   },
   logoutRow: {
     marginTop: spacing.xl,

@@ -9,6 +9,7 @@ import { AuthShell } from '@/components/ui/AuthShell';
 import { colors, fonts, spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { describeFirebaseAuthError } from '@/utils/firebaseAuthErrors';
+import { resolveLoginEmail } from '@/utils/controlLoginEmail';
 import { isSafeReturnTo } from '@/utils/navigation';
 import FormInput from '../components/FormInput';
 
@@ -24,7 +25,7 @@ export default function LoginScreen() {
 
   const validate = () => {
     const newErrors: { email?: string; password?: string } = {};
-    if (!email) newErrors.email = 'El email es obligatorio';
+    if (!email.trim()) newErrors.email = 'El email o usuario es obligatorio';
     if (!password) newErrors.password = 'La contraseña es obligatoria';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -36,7 +37,9 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      await loginWithEmail(email, password);
+      // Nunca se muestra ni se loguea el email sintético resuelto: Firebase lo recibe
+      // internamente, pero la UI solo conoció el identificador que tipeó el Control.
+      await loginWithEmail(resolveLoginEmail(email), password);
       // returnTo es un valor dinámico validado en runtime (isSafeReturnTo), no una
       // ruta literal conocida en build-time: expo-router v6 exige el cast a Href
       // para navegación dinámica bajo typed routes.
@@ -51,12 +54,12 @@ export default function LoginScreen() {
   return (
     <AuthShell title="Iniciar sesión" subtitle="Entrá con tu email y contraseña.">
       <FormInput
-        label="Email"
+        label="Email o usuario"
         value={email}
         onChangeText={setEmail}
-        placeholder="ejemplo@correo.com"
+        placeholder="ejemplo@correo.com o tu usuario"
         error={errors.email}
-        keyboardType="email-address"
+        keyboardType="default"
       />
 
       <FormInput

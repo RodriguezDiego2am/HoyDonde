@@ -52,10 +52,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const registrationInFlight = useRef(false);
   const pendingFirebaseUser = useRef<FirebaseUser | null>(null);
 
+  // UID de la sesión más reciente que empezó a sincronizar. Si el usuario cierra sesión y
+  // entra con otra cuenta antes de que la sincronización anterior termine (p. ej. probando
+  // varias cuentas seguidas), las dos llamadas a /api/auth/sync quedan en vuelo a la vez y
+  // pueden resolver en cualquier orden. Sin este chequeo, una respuesta tardía de la cuenta
+  // vieja pisaba el estado ya vigente de la cuenta nueva con sus propias acciones (bug real:
+  // una cuenta Control terminaba mostrando "Mis entradas" porque las acciones de un Cliente
+  // logueado justo antes llegaban después y sobreescribían las del Control).
+  const activeUidRef = useRef<string | null>(null);
+
   const runSync = useCallback(async (firebaseUser: FirebaseUser, payload?: SyncUserPayload) => {
+    const requestUid = firebaseUser.uid;
+    activeUidRef.current = requestUid;
     pendingFirebaseUser.current = firebaseUser;
     try {
       const result = await authApi.sync(payload);
+      if (activeUidRef.current !== requestUid) return;
       setUser({
         uid: firebaseUser.uid,
         email: firebaseUser.email,
@@ -67,6 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSyncError(null);
       pendingFirebaseUser.current = null;
     } catch (error) {
+      if (activeUidRef.current !== requestUid) return;
       setUser(null);
       setSyncError(
         error instanceof ApiError ? error.message : 'No se pudo sincronizar la sesión. Probá de nuevo.'
@@ -81,6 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setInitializing(false);
 
       if (!firebaseUser) {
+        activeUidRef.current = null;
         setUser(null);
         setSyncError(null);
         pendingFirebaseUser.current = null;

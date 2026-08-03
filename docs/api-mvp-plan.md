@@ -21,7 +21,10 @@ Este archivo evita repetir DTOs completos, inventarios de archivos, pseudocódig
 | Puente backend–frontend | Cerrado | Enums textuales y `acciones` en `/api/auth/sync`; suite: 360/360 |
 | API-MVP 5 | Cerrada | Consultas operativas de controles y eventos asignados sin ids copiados a mano; suite: 391/391 |
 | Frontend 0 | Cerrada | Expo 54 + Firebase Auth real + `/api/auth/sync`; validado a mano en dispositivo físico; suite: 396/396 |
-| Frontend 1–5 | Pendiente | Aplicación Expo funcional y presentable |
+| Frontend 1 | Cerrada | Catálogo, compra de demostración y Mis entradas con QR; validado a mano en Expo Go contra API/Firestore reales |
+| Frontend 2 | Cerrada (circuito mínimo) | Alta de Organizador, ciclo de vida de eventos y alta/asignación de Control; validado a mano en Expo Go |
+| Frontend 3 | Pendiente (parcial) | Login de Control por usuario y lista de eventos asignados listos; escaneo/validación de tickets pendiente |
+| Frontend 4–5 | Pendiente | Administración avanzada (roles/usuarios) y cierre general |
 
 Al cerrar una etapa se actualizan únicamente esta tabla, su breve resultado y la última verificación. No se conserva un diario de implementación dentro de este archivo.
 
@@ -290,9 +293,7 @@ La identidad se aplica durante Frontend 0; no requiere otro documento extenso ni
 - Mis tickets, utilizabilidad y motivo.
 - QR sin firma con `ticketId` + `eventId`, acompañado por ids legibles como fallback.
 
-**Cierre**
-
-Un Cliente se registra, compra una entrada y la consulta desde la aplicación sin manipular tokens ni ids internos.
+**Cierre — validado a mano.** Un Cliente se registra, ve el evento publicado, compra una entrada de demostración y la consulta con su QR desde la aplicación, sin manipular tokens ni ids internos (Expo Go, API y Firestore reales).
 
 ### Frontend 2 — Organizador
 
@@ -305,9 +306,7 @@ Un Cliente se registra, compra una entrada y la consulta desde la aplicación si
 - Alta de Control y asignación de uno existente mediante selección visual.
 - Consulta de controles propios y asignados al evento.
 
-**Cierre**
-
-Un Organizador completa el ciclo del evento y administra controles sin copiar PersonaId.
+**Cierre — validado a mano (circuito mínimo).** Un Organizador crea, edita, publica y cancela su evento, y crea/asigna Control sin copiar PersonaId (Expo Go, API y Firestore reales). Administración avanzada de seguridad queda en Frontend 4.
 
 ### Frontend 3 — Control
 
@@ -323,6 +322,8 @@ Un Organizador completa el ciclo del evento y administra controles sin copiar Pe
 **Cierre**
 
 Un Control selecciona un evento y valida un ticket; el segundo intento se rechaza claramente.
+
+**Progreso parcial validado a mano:** login por nombre de usuario (resuelto internamente al mismo email sintético que arma el backend) y lista de eventos asignados (`GET /api/events/control/me`) funcionan en Expo Go. Escaneo/validación de tickets queda pendiente para la siguiente etapa.
 
 ### Frontend 4 — Administrador
 

@@ -131,6 +131,30 @@ export interface EventSearchFilter {
   lastEventId?: string;
 }
 
+/** Espejo de Event.EventCategory (HoyDonde.API/Models/Event.cs) — únicos valores que la API acepta en `categoria`. */
+export type EventCategory = 'Musica' | 'Deportes' | 'Tecnologia' | 'Arte' | 'Otros';
+
+/** Espejo de TicketGroupDto (solo entrada — API_Documentation.md §7.1): nunca lleva id, el servidor lo genera siempre. */
+export interface TicketGroupInput {
+  nombre: string;
+  precio: number;
+  cantidadDisponible: number;
+}
+
+/** Espejo de EventCreateRequest/EventUpdateRequest — fechaInicio/fechaFin deben viajar en UTC (ISO 8601). */
+export interface EventWriteRequest {
+  nombre: string;
+  descripcion: string;
+  fechaInicio: string;
+  fechaFin: string;
+  ubicacion: string;
+  categoria: EventCategory;
+  ticketGroups: TicketGroupInput[];
+}
+
+export type EventCreateRequest = EventWriteRequest;
+export type EventUpdateRequest = EventWriteRequest;
+
 export const eventService = {
   search: async (filter: EventSearchFilter = {}): Promise<PagedResponse<EventResponse>> => {
     const response = await apiClient.get<PagedResponse<EventResponse>>('/events', { params: filter });
@@ -139,6 +163,36 @@ export const eventService = {
 
   getById: async (id: string): Promise<EventResponse> => {
     const response = await apiClient.get<EventResponse>(`/events/${id}`);
+    return response.data;
+  },
+
+  create: async (payload: EventCreateRequest): Promise<EventResponse> => {
+    const response = await apiClient.post<EventResponse>('/events', payload);
+    return response.data;
+  },
+
+  update: async (eventId: string, payload: EventUpdateRequest): Promise<EventResponse> => {
+    const response = await apiClient.put<EventResponse>(`/events/${eventId}`, payload);
+    return response.data;
+  },
+
+  publish: async (eventId: string): Promise<void> => {
+    await apiClient.post(`/events/${eventId}/publish`);
+  },
+
+  cancel: async (eventId: string): Promise<void> => {
+    await apiClient.post(`/events/${eventId}/cancel`);
+  },
+
+  /** GET /api/events/organizer/me — todos los eventos propios, cualquier estado. Nunca paginado (EventsController.GetMyEvents). */
+  getMyEvents: async (): Promise<EventResponse[]> => {
+    const response = await apiClient.get<EventResponse[]>('/events/organizer/me');
+    return response.data;
+  },
+
+  /** GET /api/events/organizer/{id} — detalle de un evento propio en cualquier estado. */
+  getOwnedById: async (eventId: string): Promise<EventResponse> => {
+    const response = await apiClient.get<EventResponse>(`/events/organizer/${eventId}`);
     return response.data;
   },
 };

@@ -52,4 +52,20 @@ describe('TabLayout — visibilidad de "Mis entradas"', () => {
     const tickets = mockCapturedScreens.find((s) => s.name === 'tickets');
     expect(tickets?.href).toBeNull();
   });
+
+  it('regresión: una cuenta con únicamente TICKET_VALIDAR (Control) nunca ve "Mis entradas"', () => {
+    mockHasAccion = (accion) => accion === 'TICKET_VALIDAR';
+    render(<TabLayout />);
+
+    const tickets = mockCapturedScreens.find((s) => s.name === 'tickets');
+    expect(tickets?.href).toBeNull();
+  });
+
+  it('una cuenta multirol con TICKET_VER_PROPIO y TICKET_VALIDAR sí ve "Mis entradas": el gate nunca oculta una acción legítima', () => {
+    mockHasAccion = (accion) => accion === 'TICKET_VER_PROPIO' || accion === 'TICKET_VALIDAR';
+    render(<TabLayout />);
+
+    const tickets = mockCapturedScreens.find((s) => s.name === 'tickets');
+    expect(tickets?.href).toBeUndefined();
+  });
 });

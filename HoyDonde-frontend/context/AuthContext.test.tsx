@@ -178,6 +178,56 @@ describe('AuthContext', () => {
     expect(getByTestId('syncError').props.children).toBe('null');
   });
 
+  it('discards a stale sync response from a superseded account (fast account switch race)', async () => {
+    let resolveFirstSync!: (value: unknown) => void;
+    mockSync.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFirstSync = resolve;
+      })
+    );
+
+    const { getByTestId } = renderAuth();
+
+    // Cuenta A (Cliente) empieza a sincronizar pero la respuesta todavía no llega.
+    await act(async () => {
+      mockAuthStateCallback?.(fakeUser('uid-cliente', 'cliente@hoydonde.com'));
+    });
+    expect(getByTestId('user').props.children).toBe('null');
+
+    // Antes de que A resuelva, Firebase ya reporta la cuenta B (Control) — dispara un segundo
+    // sync que sí resuelve rápido.
+    mockSync.mockResolvedValueOnce({
+      usuarioId: 'usuario-control',
+      personaId: 'persona-control',
+      roles: ['CONTROL'],
+      acciones: ['TICKET_VALIDAR'],
+    });
+    await act(async () => {
+      mockAuthStateCallback?.(fakeUser('uid-control', 'control@hoydonde.com'));
+    });
+
+    expect(JSON.parse(getByTestId('user').props.children)).toMatchObject({
+      uid: 'uid-control',
+      acciones: ['TICKET_VALIDAR'],
+    });
+
+    // La respuesta tardía de la cuenta A (con acciones de Cliente) finalmente llega: no debe
+    // pisar el estado ya vigente de la cuenta B.
+    await act(async () => {
+      resolveFirstSync({
+        usuarioId: 'usuario-cliente',
+        personaId: 'persona-cliente',
+        roles: ['CLIENTE'],
+        acciones: ['TICKET_COMPRAR', 'TICKET_VER_PROPIO'],
+      });
+    });
+
+    expect(JSON.parse(getByTestId('user').props.children)).toMatchObject({
+      uid: 'uid-control',
+      acciones: ['TICKET_VALIDAR'],
+    });
+  });
+
   it('logout calls Firebase signOut', async () => {
     const { getByTestId } = renderAuth();
     await act(async () => {

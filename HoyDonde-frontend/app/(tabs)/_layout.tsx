@@ -3,6 +3,7 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { IconSymbol } from '@/components/ui/IconSymbol';
+import { ACCIONES } from '@/constants/acciones';
 import { borderWidth, colors, fonts } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 
@@ -21,7 +22,7 @@ export default function TabLayout() {
   const { hasAccion } = useAuth();
   // La pestaña se resuelve por acción efectiva del usuario (nunca por nombre de rol
   // hardcodeado): href: null la oculta de la barra sin desmontar la ruta.
-  const puedeVerEntradas = hasAccion('TICKET_VER_PROPIO');
+  const puedeVerEntradas = hasAccion(ACCIONES.TICKET_VER_PROPIO);
 
   return (
     <Tabs
