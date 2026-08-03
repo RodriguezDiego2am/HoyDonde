@@ -10,7 +10,7 @@ interface StatusStampProps {
   tone?: StampTone;
 }
 
-const TONE_COLOR: Record<StampTone, string> = {
+export const TONE_COLOR: Record<StampTone, string> = {
   ink: colors.ink,
   success: colors.success,
   error: colors.error,

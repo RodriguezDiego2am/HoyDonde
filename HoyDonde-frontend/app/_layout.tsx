@@ -10,6 +10,7 @@ import {
   useFonts,
 } from '@expo-google-fonts/archivo';
 
+import { ControlSessionGate } from '../components/control/ControlSessionGate';
 import { AuthProvider } from '../context/AuthContext';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -35,6 +36,7 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
+      <ControlSessionGate />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="login" />
@@ -48,6 +50,8 @@ export default function RootLayout() {
         <Stack.Screen name="organizer/[id]/control-new" />
         <Stack.Screen name="organizer/[id]/control-assign" />
         <Stack.Screen name="control/index" />
+        <Stack.Screen name="control/scan" />
+        <Stack.Screen name="control/manual" />
       </Stack>
     </AuthProvider>
   );

@@ -16,6 +16,26 @@ export function isApiErrorBody(data: unknown): data is ApiErrorBody {
 }
 
 /**
+ * POST /api/tickets/validate no sigue el contrato uniforme de error (Code/TraceId, ver
+ * ErrorResponse en ExceptionMiddleware.cs): sus resultados de dominio (403/404/409) viajan como
+ * `{ valid, message }`, con el HTTP status como única señal adicional. Se distingue de
+ * ApiErrorBody porque no tiene `code`.
+ */
+export interface TicketValidationBody {
+  valid: boolean;
+  message: string;
+}
+
+export function isTicketValidationBody(data: unknown): data is TicketValidationBody {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    typeof (data as Record<string, unknown>).valid === 'boolean' &&
+    typeof (data as Record<string, unknown>).message === 'string'
+  );
+}
+
+/**
  * Espejo tipado del contrato uniforme de error de la API
  * (`{ code, message, traceId, errors?, detail? }`, ver API_Documentation.md §11).
  * `status` puede faltar ante un error de red sin respuesta HTTP.

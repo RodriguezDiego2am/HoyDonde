@@ -1,3 +1,3 @@
-import ControlAssignedEventsScreen from '../../screens/control/ControlAssignedEventsScreen';
+import ControlHubScreen from '../../screens/control/ControlHubScreen';
 
-export default ControlAssignedEventsScreen;
+export default ControlHubScreen;

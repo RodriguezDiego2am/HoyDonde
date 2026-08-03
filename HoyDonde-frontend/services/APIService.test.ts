@@ -87,4 +87,16 @@ describe('apiClient response interceptor', () => {
     });
     expect(mockSignOut).not.toHaveBeenCalled();
   });
+
+  it('preserves the real POST /tickets/validate message ({valid, message} body, no code) instead of the generic AxiosError text', async () => {
+    const rejected = getResponseRejectedHandler();
+    const error = buildAxiosError(409, { valid: false, message: 'El ticket ya fue utilizado.' });
+
+    await expect(rejected(error)).rejects.toMatchObject({
+      code: 'TICKET_VALIDATION_RESULT',
+      message: 'El ticket ya fue utilizado.',
+      status: 409,
+    });
+    expect(mockSignOut).not.toHaveBeenCalled();
+  });
 });

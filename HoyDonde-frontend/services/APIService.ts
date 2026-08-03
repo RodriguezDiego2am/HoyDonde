@@ -3,7 +3,7 @@ import { signOut } from 'firebase/auth';
 
 import { resolveApiUrl } from '../config/apiEnv';
 import { auth } from '../config/firebase';
-import { ApiError, isApiErrorBody } from './apiError';
+import { ApiError, isApiErrorBody, isTicketValidationBody } from './apiError';
 
 export { ApiError } from './apiError';
 export type { ApiErrorBody } from './apiError';
@@ -32,6 +32,13 @@ function toApiError(error: AxiosError): ApiError {
 
   if (isApiErrorBody(data)) {
     return new ApiError(data, status);
+  }
+
+  // /api/tickets/validate: el body real ({valid, message}) no tiene `code`/`traceId`, pero su
+  // `message` es el texto público que hay que mostrar (p. ej. "El ticket ya fue utilizado.") —
+  // nunca el AxiosError.message genérico ("Request failed with status code 409") del fallback de abajo.
+  if (isTicketValidationBody(data)) {
+    return new ApiError({ code: 'TICKET_VALIDATION_RESULT', message: data.message, traceId: '' }, status);
   }
 
   return new ApiError(

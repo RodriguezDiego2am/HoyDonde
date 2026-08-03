@@ -23,8 +23,8 @@ Este archivo evita repetir DTOs completos, inventarios de archivos, pseudocódig
 | Frontend 0 | Cerrada | Expo 54 + Firebase Auth real + `/api/auth/sync`; validado a mano en dispositivo físico; suite: 396/396 |
 | Frontend 1 | Cerrada | Catálogo, compra de demostración y Mis entradas con QR; validado a mano en Expo Go contra API/Firestore reales |
 | Frontend 2 | Cerrada (circuito mínimo) | Alta de Organizador, ciclo de vida de eventos y alta/asignación de Control; validado a mano en Expo Go |
-| Frontend 3 | Pendiente (parcial) | Login de Control por usuario y lista de eventos asignados listos; escaneo/validación de tickets pendiente |
-| Frontend 4–5 | Pendiente | Administración avanzada (roles/usuarios) y cierre general |
+| Frontend 3 | Cerrada | Validación de Control por QR (`expo-camera`) e ingreso manual, verificada end-to-end con cámara física, API y Firestore reales; recorrido real de los cuatro perfiles (Admin, Organizador, Cliente, Control) completado |
+| Frontend 4–5 | Pendiente | Administración avanzada de roles/acciones, filtros de eventos, reportes y QA final |
 
 Al cerrar una etapa se actualizan únicamente esta tabla, su breve resultado y la última verificación. No se conserva un diario de implementación dentro de este archivo.
 
@@ -314,16 +314,14 @@ La identidad se aplica durante Frontend 0; no requiere otro documento extenso ni
 
 **Alcance**
 
-- Lista de eventos asignados.
-- Selección de evento.
-- Escaneo QR si la dependencia elegida funciona correctamente en Expo Go; entrada manual siempre disponible.
-- Resultado claro para éxito, usado, anulado, evento cancelado/finalizado o falta de permiso.
+- Experiencia exclusiva para una cuenta cuyas acciones efectivas son únicamente `TICKET_VALIDAR` (decidido por acción, nunca por rol): sin Cartelera, Mis entradas, Perfil ni barra de tabs.
+- Escaneo QR con `expo-camera`, reutilizando el payload `{ticketId, eventId}` de Frontend 1.
+- Ingreso manual como alternativa siempre disponible, con el mismo servicio y lock anti-repetición que el escáner.
+- Resultado claro para éxito, usado, anulado, evento cancelado/finalizado, falta de permiso o ticket/evento inexistente; la API decide siempre, nunca el cliente.
 
-**Cierre**
+**Cierre — validado a mano.** Con cámara física, Firebase, API y Firestore reales: una cuenta Control exclusiva es redirigida a su interfaz específica y no muestra Cartelera/Mis entradas/Perfil/tabs; escanea el QR real de un ticket y la primera lectura lo valida y consume; la segunda lectura del mismo QR se rechaza como ya utilizada; el ingreso manual valida otro ticket y su repetición también se rechaza como ya utilizado; logout y navegación funcionan.
 
-Un Control selecciona un evento y valida un ticket; el segundo intento se rechaza claramente.
-
-**Progreso parcial validado a mano:** login por nombre de usuario (resuelto internamente al mismo email sintético que arma el backend) y lista de eventos asignados (`GET /api/events/control/me`) funcionan en Expo Go. Escaneo/validación de tickets queda pendiente para la siguiente etapa.
+**Riesgo aceptado:** el ingreso manual exige `ticketId`/`eventId` completos (largos). Mejora futura evaluada, no implementada: un `CodigoValidacion` corto, único y generado por backend.
 
 ### Frontend 4 — Administrador
 
