@@ -156,6 +156,10 @@ export default function ProfileScreen() {
             {permisosError ? <Text style={styles.errorText}>{permisosError}</Text> : null}
           </View>
 
+          <View style={styles.refreshPermisosRow}>
+            <ActionButton label="Cambiar contraseña" variant="ghost" onPress={() => router.push('/account/security' as Href)} />
+          </View>
+
           <View style={styles.logoutRow}>
             <ActionButton label="Cerrar sesión" variant="ghost" onPress={handleLogout} />
           </View>

@@ -99,7 +99,7 @@ Firebase UID
 - Cada `[Authorize(Policy = "ACCION_CODIGO")]` se resuelve exclusivamente vía `AccionAuthorizationHandler` → `IPermissionService.TieneAccionAsync`, que recorre esa cadena completa en Firestore. **Nada lee un claim para autorizar.**
 - Un `Usuario` puede tener varios roles; un `Rol` puede otorgar varias acciones.
 - Si el `Usuario` está inactivo (`IsActive == false`), o la asignación de rol está inactiva, o el `Rol` está inactivo, o la `Accion` está inactiva, `TieneAccionAsync` devuelve `false` y el handler simplemente no llama a `context.Succeed(...)` — ASP.NET deniega por default, sin excepción ni 500. Esto es lo que hace que **un Usuario desactivado reciba 403 en cualquier endpoint protegido**, sin lógica adicional en el controller.
-- El catálogo tiene exactamente **23 acciones** (`Authorization/Acciones.cs`), sembradas por `SecurityCatalogSeeder` en 4 roles iniciales: `ADMINISTRADOR`, `ORGANIZADOR`, `CLIENTE`, `CONTROL`. Roles y acciones son entidades Firestore administrables (`/api/security`, §9), no enums ni constantes de código. `REPORTE_VER_GLOBAL` (`ADMINISTRADOR`) y `REPORTE_VER_PROPIO` (`ORGANIZADOR`) son del módulo de reportes (§15); `ROL_ELIMINAR` (`ADMINISTRADOR`) es de la baja física de roles (§10.1).
+- El catálogo tiene exactamente **24 acciones** (`Authorization/Acciones.cs`), sembradas por `SecurityCatalogSeeder` en 4 roles iniciales: `ADMINISTRADOR`, `ORGANIZADOR`, `CLIENTE`, `CONTROL`. Roles y acciones son entidades Firestore administrables (`/api/security`, §9), no enums ni constantes de código. `REPORTE_VER_GLOBAL` (`ADMINISTRADOR`) y `REPORTE_VER_PROPIO` (`ORGANIZADOR`) son del módulo de reportes (§15); `ROL_ELIMINAR` (`ADMINISTRADOR`) es de la baja física de roles (§10.1); `USUARIO_RESTABLECER_PASSWORD` (`ADMINISTRADOR`) es de la recuperación de contraseña (§16).
 - Una policy concedida **nunca es suficiente por sí sola** para tocar el recurso de otro actor: cada operación vuelve a leer el dueño/asignación real desde Firestore y lo compara contra el `PersonaId` del actor autenticado (`IAuthenticatedPersonaResolver`, §5). Ejemplos: `EVENTO_PUBLICAR_PROPIO` no alcanza para publicar el evento de otro organizador; `TICKET_VALIDAR` no alcanza para validar tickets de un evento al que ese Control no está asignado.
 
 ---
@@ -473,6 +473,7 @@ Roles y acciones son entidades Firestore administrables, no constantes de códig
 | `GET /api/security/usuarios/{usuarioId}/permisos-efectivos` | `USUARIO_VER_PERMISOS_EFECTIVOS` | Roles/acciones efectivas resueltas en vivo. |
 | `POST /api/security/usuarios/{usuarioId}/activar` | `USUARIO_DESACTIVAR` | Activa un usuario. |
 | `POST /api/security/usuarios/{usuarioId}/desactivar` | `USUARIO_DESACTIVAR` | Desactiva un usuario (mismo guard del último Administrador). |
+| `POST /api/security/usuarios/{usuarioId}/password-reset-link` | `USUARIO_RESTABLECER_PASSWORD` | Genera un enlace de recuperación de contraseña de Firebase para ese usuario. Ver §16. |
 
 Toda mutación que dejaría el sistema sin **ningún** Administrador efectivo se rechaza transaccionalmente (`UltimoAdministradorException` → 409), evaluado dentro de la misma transacción de Firestore que intentaría el cambio — nunca se llega a escribir el estado inválido. Solo una mutación que **efectivamente ocurrió** genera un registro en `security_audits`; una operación no-op idempotente nunca audita.
 
@@ -547,6 +548,7 @@ Todo error de este API (excepción de dominio tipada, `ModelState` inválido, o 
 | 409 | `ROL_PROTEGIDO` | Baja física de uno de los 4 roles esenciales |
 | 409 | `ROL_DEBE_ESTAR_INACTIVO` | Baja física de un rol todavía activo |
 | 409 | `ROL_TIENE_USUARIOS_ASIGNADOS` | Baja física de un rol con al menos una `UsuarioRol` (activa o inactiva) |
+| 409 | `USER_IDENTITY_NOT_RECOVERABLE` | El Usuario no tiene una identidad de Firebase recuperable (§16) |
 | 500 | `UNEXPECTED_ERROR` | Cualquier excepción no anticipada |
 
 `403 Forbidden` "puro" (sin body de `ErrorResponse`, generado directamente por el middleware de autorización de ASP.NET) ocurre cuando el actor está autenticado pero la policy nunca llega a `Succeed` — por ejemplo, un `Usuario` desactivado, o uno sin la acción concedida. `401 Unauthorized` ocurre cuando no hay identidad autenticada en absoluto (sin header `Authorization`, o token inválido/expirado).
@@ -604,7 +606,6 @@ Explícitamente no implementadas (`docs/api-mvp-plan.md` §10) — no asumir que
 - Transición `Finalizado` persistida vía job/scheduler (permanece derivada indefinidamente).
 - Endpoint de "desasignar" un Control de un evento.
 - Edición de un evento después de publicado (ni siquiera parcial).
-- Recuperación de contraseña vía UI del frontend.
 - Pantallas más allá del alcance de Frontend 0 (catálogo, login, registro de Cliente, perfil/logout) — Frontend 1–5 (`docs/api-mvp-plan.md` §7) permanecen pendientes; ver `CLAUDE.md`, "Frontend status".
 
 ---
@@ -720,3 +721,85 @@ Agregado a `firestore.indexes.json`, probado contra el Firestore Emulator y **de
 ### Estado
 
 Módulo completo (Organizador + Admin eventos + auditoría de seguridad + frontend + PDF), verificado contra Firestore Emulator real: **505 passed, 0 failed, 0 skipped** (suite completa; 2 tests de concurrencia no relacionados con este módulo son intermitentes bajo contención de la suite completa, verificados en verde de forma aislada). Frontend: `npm test` 408 passed, `npm run typecheck`/`npm run lint` limpios, `npx expo-doctor` 18/18, `npx expo export --platform android` exitoso, y **verificado a mano en Expo Go contra la API/Firestore reales** (ambos reportes de eventos y sus filtros, métricas coherentes, auditoría de seguridad y sus filtros, los tres PDF generándose/abriéndose/compartiéndose correctamente, Cliente/Control sin ningún acceso a reportes) — sin errores encontrados. **El módulo de reportes queda cerrado por completo.**
+
+---
+
+## 16. Recuperación y cambio de contraseña (docs/api-mvp-plan.md §13)
+
+Tres flujos distintos, todos exclusivamente vía Firebase Authentication. El Administrador **nunca** ve ni establece la contraseña actual o nueva de otro usuario; no existe password temporal ni "forzar cambio al próximo login".
+
+### 16.1. Recuperación pública ("Olvidé mi contraseña")
+
+Firebase Client SDK exclusivamente (`sendPasswordResetEmail`) — **nunca** pasa por esta API. El frontend siempre muestra el mismo mensaje prudente ("Si existe una cuenta asociada, recibirás instrucciones para restablecerla"), incluso cuando Firebase responde `auth/user-not-found`/`auth/invalid-email`: nunca revela si un email está registrado.
+
+Este flujo **no es una vía real de recuperación para una cuenta Control**: su email es sintético (`{userName}@control.hoydonde.com`, `UserService.cs`), un dominio que nunca recibió ni recibe correo real — no existe una casilla que reciba el instructivo, aunque Firebase acepte la solicitud sin error. Por eso el frontend muestra siempre, además del mensaje prudente, un aviso fijo dirigiendo a Control hacia el Administrador (§16.3). Ver §16.8 para el resumen completo de las opciones reales de una cuenta Control.
+
+### 16.2. Cambio autenticado (`/account/security` en el frontend)
+
+Firebase Client SDK exclusivamente — `EmailAuthProvider.credential` + `reauthenticateWithCredential` + `updatePassword` sobre `auth.currentUser` — **nunca** pasa por esta API. Sin sesión Firebase vigente, la pantalla pide reiniciar sesión en vez de intentar la operación. Según cómo lo maneje Firebase, la sesión actual puede seguir activa después de `updatePassword`, o Firebase puede exigir un nuevo login (`auth/requires-recent-login`); ninguno de los dos comportamientos está garantizado por este backend. Funciona igual para una cuenta Control, que **puede** cambiar su propia contraseña por esta vía siempre que conozca la actual (§16.8) — este flujo nunca depende de recibir un email.
+
+### 16.3. `POST /api/security/usuarios/{usuarioId}/password-reset-link` — Policy: `USUARIO_RESTABLECER_PASSWORD`
+
+Único punto de este flujo que sí pasa por la API: un Administrador (o cualquier rol con esta acción) genera un enlace de recuperación de Firebase para **otro** usuario, sin conocer ni establecer su contraseña.
+
+```
+POST /api/security/usuarios/{usuarioId}/password-reset-link
+Authorize: USUARIO_RESTABLECER_PASSWORD
+```
+
+Sin body. `usuarioId` es siempre el identificador interno (nunca el UID de Firebase).
+
+Reglas:
+
+1. Resuelve el `Usuario` por `usuarioId` (404 `USER_NOT_FOUND` si no existe).
+2. Exige `Usuario.IdentityProvider == "FIREBASE"` y `Usuario.ExternalSubjectId` no vacío — si no, 409 `USER_IDENTITY_NOT_RECOVERABLE` (mensaje deliberadamente genérico, no distingue causa exacta).
+3. Llama a `IIdentityProvider.GeneratePasswordResetLinkAsync(externalSubjectId)` (`FirebaseIdentityProvider`, ya existía desde el refactor de seguridad, sin usar hasta este cierre): resuelve el email real internamente contra Firebase a partir del `ExternalSubjectId` — **nunca** un email recibido del cliente ni leído del body.
+4. No recibe ni genera una contraseña temporal.
+5. Funciona igual para una cuenta Control (email sintético): el Administrador nunca necesita conocer ese email.
+
+`200 OK`:
+
+```json
+{ "resetLink": "https://..." }
+```
+
+Nunca expone `UsuarioId`, `ExternalSubjectId`, `PersonaId` ni ningún otro dato interno — solo el enlace. El enlace **no se persiste** en ningún lado del backend; el frontend lo muestra al Administrador una única vez para que lo comparta manualmente (no hay infraestructura de correo propia que lo envíe).
+
+### 16.4. Auditoría
+
+Solo tras un `200 OK`, se escribe una entrada en `security_audits`:
+
+```json
+{ "operacion": "USUARIO_GENERAR_RESET_PASSWORD", "targetTipo": "Usuario", "targetId": "usuario-...", "detalle": "" }
+```
+
+`Detalle` es siempre vacío: nunca contiene el email ni el enlace. La auditoría nunca afirma que la contraseña fue cambiada — solo que se generó un enlace. Un fallo de `GeneratePasswordResetLinkAsync` (paso 3 de §16.3) nunca llega a escribir esta auditoría.
+
+**Limitación transaccional real, documentada, no inventada:** generar el enlace (Firebase Auth, sistema externo) y escribir la auditoría (Firestore) son dos escrituras independientes — no existe una transacción distribuida entre ambos sistemas. Si el proceso cae justo entre las dos, el enlace ya fue emitido por Firebase pero la auditoría puede faltar; nunca al revés.
+
+### 16.5. Acción nueva y comando para Firestore real ya existente
+
+`Authorization/Acciones.cs` suma `USUARIO_RESTABLECER_PASSWORD` — 23 → 24 acciones. `SecurityCatalogSeeder` la asigna únicamente a `ADMINISTRADOR`, solo para instalaciones nuevas (dev/test/emulador).
+
+```bash
+dotnet run --project HoyDonde.API -- seed-password-reset-action
+```
+
+Crea únicamente la Accion `USUARIO_RESTABLECER_PASSWORD` (idempotente, informa "creada" o "ya existente", código de salida 0). **Nunca** crea/edita roles, **nunca** asigna la acción a un rol, **nunca** toca usuarios. El Administrador la asigna a los roles que decida desde `/api/security` después de correr el comando, igual patrón que `seed-report-actions`/`seed-role-deletion-action`. **Este comando no se ejecutó contra Firebase/Firestore real (`hoydonde-f5a05`) en este cierre** — cualquier instalación existente (incluida esa) debe correrlo y asignar la acción antes de poder usar el flujo §16.3 contra datos reales.
+
+### 16.6. Frontend
+
+- **Login** (`screens/LoginScreen.tsx`): enlace "¿Olvidaste tu contraseña?" abre `components/auth/ForgotPasswordModal.tsx` (§16.1).
+- **`/account/security`** (`app/account/security.tsx` → `screens/account/ChangePasswordScreen.tsx`, §16.2): ruta universal fuera de las tabs. Accesible desde Perfil (`app/(tabs)/explore.tsx`, "Cambiar contraseña") para cuentas normales, y desde `ControlHubScreen` (enlace discreto) para el Control exclusivo — sin reintroducir Cartelera/Mis entradas/Perfil en su experiencia. Cada campo de contraseña usa `components/PasswordFormInput.tsx` (mostrar/ocultar).
+- **`UsuarioDetailScreen`** (admin, §16.3): sección "Recuperación de contraseña" gateada exclusivamente por `hasAccion(ACCIONES.USUARIO_RESTABLECER_PASSWORD)` — nunca por rol. Pide confirmación, bloquea doble envío, llama al endpoint con el `usuarioId` interno, muestra el enlace una única vez (nunca lo registra), permite compartirlo con `Share.share` de React Native (no se agregó ninguna dependencia de portapapeles — ninguna estaba ya disponible en el proyecto), permite descartarlo, y lo limpia del estado al desmontar la pantalla.
+
+### 16.7. Estado
+
+Backend **549 passed, 0 failed, 0 skipped** (suite completa, Firestore Emulator real). Frontend **440 passed** (`npm test`), `npm run typecheck`/`npm run lint` limpios, `npx expo-doctor` 18/18, `npx expo export --platform android` exitoso. **No se ejecutó nada contra Firebase/Firestore real** en este cierre (§16.5) — pendiente para cualquier instalación existente.
+
+### 16.8. Resumen: qué puede hacer realmente una cuenta Control
+
+Sin ambigüedad, las dos únicas vías reales para una cuenta Control:
+
+- **Conoce su contraseña actual:** puede cambiarla ella misma en `/account/security` (§16.2) — funciona exactamente igual que para cualquier otra cuenta, nunca depende de recibir un email.
+- **La olvidó:** no puede autorecuperarla por "Olvidé mi contraseña" (§16.1) — su email sintético no es una casilla real, nadie recibe ese correo aunque Firebase acepte la solicitud. Necesita que el Administrador genere el enlace (§16.3) desde `UsuarioDetailScreen` y se lo comparta manualmente (por el canal que corresponda, fuera de esta API).

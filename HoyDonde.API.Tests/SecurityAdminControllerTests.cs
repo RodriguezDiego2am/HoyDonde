@@ -1,3 +1,4 @@
+using System;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -31,7 +32,8 @@ namespace HoyDonde.API.Tests
 
             _factory.GrantAccion(ActorUid, "usuario-security-admin-test", "persona-security-admin-test",
                 Acciones.RolCrear, Acciones.RolEditar, Acciones.RolActivar, Acciones.RolAsignarAccion, Acciones.RolQuitarAccion, Acciones.RolEliminar,
-                Acciones.UsuarioAsignarRol, Acciones.UsuarioQuitarRol, Acciones.UsuarioVerPermisosEfectivos, Acciones.UsuarioDesactivar);
+                Acciones.UsuarioAsignarRol, Acciones.UsuarioQuitarRol, Acciones.UsuarioVerPermisosEfectivos, Acciones.UsuarioDesactivar,
+                Acciones.UsuarioRestablecerPassword);
         }
 
         private static HttpRequestMessage SinAccion(HttpMethod method, string path)
@@ -499,6 +501,70 @@ namespace HoyDonde.API.Tests
             var response = await _client.PostAsync("/api/security/usuarios/no-existe/desactivar", null);
 
             Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        // ---- Enlace de recuperación de contraseña (docs/api-mvp-plan.md §13) ----
+
+        [Fact]
+        public async Task GenerarPasswordResetLink_ConAccionUsuarioRestablecerPassword_ReturnsOk()
+        {
+            _factory.MockSecurityAdminService
+                .Setup(s => s.GenerarPasswordResetLinkAsync(ActorUid, "usuario-1"))
+                .ReturnsAsync(new PasswordResetLinkResponseDto { ResetLink = "https://firebase.example/reset?oobCode=abc" });
+
+            var response = await _client.PostAsync("/api/security/usuarios/usuario-1/password-reset-link", null);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<PasswordResetLinkResponseDto>();
+            Assert.Equal("https://firebase.example/reset?oobCode=abc", body!.ResetLink);
+        }
+
+        [Fact]
+        public async Task GenerarPasswordResetLink_SinAccionUsuarioRestablecerPassword_ReturnsForbidden()
+        {
+            var response = await _client.SendAsync(SinAccion(HttpMethod.Post, "/api/security/usuarios/usuario-1/password-reset-link"));
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GenerarPasswordResetLink_UsuarioInexistente_ReturnsNotFound()
+        {
+            _factory.MockSecurityAdminService
+                .Setup(s => s.GenerarPasswordResetLinkAsync(ActorUid, "no-existe"))
+                .ThrowsAsync(new UsuarioNoEncontradoException("no-existe"));
+
+            var response = await _client.PostAsync("/api/security/usuarios/no-existe/password-reset-link", null);
+
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GenerarPasswordResetLink_SinIdentidadFirebaseRecuperable_ReturnsConflict()
+        {
+            _factory.MockSecurityAdminService
+                .Setup(s => s.GenerarPasswordResetLinkAsync(ActorUid, "usuario-sin-firebase"))
+                .ThrowsAsync(new UsuarioSinIdentidadRecuperableException("usuario-sin-firebase"));
+
+            var response = await _client.PostAsync("/api/security/usuarios/usuario-sin-firebase/password-reset-link", null);
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GenerarPasswordResetLink_ResponseBody_NuncaExponeIdentificadoresInternos()
+        {
+            _factory.MockSecurityAdminService
+                .Setup(s => s.GenerarPasswordResetLinkAsync(ActorUid, "usuario-1"))
+                .ReturnsAsync(new PasswordResetLinkResponseDto { ResetLink = "https://firebase.example/reset?oobCode=abc" });
+
+            var response = await _client.PostAsync("/api/security/usuarios/usuario-1/password-reset-link", null);
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.DoesNotContain("usuarioId", body, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("personaId", body, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("externalSubjectId", body, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("uid", body, StringComparison.OrdinalIgnoreCase);
         }
     }
 }

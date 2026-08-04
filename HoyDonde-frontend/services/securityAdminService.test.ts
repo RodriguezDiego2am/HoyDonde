@@ -114,4 +114,15 @@ describe('securityAdminService', () => {
     await securityAdminService.setUsuarioActivo('usuario-1', false);
     expect(postSpy).toHaveBeenCalledWith('/security/usuarios/usuario-1/desactivar');
   });
+
+  it('generarPasswordResetLink llama a POST /security/usuarios/{usuarioId}/password-reset-link con el UsuarioId interno', async () => {
+    const postSpy = jest
+      .spyOn(apiClient, 'post')
+      .mockResolvedValue({ data: { resetLink: 'https://firebase.example/reset?oobCode=abc' } } as any);
+
+    const result = await securityAdminService.generarPasswordResetLink('usuario-1');
+
+    expect(postSpy).toHaveBeenCalledWith('/security/usuarios/usuario-1/password-reset-link');
+    expect(result).toEqual({ resetLink: 'https://firebase.example/reset?oobCode=abc' });
+  });
 });

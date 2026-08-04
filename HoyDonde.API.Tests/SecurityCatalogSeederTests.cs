@@ -39,6 +39,9 @@ namespace HoyDonde.API.Tests
             // instalaciones nuevas.
             accionRepository.Verify(r => r.CreateAsync(It.Is<Accion>(x => x.Codigo == "REPORTE_VER_GLOBAL")), Times.Once);
             accionRepository.Verify(r => r.CreateAsync(It.Is<Accion>(x => x.Codigo == "REPORTE_VER_PROPIO")), Times.Once);
+            // Recuperación de contraseña (docs/api-mvp-plan.md §13): 23 -> 24 acciones para
+            // instalaciones nuevas.
+            accionRepository.Verify(r => r.CreateAsync(It.Is<Accion>(x => x.Codigo == "USUARIO_RESTABLECER_PASSWORD")), Times.Once);
 
             rolRepository.Verify(r => r.AssignAccionAsync("CONTROL", "TICKET_VALIDAR", SecurityCatalogSeeder.SeedActor), Times.Once);
             rolRepository.Verify(r => r.AssignAccionAsync("CLIENTE", "TICKET_COMPRAR", SecurityCatalogSeeder.SeedActor), Times.Once);
@@ -50,6 +53,13 @@ namespace HoyDonde.API.Tests
             // REPORTE_VER_GLOBAL, ni ADMINISTRADOR ve REPORTE_VER_PROPIO.
             rolRepository.Verify(r => r.AssignAccionAsync("ORGANIZADOR", "REPORTE_VER_GLOBAL", It.IsAny<string>()), Times.Never);
             rolRepository.Verify(r => r.AssignAccionAsync("ADMINISTRADOR", "REPORTE_VER_PROPIO", It.IsAny<string>()), Times.Never);
+
+            // USUARIO_RESTABLECER_PASSWORD (docs/api-mvp-plan.md §13) se asigna únicamente a
+            // ADMINISTRADOR -nunca a ORGANIZADOR/CLIENTE/CONTROL- para instalaciones nuevas.
+            rolRepository.Verify(r => r.AssignAccionAsync("ADMINISTRADOR", "USUARIO_RESTABLECER_PASSWORD", SecurityCatalogSeeder.SeedActor), Times.Once);
+            rolRepository.Verify(r => r.AssignAccionAsync("ORGANIZADOR", "USUARIO_RESTABLECER_PASSWORD", It.IsAny<string>()), Times.Never);
+            rolRepository.Verify(r => r.AssignAccionAsync("CLIENTE", "USUARIO_RESTABLECER_PASSWORD", It.IsAny<string>()), Times.Never);
+            rolRepository.Verify(r => r.AssignAccionAsync("CONTROL", "USUARIO_RESTABLECER_PASSWORD", It.IsAny<string>()), Times.Never);
         }
 
         [Fact]

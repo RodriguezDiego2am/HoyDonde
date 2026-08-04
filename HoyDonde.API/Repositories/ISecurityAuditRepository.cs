@@ -14,5 +14,14 @@ namespace HoyDonde.API.Repositories
         // campo simple): Operacion/ActorUsuarioId/TargetTipo/TargetId se filtran en memoria en el
         // servicio, sobre este conjunto ya acotado por rango. Orden descendente por Timestamp.
         Task<IReadOnlyList<SecurityAudit>> GetByRangoAsync(DateTime desde, DateTime hasta);
+
+        // Escritura standalone, SIN transacción Firestore emparejada (docs/api-mvp-plan.md §13):
+        // usada exclusivamente cuando la mutación auditada ocurrió en un sistema externo (Firebase
+        // Auth generando un enlace de reseteo de contraseña), nunca en Firestore -no existe una
+        // transacción distribuida entre Firebase Auth y Firestore, así que esto NO es atómico con
+        // la llamada a Firebase que la precede: si el proceso cae justo entre ambas, el enlace ya
+        // fue emitido por Firebase pero esta auditoría puede faltar-. SecurityAuditWriter sigue
+        // siendo el único camino para auditorías que sí acompañan una mutación Firestore real.
+        Task RegistrarAsync(SecurityAudit entry);
     }
 }

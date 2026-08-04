@@ -6,6 +6,7 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 import { ActionButton } from '@/components/ui/ActionButton';
 import { AuthShell } from '@/components/ui/AuthShell';
+import { ForgotPasswordModal } from '@/components/auth/ForgotPasswordModal';
 import { colors, fonts, spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { describeFirebaseAuthError } from '@/utils/firebaseAuthErrors';
@@ -22,6 +23,7 @@ export default function LoginScreen() {
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [forgotPasswordVisible, setForgotPasswordVisible] = useState(false);
 
   const validate = () => {
     const newErrors: { email?: string; password?: string } = {};
@@ -73,6 +75,12 @@ export default function LoginScreen() {
 
       {formError ? <Text style={styles.formError}>{formError}</Text> : null}
 
+      <View style={styles.forgotPasswordRow}>
+        <TouchableOpacity onPress={() => setForgotPasswordVisible(true)}>
+          <Text style={styles.forgotPasswordLink}>¿Olvidaste tu contraseña?</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.buttonContainer}>
         <ActionButton label="Ingresar" onPress={handleLogin} loading={loading} />
       </View>
@@ -84,6 +92,8 @@ export default function LoginScreen() {
           <MaterialIcons name="north-east" size={14} color={colors.cobalt} />
         </TouchableOpacity>
       </View>
+
+      <ForgotPasswordModal visible={forgotPasswordVisible} onClose={() => setForgotPasswordVisible(false)} />
     </AuthShell>
   );
 }
@@ -93,6 +103,16 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     color: colors.error,
     marginBottom: spacing.md,
+  },
+  forgotPasswordRow: {
+    alignItems: 'flex-end',
+    marginTop: spacing.xs,
+  },
+  forgotPasswordLink: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: colors.cobalt,
+    textDecorationLine: 'underline',
   },
   buttonContainer: {
     marginTop: spacing.sm,

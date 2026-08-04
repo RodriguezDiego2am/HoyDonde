@@ -38,5 +38,12 @@ namespace HoyDonde.API.Services
         Task<PermisosEfectivosResponseDto> ConsultarPermisosEfectivosAsync(string usuarioId);
 
         Task SetUsuarioActivoAsync(string actorExternalSubjectId, string usuarioId, bool activo);
+
+        // Recuperación de contraseña asistida por Administrador (docs/api-mvp-plan.md §13, policy
+        // USUARIO_RESTABLECER_PASSWORD): nunca recibe ni genera una contraseña, solo devuelve el
+        // enlace de reseteo que Firebase genera para el email real ya persistido del Usuario
+        // -nunca un email recibido del cliente-. El Administrador nunca ve ni establece la
+        // contraseña actual o nueva de otro usuario.
+        Task<PasswordResetLinkResponseDto> GenerarPasswordResetLinkAsync(string actorExternalSubjectId, string usuarioId);
     }
 }

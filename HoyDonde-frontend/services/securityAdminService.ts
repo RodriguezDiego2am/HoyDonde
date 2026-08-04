@@ -34,6 +34,11 @@ export interface PermisosEfectivosResponse {
   acciones: string[];
 }
 
+/** Espejo de PasswordResetLinkResponseDto — el enlace se muestra al Administrador una única vez, nunca se persiste. */
+export interface PasswordResetLinkResponse {
+  resetLink: string;
+}
+
 export interface CreateRolPayload {
   codigo: string;
   nombre: string;
@@ -125,5 +130,16 @@ export const securityAdminService = {
   /** POST /api/security/usuarios/{usuarioId}/activar o /desactivar — Policy USUARIO_DESACTIVAR. Mismo guard del último Administrador. */
   setUsuarioActivo: async (usuarioId: string, activo: boolean): Promise<void> => {
     await apiClient.post(`/security/usuarios/${usuarioId}/${activo ? 'activar' : 'desactivar'}`);
+  },
+
+  /**
+   * POST /api/security/usuarios/{usuarioId}/password-reset-link — Policy
+   * USUARIO_RESTABLECER_PASSWORD. El backend nunca recibe ni genera una contraseña: solo devuelve
+   * el enlace de reseteo de Firebase para el email real ya persistido de ese usuario. Siempre con
+   * el UsuarioId interno, nunca el Firebase UID.
+   */
+  generarPasswordResetLink: async (usuarioId: string): Promise<PasswordResetLinkResponse> => {
+    const response = await apiClient.post<PasswordResetLinkResponse>(`/security/usuarios/${usuarioId}/password-reset-link`);
+    return response.data;
   },
 };

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 
 import { ActionButton } from '@/components/ui/ActionButton';
@@ -57,6 +57,18 @@ function estadoErrorMessage(error: unknown): string {
   return 'No se pudo actualizar el estado del usuario. Verificá tu conexión.';
 }
 
+function resetLinkErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.code === 'USER_NOT_FOUND') return 'Este usuario ya no existe.';
+    if (error.code === 'USER_IDENTITY_NOT_RECOVERABLE') {
+      return 'Este usuario no tiene una identidad de Firebase recuperable.';
+    }
+    if (error.isForbidden) return 'No tenés permiso para generar un enlace de recuperación.';
+    return error.message || 'No se pudo generar el enlace de recuperación.';
+  }
+  return 'No se pudo generar el enlace de recuperación. Verificá tu conexión.';
+}
+
 /**
  * Detalle de un Usuario (API_Documentation.md §10): roles activos, permisos efectivos resueltos
  * en vivo, y sus mutaciones (asignar/quitar rol, activar/desactivar). Nunca muestra UsuarioId,
@@ -72,6 +84,7 @@ export default function UsuarioDetailScreen() {
   const puedeDesactivar = hasAccion(ACCIONES.USUARIO_DESACTIVAR);
   const puedeVerRolesCatalogo = hasAccion(ACCIONES.ROL_EDITAR);
   const puedeVerAccionesCatalogo = hasAccion(ACCIONES.ROL_ASIGNAR_ACCION);
+  const puedeRestablecerPassword = hasAccion(ACCIONES.USUARIO_RESTABLECER_PASSWORD);
 
   const [email, setEmail] = useState<string | null>(null);
   const [permisos, setPermisos] = useState<PermisosEfectivosResponse | null>(null);
@@ -88,6 +101,19 @@ export default function UsuarioDetailScreen() {
   const [confirmToggleEstado, setConfirmToggleEstado] = useState(false);
   const [togglingEstado, setTogglingEstado] = useState(false);
   const [estadoError, setEstadoError] = useState<string | null>(null);
+
+  const [confirmResetLink, setConfirmResetLink] = useState(false);
+  const [generatingResetLink, setGeneratingResetLink] = useState(false);
+  const [resetLink, setResetLink] = useState<string | null>(null);
+  const [resetLinkError, setResetLinkError] = useState<string | null>(null);
+
+  // El enlace nunca sobrevive a la pantalla: se elimina del estado apenas se desmonta (además de
+  // poder descartarse manualmente con "Cerrar"), nunca queda en navegación ni en AsyncStorage.
+  useEffect(() => {
+    return () => {
+      setResetLink(null);
+    };
+  }, []);
 
   const load = useCallback(async () => {
     if (!usuarioId) return;
@@ -204,6 +230,30 @@ export default function UsuarioDetailScreen() {
     }
   };
 
+  const handleGenerarResetLink = async () => {
+    if (!usuarioId || generatingResetLink) return;
+    setGeneratingResetLink(true);
+    setResetLinkError(null);
+    try {
+      const result = await securityAdminService.generarPasswordResetLink(usuarioId);
+      setResetLink(result.resetLink);
+    } catch (err) {
+      setResetLinkError(resetLinkErrorMessage(err));
+    } finally {
+      setGeneratingResetLink(false);
+      setConfirmResetLink(false);
+    }
+  };
+
+  const handleShareResetLink = async () => {
+    if (!resetLink) return;
+    try {
+      await Share.share({ message: resetLink });
+    } catch {
+      // Cancelado por el usuario o share no disponible en este dispositivo: no es un error a mostrar.
+    }
+  };
+
   if (loadState === 'loading') {
     return (
       <View style={styles.container}>
@@ -300,6 +350,35 @@ export default function UsuarioDetailScreen() {
             ))}
           </View>
         )}
+
+        {puedeRestablecerPassword ? (
+          <>
+            <SectionDivider index="03" label="Recuperación de contraseña" />
+            {resetLink ? (
+              <Surface variant="sand" style={styles.resetLinkCard}>
+                <Text style={styles.resetLinkWarning}>
+                  Cualquier persona con este enlace puede elegir una nueva contraseña. Compartilo únicamente con el
+                  titular.
+                </Text>
+                <Text selectable style={styles.resetLinkValue}>
+                  {resetLink}
+                </Text>
+                <View style={styles.resetLinkActions}>
+                  <ActionButton label="Compartir" variant="secondary" onPress={handleShareResetLink} />
+                  <ActionButton label="Descartar" variant="ghost" onPress={() => setResetLink(null)} />
+                </View>
+              </Surface>
+            ) : (
+              <ActionButton
+                label="Generar enlace de recuperación"
+                variant="secondary"
+                onPress={() => setConfirmResetLink(true)}
+                loading={generatingResetLink}
+              />
+            )}
+            {resetLinkError ? <Text style={styles.errorText}>{resetLinkError}</Text> : null}
+          </>
+        ) : null}
       </ScrollView>
 
       <ConfirmDialog
@@ -330,6 +409,16 @@ export default function UsuarioDetailScreen() {
         loading={togglingEstado}
         onConfirm={handleToggleEstado}
         onCancel={() => setConfirmToggleEstado(false)}
+      />
+
+      <ConfirmDialog
+        visible={confirmResetLink}
+        title="Generar enlace de recuperación"
+        message="Vas a generar un enlace de Firebase para que este usuario elija una nueva contraseña. Vos nunca vas a ver ni establecer su contraseña actual o nueva."
+        confirmLabel="Generar"
+        loading={generatingResetLink}
+        onConfirm={handleGenerarResetLink}
+        onCancel={() => setConfirmResetLink(false)}
       />
     </View>
   );
@@ -427,5 +516,23 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.inkSoft,
     marginTop: 1,
+  },
+  resetLinkCard: {
+    gap: spacing.sm,
+  },
+  resetLinkWarning: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: colors.error,
+    lineHeight: 18,
+  },
+  resetLinkValue: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: colors.ink,
+  },
+  resetLinkActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
 });

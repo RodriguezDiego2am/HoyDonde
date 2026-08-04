@@ -23,17 +23,23 @@ namespace HoyDonde.API.Services
         private readonly IUsuarioRepository _usuarioRepository;
         private readonly IAccionRepository _accionRepository;
         private readonly IPermissionService _permissionService;
+        private readonly IIdentityProvider _identityProvider;
+        private readonly ISecurityAuditRepository _securityAuditRepository;
 
         public SecurityAdminService(
             IRolRepository rolRepository,
             IUsuarioRepository usuarioRepository,
             IAccionRepository accionRepository,
-            IPermissionService permissionService)
+            IPermissionService permissionService,
+            IIdentityProvider identityProvider,
+            ISecurityAuditRepository securityAuditRepository)
         {
             _rolRepository = rolRepository;
             _usuarioRepository = usuarioRepository;
             _accionRepository = accionRepository;
             _permissionService = permissionService;
+            _identityProvider = identityProvider;
+            _securityAuditRepository = securityAuditRepository;
         }
 
         public async Task<RolResponseDto> CrearRolAsync(string actorExternalSubjectId, CreateRolRequestDto request)
@@ -183,6 +189,32 @@ namespace HoyDonde.API.Services
             var audit = NuevoAudit(actor, activo ? "USUARIO_ACTIVAR" : "USUARIO_DESACTIVAR", "Usuario", usuarioId, $"activo={activo}");
 
             await _usuarioRepository.SetActivoAsync(usuarioId, activo, audit);
+        }
+
+        public async Task<PasswordResetLinkResponseDto> GenerarPasswordResetLinkAsync(string actorExternalSubjectId, string usuarioId)
+        {
+            var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
+            if (usuario == null) throw new UsuarioNoEncontradoException(usuarioId);
+
+            if (usuario.IdentityProvider != FirebaseIdentityProvider.ProviderName || string.IsNullOrEmpty(usuario.ExternalSubjectId))
+            {
+                throw new UsuarioSinIdentidadRecuperableException(usuarioId);
+            }
+
+            var actor = await ResolveActorAsync(actorExternalSubjectId);
+
+            // Generar el enlace (Firebase, sistema externo) y auditar (Firestore) son dos escrituras
+            // independientes -nunca una transacción distribuida-: si el proceso cae justo entre
+            // ambas, el enlace ya fue emitido por Firebase pero la auditoría puede faltar. Nunca al
+            // revés: si esta llamada falla, la ejecución nunca llega a auditar un éxito que no
+            // ocurrió.
+            var resetLink = await _identityProvider.GeneratePasswordResetLinkAsync(usuario.ExternalSubjectId);
+
+            // Detalle deliberadamente vacío: nunca el email ni el enlace viajan a security_audits.
+            var audit = NuevoAudit(actor, "USUARIO_GENERAR_RESET_PASSWORD", "Usuario", usuarioId, string.Empty);
+            await _securityAuditRepository.RegistrarAsync(audit);
+
+            return new PasswordResetLinkResponseDto { ResetLink = resetLink };
         }
 
         private static RolResponseDto MapRol(Rol rol, IReadOnlyList<string> acciones) => new()

@@ -67,6 +67,7 @@ namespace HoyDonde.API.Middleware
                 [typeof(RolProtegidoException)] = (HttpStatusCode.Conflict, "ROL_PROTEGIDO", ex => ex.Message),
                 [typeof(RolDebeEstarInactivoException)] = (HttpStatusCode.Conflict, "ROL_DEBE_ESTAR_INACTIVO", ex => ex.Message),
                 [typeof(RolTieneUsuariosAsignadosException)] = (HttpStatusCode.Conflict, "ROL_TIENE_USUARIOS_ASIGNADOS", ex => ex.Message),
+                [typeof(UsuarioSinIdentidadRecuperableException)] = (HttpStatusCode.Conflict, "USER_IDENTITY_NOT_RECOVERABLE", ex => ex.Message),
             };
 
         public ExceptionMiddleware(

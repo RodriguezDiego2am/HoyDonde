@@ -19,6 +19,17 @@ jest.mock('@/context/AuthContext', () => ({
   useAuth: () => ({ loginWithEmail: mockLoginWithEmail }),
 }));
 
+// LoginScreen renderiza ForgotPasswordModal (aunque cerrado), que importa firebase/auth y
+// @/config/firebase — mismo mock que el resto de las pantallas que tocan Firebase Auth. El
+// comportamiento propio del modal (email válido/inválido, mensaje genérico, doble envío, aviso
+// de Control) se cubre en components/auth/ForgotPasswordModal.test.tsx; acá solo se verifica que
+// el link de Login lo abre/cierra.
+const mockSendPasswordResetEmail = jest.fn();
+jest.mock('firebase/auth', () => ({
+  sendPasswordResetEmail: (...args: unknown[]) => (mockSendPasswordResetEmail as any)(...args),
+}));
+jest.mock('@/config/firebase', () => ({ auth: {} }));
+
 describe('LoginScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -140,5 +151,30 @@ describe('LoginScreen', () => {
 
     await waitFor(() => expect(getByText('Email o contraseña incorrectos.')).toBeTruthy());
     expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  describe('"Olvidaste tu contraseña"', () => {
+    it('opens the ForgotPasswordModal', () => {
+      const { getByText, queryByPlaceholderText } = render(<LoginScreen />);
+
+      expect(queryByPlaceholderText('ejemplo@correo.com')).toBeNull();
+
+      fireEvent.press(getByText('¿Olvidaste tu contraseña?'));
+
+      expect(getByText('Recuperar contraseña')).toBeTruthy();
+      expect(getByText('Enviar instrucciones')).toBeTruthy();
+    });
+
+    it('closes on Cancelar without calling Firebase', () => {
+      const { getByText, queryByText } = render(<LoginScreen />);
+
+      fireEvent.press(getByText('¿Olvidaste tu contraseña?'));
+      expect(getByText('Recuperar contraseña')).toBeTruthy();
+
+      fireEvent.press(getByText('Cancelar'));
+
+      expect(queryByText('Recuperar contraseña')).toBeNull();
+      expect(mockSendPasswordResetEmail).not.toHaveBeenCalled();
+    });
   });
 });

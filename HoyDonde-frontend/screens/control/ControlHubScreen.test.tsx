@@ -80,4 +80,12 @@ describe('ControlHubScreen', () => {
     expect(queryByText('Mis entradas')).toBeNull();
     expect(queryByText('Perfil')).toBeNull();
   });
+
+  it('"Cambiar contraseña" navega a /account/security, sin reintroducir Perfil', () => {
+    const { getByText } = render(<ControlHubScreen />);
+
+    fireEvent.press(getByText('Cambiar contraseña'));
+
+    expect(mockPush).toHaveBeenCalledWith('/account/security');
+  });
 });

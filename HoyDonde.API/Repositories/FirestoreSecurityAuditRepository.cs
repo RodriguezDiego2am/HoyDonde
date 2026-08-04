@@ -27,5 +27,10 @@ namespace HoyDonde.API.Repositories
 
             return snapshot.Documents.Select(d => d.ConvertTo<SecurityAudit>()).ToList();
         }
+
+        public async Task RegistrarAsync(SecurityAudit entry)
+        {
+            await _firestore.Collection(CollectionName).Document(entry.Id).CreateAsync(entry);
+        }
     }
 }

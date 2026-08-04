@@ -5,6 +5,17 @@ function extractCode(error: unknown): string {
   return '';
 }
 
+/**
+ * true para códigos de error de Firebase Auth que, de mostrarse tal cual, revelarían si un email
+ * está o no registrado. Usado por el flujo de recuperación pública (Olvidé mi contraseña) para
+ * tratar ese caso exactamente igual que un envío exitoso -nunca confirmar ni negar la existencia
+ * de la cuenta-.
+ */
+export function isAccountEnumerationError(error: unknown): boolean {
+  const code = extractCode(error);
+  return code === 'auth/user-not-found' || code === 'auth/invalid-email';
+}
+
 /** Traduce códigos de error de Firebase Auth a mensajes en español para la UI. */
 export function describeFirebaseAuthError(error: unknown): string {
   switch (extractCode(error)) {

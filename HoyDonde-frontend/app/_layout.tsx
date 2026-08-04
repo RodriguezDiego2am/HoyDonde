@@ -57,6 +57,7 @@ export default function RootLayout() {
         <Stack.Screen name="control/index" />
         <Stack.Screen name="control/scan" />
         <Stack.Screen name="control/manual" />
+        <Stack.Screen name="account/security" />
       </Stack>
     </AuthProvider>
   );

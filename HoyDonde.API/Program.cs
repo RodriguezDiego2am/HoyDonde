@@ -223,6 +223,11 @@ builder.Services.AddScoped<SeedReportActionsCommand>();
 // Accion ROL_ELIMINAR contra un Firestore real ya existente.
 builder.Services.AddScoped<SeedRoleDeletionActionCommand>();
 
+// Recuperación de contraseña asistida por Administrador (docs/api-mvp-plan.md §13): comando
+// dedicado que crea únicamente la Accion USUARIO_RESTABLECER_PASSWORD contra un Firestore real
+// ya existente.
+builder.Services.AddScoped<SeedPasswordResetActionCommand>();
+
 // Reporte Admin de eventos globales y auditoría de seguridad (docs/api-mvp-plan.md §11.3, pasos
 // 3-4): reutilizan ReporteFiltroValidator/ReporteMetricasCalculator (eventos) y agregan la lectura
 // de solo lectura de security_audits.
@@ -273,6 +278,22 @@ if (args.Length > 0 && string.Equals(args[0], "seed-role-deletion-action", Strin
     using (var scope = app.Services.CreateScope())
     {
         var command = scope.ServiceProvider.GetRequiredService<SeedRoleDeletionActionCommand>();
+        Environment.ExitCode = await command.RunAsync();
+    }
+    Log.CloseAndFlush();
+    return;
+}
+
+// Comando dedicado de la recuperación de contraseña (docs/api-mvp-plan.md §13):
+// "dotnet run --project HoyDonde.API -- seed-password-reset-action". Igual criterio que
+// seed-report-actions/seed-role-deletion-action: no es un endpoint HTTP, no levanta el servidor.
+// Crea únicamente la Accion USUARIO_RESTABLECER_PASSWORD; nunca crea/edita roles ni asigna
+// acciones a roles.
+if (args.Length > 0 && string.Equals(args[0], "seed-password-reset-action", StringComparison.OrdinalIgnoreCase))
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var command = scope.ServiceProvider.GetRequiredService<SeedPasswordResetActionCommand>();
         Environment.ExitCode = await command.RunAsync();
     }
     Log.CloseAndFlush();

@@ -55,6 +55,10 @@ export default function ControlHubScreen() {
         </View>
       </View>
 
+      <View style={styles.secondaryLinksRow}>
+        <ActionButton label="Cambiar contraseña" variant="ghost" onPress={() => router.push('/account/security')} />
+      </View>
+
       <View style={styles.logoutRow}>
         <ActionButton label="Cerrar sesión" variant="ghost" onPress={() => setConfirmLogoutVisible(true)} />
       </View>
@@ -114,6 +118,9 @@ const styles = StyleSheet.create({
   },
   secondaryAction: {
     marginTop: spacing.md,
+  },
+  secondaryLinksRow: {
+    alignItems: 'center',
   },
   logoutRow: {
     alignItems: 'center',

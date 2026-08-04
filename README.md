@@ -99,15 +99,19 @@ dotnet run --project HoyDonde.API -- seed-report-actions
 
 # Acción de baja física de roles, para un proyecto Firestore real ya existente (idempotente; no la asigna a ningún rol)
 dotnet run --project HoyDonde.API -- seed-role-deletion-action
+
+# Acción de recuperación de contraseña asistida por Administrador, para un proyecto Firestore real ya existente (idempotente; no la asigna a ningún rol)
+dotnet run --project HoyDonde.API -- seed-password-reset-action
 ```
 
-Ninguno de los tres comandos necesita correrse contra el Firestore Emulator ni contra `dotnet test`.
+Ninguno de los cuatro comandos necesita correrse contra el Firestore Emulator ni contra `dotnet test`.
 
 ## Pagos, reportes y bajas de rol
 
 - **Pagos simulados**: la compra de entradas no usa ninguna pasarela de pago real; es una demostración del flujo de stock/emisión de entradas.
 - **Reportes**: reporte propio del Organizador y reportes globales (eventos + auditoría de seguridad) del Administrador, con filtros de fecha/estado/categoría (y organizador/actor en los reportes de Admin) y exportación a PDF (`expo-print`/`expo-sharing`) desde el frontend.
 - **Baja de roles**: un rol personalizado puede darse de **baja lógica** (reversible, conserva historial y asignaciones) o, ya inactivo y sin usuarios asignados, **baja física** (irreversible). Los 4 roles esenciales (`ADMINISTRADOR`/`ORGANIZADOR`/`CLIENTE`/`CONTROL`) nunca pueden eliminarse físicamente.
+- **Recuperación de contraseña**: "Olvidé mi contraseña" en Login y el cambio autenticado en "Mi cuenta" son exclusivamente Firebase Client SDK, nunca pasan por la API; un Administrador puede además generar un enlace de recuperación de Firebase para otro usuario (nunca ve ni establece su contraseña) desde el detalle de Usuario. Detalle completo en `CLAUDE.md` y `API_Documentation.md` §16.
 
 ## Estructura del repositorio
 

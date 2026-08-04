@@ -55,6 +55,8 @@ namespace HoyDonde.API.Services
             // Módulo de reportes (docs/api-mvp-plan.md §11)
             (Acciones.ReporteVerGlobal, "Consultar el reporte global de eventos de todos los organizadores."),
             (Acciones.ReporteVerPropio, "Consultar el reporte de los propios eventos."),
+            // Recuperación de contraseña (docs/api-mvp-plan.md §13)
+            (Acciones.UsuarioRestablecerPassword, "Generar un enlace de recuperación de contraseña para otro usuario."),
         };
 
         private static readonly IReadOnlyDictionary<string, string[]> AccionesPorRol = new Dictionary<string, string[]>
@@ -64,7 +66,7 @@ namespace HoyDonde.API.Services
                 Acciones.UsuarioCrearAdmin, Acciones.UsuarioCrearOrganizador,
                 Acciones.RolCrear, Acciones.RolEditar, Acciones.RolActivar, Acciones.RolAsignarAccion, Acciones.RolQuitarAccion, Acciones.RolEliminar,
                 Acciones.UsuarioAsignarRol, Acciones.UsuarioQuitarRol, Acciones.UsuarioVerPermisosEfectivos, Acciones.UsuarioDesactivar,
-                Acciones.ReporteVerGlobal,
+                Acciones.ReporteVerGlobal, Acciones.UsuarioRestablecerPassword,
             },
             ["ORGANIZADOR"] = new[]
             {

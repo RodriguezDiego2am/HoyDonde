@@ -182,5 +182,16 @@ namespace HoyDonde.API.Controllers
             await _service.SetUsuarioActivoAsync(actor, usuarioId, activo);
             return Ok(new { message = activo ? "Usuario activado." : "Usuario desactivado." });
         }
+
+        [HttpPost("usuarios/{usuarioId}/password-reset-link")]
+        [Authorize(Policy = Acciones.UsuarioRestablecerPassword)]
+        public async Task<IActionResult> GenerarPasswordResetLink(string usuarioId)
+        {
+            var actor = GetActorExternalSubjectId();
+            if (string.IsNullOrEmpty(actor)) return Unauthorized();
+
+            var result = await _service.GenerarPasswordResetLinkAsync(actor, usuarioId);
+            return Ok(result);
+        }
     }
 }
