@@ -91,7 +91,7 @@ Current and real:
 
 - `personas`, `usuarios`, `usuarios/{id}/roles`, `identidades_externas`
 - `roles`, `roles/{codigo}/acciones`, `acciones`
-- `events`, `tickets`
+- `events`, `tickets`, `compras`
 - `control_asignaciones`
 - `security_audits` (administration mutations)
 - `identidades_huerfanas` (orphaned-identity compensation failures)
@@ -133,6 +133,7 @@ The project specification also describes payments, temporary reservations, signe
 - `TicketResponseDto.Estado` is the ticket's historical/persisted status (`Emitido`/`Usado`/`Anulado`), never rewritten by an event cancellation. `Utilizable` and `MotivoNoUtilizable` (`"Usado"`/`"Anulado"`/`"EventoCancelado"`/`"EventoFinalizado"`/`null`) are derived at read time from the **current** `Event`, not from the photograph — `EventoNombre`/`TicketTypeNombre`/`PrecioPagado`/`FechaInicio`/`FechaFin` come from the ticket's own photograph and are never resolved live.
 - `GetTicketsByClienteIdAsync` groups the client's tickets by distinct `EventoId` and resolves those events with a single batch read (`FirestoreDb.GetAllSnapshotsAsync`) — never one read per ticket.
 - Current verification result: **291 passed, 0 failed, 0 skipped** (full suite, emulator-backed).
+- Since the "Compra entity" closure below, `BuyTicketsAsync` also persists a `Compra` grouping the tickets from that same operation and returns `CompraResponseDto` (not a bare ticket list) — see "Compra entity" for the full detail; the transactional guarantees described above are unchanged, just extended to cover `Compra` too.
 
 ## Control assignment (API-MVP 3, implemented and verified — see docs/api-mvp-plan.md §4)
 
@@ -202,6 +203,32 @@ Three distinct flows, all exclusively via Firebase Authentication — the Admini
 - **Frontend admin UI**: `UsuarioDetailScreen` — "Generar enlace de recuperación" gated exclusively by `hasAccion(ACCIONES.USUARIO_RESTABLECER_PASSWORD)` (never by role), explicit confirmation, double-submit guarded by component state, the link shown once and never logged, "Compartir" via React Native's `Share.share` (no clipboard dependency was added — none was already available in the project), "Descartar", and the link is cleared from state on unmount.
 - **Status: 549 passed, 0 failed, 0 skipped (backend, full suite, emulator-backed); frontend 440 passed (`npm test`), `npm run typecheck`/`npm run lint` clean, `npx expo-doctor` 18/18, `npx expo export --platform android` succeeds.** Nothing was run against real Firebase/Firestore in this closure — `seed-password-reset-action` and the `USUARIO_RESTABLECER_PASSWORD` role assignment remain pending for any existing installation (including `hoydonde-f5a05`), and this closure was not manually verified in Expo Go against the real API/Firestore.
 
+## Compra entity (closed — see docs/api-mvp-plan.md §15)
+
+```text
+Persona (Cliente) 1 ─── * Compra 1 ─── * Ticket
+Evento             1 ─── * Compra
+```
+
+`POST /api/tickets/buy` persists a `Compra` domain entity (`Models/Compra.cs`) grouping the tickets from one purchase operation, in addition to the `Ticket`s it already created. The relationship to `Ticket` lives exclusively in `Ticket.CompraId` — `Compra` never stores a list of `TicketId`s; the `Ticket`s themselves are `Compra`'s detail, groupable by `TicketType`.
+
+- `Compra.Id` is generated with `Guid.NewGuid()` before the transaction starts (same pattern as `Ticket.Id`). Fields: `ClientePersonaId` (resolved from the authenticated actor, never the request), `EventoId`, `FechaCompra` (UTC, same instant as every `Ticket` in the purchase), `CantidadEntradas`, `ImporteTotal` (`TicketType.Precio * cantidad`, using the existing `DecimalFirestoreConverter`), `PagoSimulado` (always `true` in the MVP), and an immutable photograph — `EventoNombre`/`Ubicacion`/`FechaInicio`/`FechaFin` — taken from the `Event` inside the same transaction. Never stores email, DNI, phone, Firebase UID, `UsuarioId`, or `ExternalSubjectId`. Collection `compras`, no new indexes (this stage adds no queries over `Compra`).
+- `Ticket.CompraId` (`string?`) is mandatory for every new ticket (always set by `TicketService.BuyTicketsAsync`) but nullable purely for tickets emitted before this stage, which never receive a retroactive `Compra` — they keep reading, showing in Mis entradas, scanning, and validating exactly as before. `TicketResponseDto.CompraId` mirrors this (`null` only for those legacy tickets).
+- **Single Firestore transaction** (`TicketService.BuyTicketsAsync`; no dedicated repository — the service already owned the transaction): reads `Event`, validates state/timing/stock, resolves `TicketType`/price from that same `Event`, computes `CantidadEntradas`/`ImporteTotal`, creates the `Compra` document, creates every `Ticket` with `CompraId`, decrements stock — all inside the one transaction. A failure at any step leaves no orphaned `Compra` or `Ticket` (verified against the real emulator after `StockInsuficienteException`/`TicketTypeInvalidoException`). Concurrency still prevents overselling via Firestore's retry-on-conflict (verified: 8 concurrent buyers against stock 1, exactly one `Compra` and one `Ticket` survive, and the surviving `Ticket.CompraId` matches that `Compra.Id`).
+- **HTTP contract:** same route and `TICKET_COMPRAR` policy, but `200 OK` now returns `CompraResponseDto` (see `API_Documentation.md` §9) instead of a bare ticket list — no parallel legacy route; the only real consumer (the frontend) was migrated together with the contract. `CompraResponseDto` never exposes `ClientePersonaId` at its own (root) level, even though each nested `TicketResponseDto` still does (unchanged from before this stage — it's the caller's own persona).
+- **Status: 549 passed, 0 failed, 0 skipped (backend, full suite, emulator-backed — one unrelated `UserServiceControlAssignmentEmulatorTests` concurrency test is known-flaky under full-suite contention, same pre-existing pattern noted elsewhere in this file; verified green in isolation and untouched by this change).** No real Firebase/Firestore touched, no deploy, no commit/push.
+
+## Purchase receipt PDF (closed — backend + frontend, see docs/api-mvp-plan.md §14)
+
+Downloadable PDF receipt for the purchase that just completed (`app/events/[id].tsx`), generated entirely on-device from the `CompraResponseDto` returned by `POST /api/tickets/buy` — never a re-read of the `Event`, never a client-side total that replaces the backend's.
+
+- **Data source:** exclusively `CompraResponseDto` fields (`id`, `eventoNombre`, `ubicacion`, `fechaInicio`, `fechaFin`, `fechaCompra`, `cantidadEntradas`, `importeTotal`, `pagoSimulado`) plus its `tickets` for the type-grouped detail and per-ticket QR codes. No longer depends on the `EventResponse` loaded before buying — `ubicacion` is now part of `Compra`'s own photograph (see "Compra entity" above), unlike this receipt's first cut.
+- **Consistency, not a second source of truth:** the frontend may group/display visual subtotals from the `Ticket`s, but `assertCompraConsistente` (`utils/purchaseReceiptPdf.ts`) verifies that sum matches `Compra.CantidadEntradas`/`ImporteTotal` exactly before building the HTML; on a mismatch it throws `PurchaseReceiptInconsistencyError` and `PurchaseReceiptPanel` blocks the download with a safe notice instead — the already-completed purchase stays valid regardless.
+- **UX:** after the existing confirmation, `components/purchase/PurchaseReceiptPanel.tsx` shows a summary (event, date/time, location, purchase date, ticket types/quantities/unit price/subtotal, total) and a "Descargar comprobante PDF" button, alongside the existing "Ver mis entradas". A failed generation/share never retries, cancels, or reverts the purchase — the panel never calls `ticketService.buy`; retry stays available while the confirmation is open, and a `generating` guard blocks double taps.
+- **QR:** same `{ticketId, eventId}` payload (`utils/ticketQr.ts`) already consumed by the Control scanner — no signature, no backend QR, no new QR dependency. `utils/qrSvg.ts` builds the embeddable SVG by reusing the two internal, React-Native-free modules `react-native-qrcode-svg` already uses to draw its on-screen `<Path>` (`src/genMatrix.js` + `src/transformMatrixIntoPath.js`, typed via `types/react-native-qrcode-svg-internal.d.ts`) — react-native-qrcode-svg stays pinned at its current declared version, no new dependency was installed.
+- **PDF:** `utils/purchaseReceiptPdf.ts` builds the HTML (papel claro/tinta negra/acento tomate), includes `N.º DE OPERACIÓN: {Compra.Id}` and the `PagoSimulado` status, and reuses `escapeHtml`/`generateAndShareReportPdf`'s `Print`/`Sharing` pattern from `utils/reportPdf.ts`; its own small orchestration additionally renames the generated file to `HoyDonde-Comprobante-AAAA-MM-DD.pdf` before sharing, via `expo-file-system` (already a declared dependency of `expo`) — best-effort, never throws, falls back to the original `expo-print` uri on any failure. Always shows "COMPROBANTE NO FISCAL" and the simulated-payment disclaimer; one section per ticket with its QR and id in readable text, `break-inside: avoid` so a QR never splits across pages.
+- **Status:** frontend **485 passed** (`npm test`), `npm run typecheck`/`npm run lint` clean, `npx expo-doctor` 18/18, `npx expo export --platform android` succeeds. Real Firebase/Firestore untouched, no commit/push — manual verification in Expo Go against the real API/Firestore is still pending.
+
 ## Tests
 
 - Controller/HTTP tests use `TestApplicationFactory` and `FakeAuthHandler`: the fake authentication identity supplies only UID (`ClaimTypes.NameIdentifier`, overridable per-request via the `Test-Uid` header) and email — nothing role-related. There is no `Test-Role` header and no `ClaimTypes.Role`/`"role"` claim anywhere in test infrastructure.
@@ -225,6 +252,8 @@ Cartelera advanced filters (docs/api-mvp-plan.md §7, Frontend 5) are closed. `a
 Reports module screens (docs/api-mvp-plan.md §11, Frontend 5) are closed: `/organizer/reports` (Organizer, gated by `REPORTE_VER_PROPIO`) and `/admin/reports` → `/admin/reports/events` / `/admin/reports/security-audits` (Admin, gated by `REPORTE_VER_GLOBAL`), each with filters, a resumen/desglose preview, and PDF export via `expo-print`/`expo-sharing`. Verified via `npm test` (mocked API/PDF), `npm run typecheck`, `npm run lint`, `npx expo-doctor`/`npx expo export --platform android`, and manually in Expo Go against the real API/Firestore: both events reports and their filters, coherent metrics, the security audit and its filters, all three PDFs generating/opening/sharing correctly, and Cliente/Control accounts never seeing any reports access — no issues found.
 
 Password recovery/change (docs/api-mvp-plan.md §13) is closed at the automated-verification level only (see "Password recovery and authenticated change" above): `npm test`/`typecheck`/`lint`/`expo-doctor`/`expo export` all pass, but this pass was **not** manually verified in Expo Go against the real API/Firestore/Firebase project, and `seed-password-reset-action` was not run against real Firestore — both remain pending before relying on this in production.
+
+The purchase receipt PDF (docs/api-mvp-plan.md §14, see "Purchase receipt PDF" above) is closed at the automated-verification level only: `npm test`/`typecheck`/`lint`/`expo-doctor`/`expo export` all pass, but it was **not** manually verified in Expo Go against the real API/Firestore — that remains pending.
 
 For a physical device via Expo Go on the same Wi-Fi as the backend, run the API bound to all interfaces and start Expo in LAN mode:
 

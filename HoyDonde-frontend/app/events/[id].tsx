@@ -8,9 +8,17 @@ import { ActionButton } from '@/components/ui/ActionButton';
 import { SectionDivider } from '@/components/ui/SectionDivider';
 import { StatusStamp, eventEstadoTone } from '@/components/ui/StatusStamp';
 import { Surface } from '@/components/ui/Surface';
+import { PurchaseReceiptPanel } from '@/components/purchase/PurchaseReceiptPanel';
 import { borderWidth, colors, fonts, radii, spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-import { ApiError, EventResponse, TicketTypeResponse, eventService, ticketService } from '@/services/APIService';
+import {
+  ApiError,
+  CompraResponse,
+  EventResponse,
+  TicketTypeResponse,
+  eventService,
+  ticketService,
+} from '@/services/APIService';
 import { formatFechaHora, formatPrecio } from '@/utils/format';
 
 const MAX_POR_COMPRA = 10;
@@ -54,7 +62,7 @@ export default function EventDetailScreen() {
   const [reviewing, setReviewing] = useState(false);
   const [buying, setBuying] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
-  const [purchasedCount, setPurchasedCount] = useState<number | null>(null);
+  const [purchasedCompra, setPurchasedCompra] = useState<CompraResponse | null>(null);
 
   const loadEvent = useCallback(async () => {
     if (!id) return;
@@ -112,12 +120,12 @@ export default function EventDetailScreen() {
     setBuying(true);
     setPurchaseError(null);
     try {
-      const tickets = await ticketService.buy({
+      const compra = await ticketService.buy({
         eventoId: event.id,
         ticketTypeId: selectedTicketType.id,
         cantidad,
       });
-      setPurchasedCount(tickets.length);
+      setPurchasedCompra(compra);
       setReviewing(false);
     } catch (error) {
       setPurchaseError(purchaseErrorMessage(error));
@@ -210,17 +218,18 @@ export default function EventDetailScreen() {
           </View>
 
           <SectionDivider index="02" label="Comprar" style={styles.sectionMargin} />
-          {purchasedCount !== null ? (
-            <Surface style={styles.purchaseSuccess}>
-              <MaterialIcons name="check-circle" size={28} color={colors.success} />
-              <Text style={styles.purchaseSuccessTitle}>
-                {purchasedCount === 1 ? 'Entrada comprada' : `${purchasedCount} entradas compradas`}
-              </Text>
-              <Text style={styles.stateHint}>Ya podés verlas junto a su código QR en Mis entradas.</Text>
-              <View style={styles.retryButton}>
-                <ActionButton label="Ver mis entradas" onPress={goToTickets} />
+          {purchasedCompra !== null ? (
+            <View style={styles.purchaseSuccessWrap}>
+              <View style={styles.purchaseSuccessBanner}>
+                <MaterialIcons name="check-circle" size={28} color={colors.success} />
+                <Text style={styles.purchaseSuccessTitle}>
+                  {purchasedCompra.cantidadEntradas === 1
+                    ? 'Entrada comprada'
+                    : `${purchasedCompra.cantidadEntradas} entradas compradas`}
+                </Text>
               </View>
-            </Surface>
+              <PurchaseReceiptPanel compra={purchasedCompra} onGoToTickets={goToTickets} />
+            </View>
           ) : initializing ? (
             <View style={styles.center}>
               <ActivityIndicator color={colors.tomato} />
@@ -456,7 +465,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
-  purchaseSuccess: {
+  purchaseSuccessWrap: {
+    gap: spacing.md,
+  },
+  purchaseSuccessBanner: {
     alignItems: 'center',
     gap: spacing.xs,
   },

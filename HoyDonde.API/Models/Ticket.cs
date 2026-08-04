@@ -10,9 +10,17 @@ namespace HoyDonde.API.Models
         [Google.Cloud.Firestore.FirestoreDocumentId]
         public string Id { get; set; } = string.Empty;
 
+        // Obligatorio para todo ticket nuevo (siempre seteado por TicketService.BuyTicketsAsync,
+        // dentro de la misma transacción que crea la Compra). Nullable únicamente por
+        // compatibilidad con tickets emitidos antes de esta etapa, que no tienen Compra asociada
+        // y no reciben una retroactivamente (docs/api-mvp-plan.md §14) — se siguen leyendo y
+        // mostrando igual, solo que sin CompraId.
+        [Google.Cloud.Firestore.FirestoreProperty]
+        public string? CompraId { get; set; }
+
         [Google.Cloud.Firestore.FirestoreProperty]
         public string TicketTypeId { get; set; } = string.Empty;
-        
+
         public virtual TicketType TicketType { get; set; } = null!;
 
         [Google.Cloud.Firestore.FirestoreProperty]

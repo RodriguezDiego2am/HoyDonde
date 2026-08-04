@@ -4,6 +4,8 @@ Cliente Expo SDK 54 / React Native 0.81 (TypeScript, Expo Router) de la platafor
 
 "Olvidé mi contraseña" (Login) y el cambio de contraseña autenticado (`/account/security`) usan exclusivamente el Firebase Client SDK ya configurado con las variables `EXPO_PUBLIC_FIREBASE_*` de abajo — no requieren configuración adicional. `/account/security` es accesible desde Perfil o desde el hub de Control (una cuenta Control puede cambiar su contraseña ahí si conoce la actual); "Olvidé mi contraseña" no le sirve a Control, cuyo email sintético no recibe correo real — si la olvidó, necesita que el Administrador le genere y comparta un enlace desde el detalle de Usuario.
 
+Inmediatamente después de una compra simulada exitosa (`app/events/[id].tsx`), el Cliente puede descargar un comprobante PDF ("HOYDONDE? — COMPROBANTE DE COMPRA SIMULADA", con N.º de operación) generado enteramente en el dispositivo (`expo-print`/`expo-sharing`) a partir de la `Compra` que devuelve la API, con el detalle agrupado por tipo de entrada y un código QR por entrada (mismo payload `{ticketId, eventId}` que ya usa el escáner de Control). Es un comprobante no fiscal de un pago simulado: no hay historial persistente de comprobantes más allá de esa pantalla — para volver a ver una entrada después, se usa Mis entradas.
+
 ## Configuración
 
 Copiá `.env.example` a `.env` (en esta misma carpeta) y completá los valores públicos del SDK cliente de Firebase de tu propio proyecto (panel de Firebase → Configuración del proyecto → tus apps). Esos valores son públicos por diseño; nunca copies acá la cuenta de servicio del backend (`HoyDonde.API/firebase-service-account.json`).

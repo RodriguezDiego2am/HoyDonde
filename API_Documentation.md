@@ -393,11 +393,11 @@ Los tres DTOs nunca incluyen UID de Firebase, `ExternalSubjectId`, `UsuarioId`, 
 { "eventoId": "evento-...", "ticketTypeId": "tipo-...", "cantidad": 2 }
 ```
 
-`cantidad`: 1 a 10 por operación. Dentro de una única transacción de Firestore: se relee el `Event`, se valida vigencia de compra (`Publicado && UtcNow < FechaInicio`), se valida que `ticketTypeId` exista en ese evento y que haya stock suficiente, se descuenta el stock y se emiten los tickets — todo o nada. La transacción de Firestore (reintento automático en conflicto) es lo que evita sobreventa bajo compras concurrentes contra el mismo stock.
+`cantidad`: 1 a 10 por operación. Dentro de una única transacción de Firestore: se relee el `Event`, se valida vigencia de compra (`Publicado && UtcNow < FechaInicio`), se valida que `ticketTypeId` exista en ese evento y que haya stock suficiente, se calcula `ImporteTotal` (`TicketType.Precio * cantidad`), se crea la `Compra`, se descuenta el stock y se emiten los tickets con `CompraId` — todo o nada. La transacción de Firestore (reintento automático en conflicto) es lo que evita sobreventa bajo compras concurrentes contra el mismo stock.
 
-Cada `Ticket` emitido persiste una **fotografía inmutable** tomada de esa misma lectura transaccional: `EventoNombre`, `TicketTypeNombre`, `PrecioPagado`, `FechaInicio`, `FechaFin`. Ninguna de las cinco se recalcula después ni se acepta del cliente (`TicketBuyRequest` no tiene campo de fecha ni de precio).
+`Compra` agrupa los tickets emitidos por esta operación (`Persona 1─* Compra 1─* Ticket`, `Evento 1─* Compra`): su `Id` se genera antes de empezar la transacción (mismo patrón que `Ticket.Id`), y persiste una **fotografía inmutable** tomada de esa misma lectura transaccional: `EventoNombre`, `Ubicacion`, `FechaInicio`, `FechaFin`, `FechaCompra`, `CantidadEntradas`, `ImporteTotal`, `PagoSimulado` (siempre `true` en el MVP). Cada `Ticket` emitido persiste su propia fotografía —`EventoNombre`, `TicketTypeNombre`, `PrecioPagado`, `FechaInicio`, `FechaFin`— y además `CompraId`, apuntando a esa misma `Compra`. Ninguno de estos campos se recalcula después ni se acepta del cliente (`TicketBuyRequest` no tiene campo de fecha, precio ni compraId).
 
-`200 OK` → `List<TicketResponseDto>` (uno por ticket comprado, ver forma abajo).
+`200 OK` → `CompraResponseDto` (ver forma abajo) — nunca una lista de tickets suelta.
 
 ### `GET /api/tickets/me` — Policy: `TICKET_VER_PROPIO`
 
@@ -425,11 +425,34 @@ Respuestas posibles:
 
 Un evento cancelado o finalizado **nunca** deja tocar (escribir) el documento del `Ticket`: su `Estado` histórico permanece `Emitido`, aunque la validación se rechace.
 
+### `CompraResponseDto`
+
+```json
+{
+  "id": "compra-...",
+  "eventoId": "evento-...",
+  "eventoNombre": "Festival de Verano",
+  "ubicacion": "Parque Central",
+  "fechaInicio": "2026-12-01T22:00:00Z",
+  "fechaFin": "2026-12-02T04:00:00Z",
+  "fechaCompra": "2026-08-02T12:00:00Z",
+  "cantidadEntradas": 2,
+  "importeTotal": 10000,
+  "pagoSimulado": true,
+  "tickets": [
+    { "id": "ticket-...", "compraId": "compra-...", "...": "resto de TicketResponseDto" }
+  ]
+}
+```
+
+Nunca expone `ClientePersonaId` (el comprador ya es el actor autenticado). `eventoNombre`/`ubicacion`/`fechaInicio`/`fechaFin`/`fechaCompra`/`cantidadEntradas`/`importeTotal`/`pagoSimulado` son la fotografía inmutable de `Compra`, calculada dentro de la transacción — nunca recalculados contra el `Event` actual ni aceptados del cliente.
+
 ### `TicketResponseDto`
 
 ```json
 {
   "id": "ticket-...",
+  "compraId": "compra-...",
   "eventoId": "evento-...",
   "ticketTypeId": "tipo-...",
   "clientePersonaId": "persona-cliente-...",
@@ -445,6 +468,7 @@ Un evento cancelado o finalizado **nunca** deja tocar (escribir) el documento de
 }
 ```
 
+- `compraId`: obligatorio para todo ticket emitido desde que existe la entidad `Compra`. `null` únicamente en tickets emitidos antes de esa etapa (nunca se les asigna una `Compra` retroactiva).
 - `estado`: histórico/persistido (`Emitido`/`Usado`/`Anulado`) — nunca reescrito por una cancelación de evento.
 - `utilizable`/`motivoNoUtilizable`: **derivados en el momento de la lectura** contra el `Event` actual (no la fotografía). `motivoNoUtilizable` es `null` si `utilizable == true`; si no, uno de `"Usado"`, `"Anulado"`, `"EventoCancelado"`, `"EventoFinalizado"`.
 - `eventoNombre`/`ticketTypeNombre`/`precioPagado`/`fechaInicio`/`fechaFin`: fotografía inmutable de la compra — nunca se recalculan contra el `Event` actual, ni siquiera si este cambiara.

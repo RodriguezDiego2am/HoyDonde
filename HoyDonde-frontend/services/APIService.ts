@@ -221,6 +221,8 @@ export type TicketMotivoNoUtilizable = 'Usado' | 'Anulado' | 'EventoCancelado' |
 
 export interface TicketResponse {
   id: string;
+  /** Nulo únicamente para tickets emitidos antes de la Etapa "Compra" — nunca se les inventa una Compra retroactiva. */
+  compraId: string | null;
   eventoId: string;
   ticketTypeId: string;
   clientePersonaId: string;
@@ -241,9 +243,29 @@ export interface TicketBuyRequest {
   cantidad: number;
 }
 
+/**
+ * Espejo de CompraResponseDto (HoyDonde.API/DTOs/CompraResponseDto.cs). Respuesta real de
+ * POST /api/tickets/buy desde que existe la entidad Compra — nunca expone clientePersonaId.
+ * `ubicacion`/`eventoNombre`/`fechaInicio`/`fechaFin`/`fechaCompra` son la fotografía inmutable
+ * tomada por el backend dentro de la transacción de compra, fuente única del comprobante.
+ */
+export interface CompraResponse {
+  id: string;
+  eventoId: string;
+  eventoNombre: string;
+  ubicacion: string;
+  fechaInicio: string;
+  fechaFin: string;
+  fechaCompra: string;
+  cantidadEntradas: number;
+  importeTotal: number;
+  pagoSimulado: boolean;
+  tickets: TicketResponse[];
+}
+
 export const ticketService = {
-  buy: async (payload: TicketBuyRequest): Promise<TicketResponse[]> => {
-    const response = await apiClient.post<TicketResponse[]>('/tickets/buy', payload);
+  buy: async (payload: TicketBuyRequest): Promise<CompraResponse> => {
+    const response = await apiClient.post<CompraResponse>('/tickets/buy', payload);
     return response.data;
   },
 

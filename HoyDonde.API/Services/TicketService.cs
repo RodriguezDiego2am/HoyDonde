@@ -20,6 +20,7 @@ namespace HoyDonde.API.Services
         private readonly ILogger<TicketService> _logger;
         private const string TicketsCollection = "tickets";
         private const string EventsCollection = "events";
+        private const string ComprasCollection = "compras";
 
         public TicketService(
             FirestoreDb firestore,
@@ -35,23 +36,29 @@ namespace HoyDonde.API.Services
             _logger = logger;
         }
 
-        public async Task<List<TicketResponseDto>> BuyTicketsAsync(string clienteId, TicketBuyRequest request)
+        public async Task<CompraResponseDto> BuyTicketsAsync(string clienteId, TicketBuyRequest request)
         {
             var clientePersonaId = await _personaResolver.ResolvePersonaIdAsync(clienteId);
 
             _logger.LogInformation("Cliente persona {ClientePersonaId} procesando compra de {Cantidad} tickets para Evento {EventId}",
                 clientePersonaId, request.Cantidad, request.EventoId);
 
+            // Id generado antes de empezar la transacción (docs/api-mvp-plan.md §14): no requiere
+            // una escritura previa a Firestore, es puramente un identificador local (mismo patrón
+            // que Ticket.Id, ver abajo).
+            var compraId = Guid.NewGuid().ToString();
             var eventRef = _firestore.Collection(EventsCollection).Document(request.EventoId);
             var ticketsColRef = _firestore.Collection(TicketsCollection);
+            var compraRef = _firestore.Collection(ComprasCollection).Document(compraId);
             var purchasedTickets = new List<Ticket>();
             Event evento = null!;
+            Compra compra = null!;
 
             await _firestore.RunTransactionAsync(async transaction =>
             {
-                // El Event se lee dentro de la misma transacción que descuenta stock y crea los
-                // tickets (docs/api-mvp-plan.md §3): precio, nombres y vigencia salen exclusivamente
-                // de esta lectura, nunca de lo que envía el cliente.
+                // El Event se lee dentro de la misma transacción que descuenta stock y crea la
+                // Compra y los tickets (docs/api-mvp-plan.md §3/§14): precio, nombres y vigencia
+                // salen exclusivamente de esta lectura, nunca de lo que envía el cliente.
                 var eventSnapshot = await transaction.GetSnapshotAsync(eventRef);
                 if (!eventSnapshot.Exists)
                     throw new EventNotFoundException(request.EventoId);
@@ -73,12 +80,30 @@ namespace HoyDonde.API.Services
                 // Deduce stock
                 ticketType.CantidadDisponible -= request.Cantidad;
 
-                // Create tickets, fotografiando Event/TicketType en este mismo instante.
+                compra = new Compra
+                {
+                    Id = compraId,
+                    ClientePersonaId = clientePersonaId,
+                    EventoId = request.EventoId,
+                    FechaCompra = utcNow,
+                    CantidadEntradas = request.Cantidad,
+                    ImporteTotal = ticketType.Precio * request.Cantidad,
+                    PagoSimulado = true,
+                    EventoNombre = evento.Nombre,
+                    Ubicacion = evento.Ubicacion,
+                    FechaInicio = evento.FechaInicio,
+                    FechaFin = evento.FechaFin,
+                };
+
+                // Create tickets, fotografiando Event/TicketType en este mismo instante. Los Ticket
+                // son el detalle de la Compra (agrupables por TicketType): Compra nunca guarda una
+                // lista de TicketIds, la relación vive únicamente en Ticket.CompraId.
                 for (int i = 0; i < request.Cantidad; i++)
                 {
                     var ticket = new Ticket
                     {
                         Id = Guid.NewGuid().ToString(),
+                        CompraId = compraId,
                         TicketTypeId = ticketType.Id,
                         ClientePersonaId = clientePersonaId,
                         EventoId = request.EventoId,
@@ -96,13 +121,29 @@ namespace HoyDonde.API.Services
                     purchasedTickets.Add(ticket);
                 }
 
+                transaction.Set(compraRef, compra);
+
                 // Update Event in Transaction
                 transaction.Set(eventRef, evento, SetOptions.MergeAll);
             });
 
-            _logger.LogInformation("Compra finalizada exitosamente para persona {ClientePersonaId}. Generados {Count} tickets.", clientePersonaId, purchasedTickets.Count);
+            _logger.LogInformation("Compra {CompraId} finalizada exitosamente para persona {ClientePersonaId}. Generados {Count} tickets.",
+                compra.Id, clientePersonaId, purchasedTickets.Count);
 
-            return purchasedTickets.Select(t => MapToResponse(t, evento)).ToList();
+            return new CompraResponseDto
+            {
+                Id = compra.Id,
+                EventoId = compra.EventoId,
+                EventoNombre = compra.EventoNombre,
+                Ubicacion = compra.Ubicacion,
+                FechaInicio = compra.FechaInicio,
+                FechaFin = compra.FechaFin,
+                FechaCompra = compra.FechaCompra,
+                CantidadEntradas = compra.CantidadEntradas,
+                ImporteTotal = compra.ImporteTotal,
+                PagoSimulado = compra.PagoSimulado,
+                Tickets = purchasedTickets.Select(t => MapToResponse(t, evento)).ToList(),
+            };
         }
 
         public async Task<List<TicketResponseDto>> GetTicketsByClienteIdAsync(string clienteId)
@@ -217,6 +258,7 @@ namespace HoyDonde.API.Services
             return new TicketResponseDto
             {
                 Id = ticket.Id,
+                CompraId = ticket.CompraId,
                 EventoId = ticket.EventoId,
                 TicketTypeId = ticket.TicketTypeId,
                 ClientePersonaId = ticket.ClientePersonaId,

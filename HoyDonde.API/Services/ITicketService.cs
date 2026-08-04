@@ -7,7 +7,7 @@ namespace HoyDonde.API.Services
 {
     public interface ITicketService
     {
-        Task<List<TicketResponseDto>> BuyTicketsAsync(string clienteId, TicketBuyRequest request);
+        Task<CompraResponseDto> BuyTicketsAsync(string clienteId, TicketBuyRequest request);
         Task<List<TicketResponseDto>> GetTicketsByClienteIdAsync(string clienteId);
         Task<TicketValidationOutcome> ValidateTicketAsync(string controlId, string ticketId, string eventId);
     }

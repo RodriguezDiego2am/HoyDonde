@@ -5,6 +5,11 @@ namespace HoyDonde.API.DTOs
     public class TicketResponseDto
     {
         public string Id { get; set; } = string.Empty;
+
+        // Nulo únicamente para tickets emitidos antes de la Etapa "Compra" (docs/api-mvp-plan.md
+        // §14): nunca se les inventa una Compra retroactiva.
+        public string? CompraId { get; set; }
+
         public string EventoId { get; set; } = string.Empty;
         public string TicketTypeId { get; set; } = string.Empty;
         public string ClientePersonaId { get; set; } = string.Empty;

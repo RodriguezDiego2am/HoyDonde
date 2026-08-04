@@ -143,10 +143,17 @@ namespace HoyDonde.API.Tests.Integration
             var buyResponse = await client.SendAsync(Request(HttpMethod.Post, "/api/tickets/buy", clienteUid, buyRequest));
             var buyBody = await buyResponse.Content.ReadAsStringAsync();
             Assert.True(buyResponse.StatusCode == HttpStatusCode.OK, $"BuyTickets falló: {buyBody}");
-            var tickets = await buyResponse.Content.ReadFromJsonAsync<List<TicketResponseDto>>();
-            Assert.NotNull(tickets);
-            Assert.Single(tickets!);
-            var ticketId = tickets![0].Id;
+            var compra = await buyResponse.Content.ReadFromJsonAsync<CompraResponseDto>();
+            Assert.NotNull(compra);
+            Assert.Single(compra!.Tickets);
+            // CompraResponseDto (nivel raíz) nunca expone clientePersonaId, aunque cada Ticket
+            // anidado sí lo trae (ya era así antes de esta etapa).
+            using (var buyDoc = JsonDocument.Parse(buyBody))
+            {
+                Assert.False(buyDoc.RootElement.TryGetProperty("clientePersonaId", out _));
+            }
+            var ticketId = compra.Tickets[0].Id;
+            Assert.Equal(compra.Id, compra.Tickets[0].CompraId);
 
             // 4. Control asignado valida el ticket.
             var validateResponse = await client.SendAsync(

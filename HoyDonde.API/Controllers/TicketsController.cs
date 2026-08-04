@@ -36,8 +36,8 @@ namespace HoyDonde.API.Controllers
             if (string.IsNullOrEmpty(clienteId))
                 return Unauthorized();
 
-            var tickets = await _ticketService.BuyTicketsAsync(clienteId, request);
-            return Ok(tickets);
+            var compra = await _ticketService.BuyTicketsAsync(clienteId, request);
+            return Ok(compra);
         }
 
         [HttpGet("me")]

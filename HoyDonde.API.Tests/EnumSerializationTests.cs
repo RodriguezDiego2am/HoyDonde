@@ -107,13 +107,18 @@ namespace HoyDonde.API.Tests
         [Fact]
         public async Task BuyTickets_Response_SerializesEstado_AsString()
         {
-            var tickets = new List<TicketResponseDto>
+            var compra = new CompraResponseDto
             {
-                new() { Id = "ticket-1", EventoId = "event-1", TicketTypeId = "tipo-1", Estado = "Emitido", Utilizable = true },
+                Id = "compra-1",
+                EventoId = "event-1",
+                Tickets = new List<TicketResponseDto>
+                {
+                    new() { Id = "ticket-1", CompraId = "compra-1", EventoId = "event-1", TicketTypeId = "tipo-1", Estado = "Emitido", Utilizable = true },
+                },
             };
             _factory.MockTicketService
                 .Setup(s => s.BuyTicketsAsync("test-uid-123", It.IsAny<TicketBuyRequest>()))
-                .ReturnsAsync(tickets);
+                .ReturnsAsync(compra);
 
             var request = new TicketBuyRequest { EventoId = "event-1", TicketTypeId = "tipo-1", Cantidad = 1 };
             var response = await _client.PostAsJsonAsync("/api/tickets/buy", request);
@@ -121,7 +126,7 @@ namespace HoyDonde.API.Tests
 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             using var doc = JsonDocument.Parse(content);
-            Assert.Equal("Emitido", doc.RootElement[0].GetProperty("estado").GetString());
+            Assert.Equal("Emitido", doc.RootElement.GetProperty("tickets")[0].GetProperty("estado").GetString());
         }
 
         // ---- Request: un nombre válido de Categoria se acepta ----

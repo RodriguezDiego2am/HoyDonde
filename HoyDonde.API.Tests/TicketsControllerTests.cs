@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Threading.Tasks;
 using HoyDonde.API.Authorization;
 using HoyDonde.API.DTOs;
@@ -47,10 +48,15 @@ namespace HoyDonde.API.Tests
                 Cantidad = 2
             };
 
-            var expectedResponse = new List<TicketResponseDto>
+            var expectedResponse = new CompraResponseDto
             {
-                new TicketResponseDto { Id = "ticket-1", EventoId = "evento-id-123", TicketTypeId = "ticket-tipo-vip" },
-                new TicketResponseDto { Id = "ticket-2", EventoId = "evento-id-123", TicketTypeId = "ticket-tipo-vip" }
+                Id = "compra-1",
+                EventoId = "evento-id-123",
+                Tickets = new List<TicketResponseDto>
+                {
+                    new TicketResponseDto { Id = "ticket-1", CompraId = "compra-1", EventoId = "evento-id-123", TicketTypeId = "ticket-tipo-vip" },
+                    new TicketResponseDto { Id = "ticket-2", CompraId = "compra-1", EventoId = "evento-id-123", TicketTypeId = "ticket-tipo-vip" }
+                }
             };
 
             _factory.MockTicketService
@@ -64,9 +70,16 @@ namespace HoyDonde.API.Tests
             };
 
             var response = await _client.SendAsync(reqMessage);
+            var body = await response.Content.ReadAsStringAsync();
 
             // Assert
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Contains("\"compra-1\"", body);
+            // Contrato CompraResponseDto (docs/api-mvp-plan.md §14): compraId por ticket; el
+            // objeto Compra en sí (nivel raíz) nunca expone clientePersonaId, aunque cada Ticket
+            // anidado sí lo trae (ya era así antes de esta etapa, es el propio cliente).
+            using var doc = JsonDocument.Parse(body);
+            Assert.False(doc.RootElement.TryGetProperty("clientePersonaId", out _));
         }
 
         [Fact]

@@ -5,6 +5,26 @@ jest.mock('../../config/apiEnv', () => ({ resolveApiUrl: () => 'http://localhost
 jest.mock('../../config/firebase', () => ({ auth: { currentUser: null } }));
 jest.mock('firebase/auth', () => ({ signOut: jest.fn().mockResolvedValue(undefined) }));
 
+const mockGenerateAndShareReceipt = jest.fn();
+jest.mock('expo-print', () => ({ printToFileAsync: jest.fn() }));
+jest.mock('expo-sharing', () => ({ isAvailableAsync: jest.fn(), shareAsync: jest.fn() }));
+jest.mock('expo-file-system', () => ({
+  Paths: { cache: 'CACHE_DIR' },
+  File: class {
+    uri = 'mock-file://x';
+    exists = false;
+    delete() {}
+    copy() {}
+  },
+}));
+jest.mock('@/utils/purchaseReceiptPdf', () => {
+  const actual = jest.requireActual('@/utils/purchaseReceiptPdf');
+  return {
+    ...actual,
+    generateAndSharePurchaseReceiptPdf: (...args: unknown[]) => mockGenerateAndShareReceipt(...args),
+  };
+});
+
 const mockPush = jest.fn();
 const mockBack = jest.fn();
 const mockReplace = jest.fn();
@@ -28,7 +48,7 @@ jest.mock('@/context/AuthContext', () => ({
 }));
 
 // eslint-disable-next-line import/first -- debe importarse después de los jest.mock de sus dependencias
-import { apiClient, ApiError, EventResponse } from '@/services/APIService';
+import { apiClient, ApiError, CompraResponse, EventResponse, TicketResponse } from '@/services/APIService';
 // eslint-disable-next-line import/first
 import EventDetailScreen from './[id]';
 
@@ -47,12 +67,52 @@ function evento(overrides: Partial<EventResponse> = {}): EventResponse {
   };
 }
 
+function ticketResponse(overrides: Partial<TicketResponse> = {}): TicketResponse {
+  return {
+    id: 'ticket-1',
+    compraId: 'compra-1',
+    eventoId: 'evento-1',
+    ticketTypeId: 'tipo-general',
+    clientePersonaId: 'persona-1',
+    fechaCompra: '2026-08-02T12:00:00Z',
+    estado: 'Emitido',
+    utilizable: true,
+    motivoNoUtilizable: null,
+    eventoNombre: 'Festival de Verano',
+    ticketTypeNombre: 'General',
+    precioPagado: 5000,
+    fechaInicio: '2026-12-01T22:00:00Z',
+    fechaFin: '2026-12-02T04:00:00Z',
+    ...overrides,
+  };
+}
+
+/** Construye una CompraResponse consistente por default (cantidadEntradas/importeTotal calculados desde los tickets pasados). */
+function compraResponse(overrides: Partial<CompraResponse> = {}): CompraResponse {
+  const tickets = overrides.tickets ?? [ticketResponse()];
+  return {
+    id: 'compra-1',
+    eventoId: 'evento-1',
+    eventoNombre: 'Festival de Verano',
+    ubicacion: 'Parque Central',
+    fechaInicio: '2026-12-01T22:00:00Z',
+    fechaFin: '2026-12-02T04:00:00Z',
+    fechaCompra: '2026-08-02T12:00:00Z',
+    cantidadEntradas: tickets.length,
+    importeTotal: tickets.reduce((sum, t) => sum + t.precioPagado, 0),
+    pagoSimulado: true,
+    ...overrides,
+    tickets,
+  };
+}
+
 describe('EventDetailScreen', () => {
   beforeEach(() => {
     jest.restoreAllMocks();
     mockPush.mockClear();
     mockBack.mockClear();
     mockReplace.mockClear();
+    mockGenerateAndShareReceipt.mockReset();
     mockParams = { id: 'evento-1' };
     mockAuthValue = { user: null, initializing: false, hasAccion: () => false };
   });
@@ -112,7 +172,14 @@ describe('EventDetailScreen', () => {
   it('Cliente habilitado compra: selecciona tipo/cantidad, confirma y envía exactamente el payload esperado', async () => {
     mockAuthValue = { user: { uid: 'cliente-1' }, initializing: false, hasAccion: (a) => a === 'TICKET_COMPRAR' };
     jest.spyOn(apiClient, 'get').mockResolvedValue({ data: evento() } as any);
-    const postSpy = jest.spyOn(apiClient, 'post').mockResolvedValue({ data: [{ id: 'ticket-1' }, { id: 'ticket-2' }] } as any);
+    const tickets = [
+      ticketResponse({ id: 'ticket-1' }),
+      ticketResponse({ id: 'ticket-2' }),
+      ticketResponse({ id: 'ticket-3' }),
+    ];
+    const compra = compraResponse({ id: 'compra-xyz', tickets });
+    const postSpy = jest.spyOn(apiClient, 'post').mockResolvedValue({ data: compra } as any);
+    mockGenerateAndShareReceipt.mockResolvedValueOnce({ uri: 'file://x.pdf', shared: true });
 
     const { findByText, getByText } = render(<EventDetailScreen />);
     await findByText('Festival de Verano');
@@ -131,10 +198,87 @@ describe('EventDetailScreen', () => {
         cantidad: 3,
       })
     );
-    expect(await findByText('2 entradas compradas')).toBeTruthy();
+    // La pantalla conserva la CompraResponse completa (no solo la lista de tickets): la cantidad
+    // mostrada sale de compra.cantidadEntradas.
+    expect(await findByText('3 entradas compradas')).toBeTruthy();
+
+    // El resumen del comprobante y su botón de descarga aparecen junto a la confirmación.
+    expect(getByText('Descargar comprobante PDF')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(getByText('Descargar comprobante PDF'));
+    });
+    await waitFor(() => expect(mockGenerateAndShareReceipt).toHaveBeenCalledTimes(1));
+    const [html] = mockGenerateAndShareReceipt.mock.calls[0];
+    // El comprobante usa Compra.Id como N.º de operación, nunca uno inventado en el frontend.
+    expect(html).toContain('N.º DE OPERACIÓN: compra-xyz');
 
     fireEvent.press(getByText('Ver mis entradas'));
     expect(mockReplace).toHaveBeenCalledWith('/(tabs)/tickets');
+  });
+
+  it('el botón de comprobante solo aparece tras una compra exitosa, nunca si la compra falla', async () => {
+    mockAuthValue = { user: { uid: 'cliente-1' }, initializing: false, hasAccion: () => true };
+    jest.spyOn(apiClient, 'get').mockResolvedValue({ data: evento() } as any);
+    jest
+      .spyOn(apiClient, 'post')
+      .mockRejectedValue(new ApiError({ code: 'TICKET_STOCK_INSUFFICIENT', message: 'sin stock', traceId: 't' }, 409));
+
+    const { findByText, getByText, queryByText } = render(<EventDetailScreen />);
+    await findByText('Festival de Verano');
+
+    expect(queryByText('Descargar comprobante PDF')).toBeNull();
+
+    fireEvent.press(getByText('Comprar entradas'));
+    fireEvent.press(await findByText('Confirmar compra'));
+
+    expect(await findByText(/No queda stock suficiente/)).toBeTruthy();
+    expect(queryByText('Descargar comprobante PDF')).toBeNull();
+  });
+
+  it('descargar el comprobante (incluso con error/reintento) nunca vuelve a llamar a la compra', async () => {
+    mockAuthValue = { user: { uid: 'cliente-1' }, initializing: false, hasAccion: () => true };
+    jest.spyOn(apiClient, 'get').mockResolvedValue({ data: evento() } as any);
+    const postSpy = jest.spyOn(apiClient, 'post').mockResolvedValue({ data: compraResponse() } as any);
+    mockGenerateAndShareReceipt.mockRejectedValueOnce(new Error('boom'));
+    mockGenerateAndShareReceipt.mockResolvedValueOnce({ uri: 'file://x.pdf', shared: true });
+
+    const { findByText, getByText } = render(<EventDetailScreen />);
+    await findByText('Festival de Verano');
+
+    fireEvent.press(getByText('Comprar entradas'));
+    fireEvent.press(await findByText('Confirmar compra'));
+    await findByText('Entrada comprada');
+
+    await act(async () => {
+      fireEvent.press(getByText('Descargar comprobante PDF'));
+    });
+    await findByText('No se pudo generar el comprobante. Volvé a intentarlo.');
+
+    await act(async () => {
+      fireEvent.press(getByText('Reintentar descarga'));
+    });
+
+    expect(postSpy).toHaveBeenCalledTimes(1);
+    expect(mockGenerateAndShareReceipt).toHaveBeenCalledTimes(2);
+  });
+
+  it('cerrar la confirmación (volver) no repite ni revierte la compra', async () => {
+    mockAuthValue = { user: { uid: 'cliente-1' }, initializing: false, hasAccion: () => true };
+    jest.spyOn(apiClient, 'get').mockResolvedValue({ data: evento() } as any);
+    const postSpy = jest.spyOn(apiClient, 'post').mockResolvedValue({ data: compraResponse() } as any);
+
+    const { findByText, getByText } = render(<EventDetailScreen />);
+    await findByText('Festival de Verano');
+
+    fireEvent.press(getByText('Comprar entradas'));
+    fireEvent.press(await findByText('Confirmar compra'));
+    await findByText('Entrada comprada');
+
+    fireEvent.press(getByText('← Volver'));
+
+    expect(postSpy).toHaveBeenCalledTimes(1);
+    expect(mockBack).toHaveBeenCalledTimes(1);
   });
 
   it('la cantidad nunca supera el stock disponible ni el máximo de 10', async () => {
@@ -174,7 +318,7 @@ describe('EventDetailScreen', () => {
     expect(postSpy).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      resolveBuy({ data: [{ id: 'ticket-1' }] });
+      resolveBuy({ data: compraResponse() });
     });
   });
 

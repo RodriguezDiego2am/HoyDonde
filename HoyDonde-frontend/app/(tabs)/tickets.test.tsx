@@ -35,6 +35,7 @@ import MisEntradasScreen from './tickets';
 function ticket(overrides: Partial<TicketResponse> = {}): TicketResponse {
   return {
     id: 'ticket-1',
+    compraId: 'compra-1',
     eventoId: 'evento-1',
     ticketTypeId: 'tipo-1',
     clientePersonaId: 'persona-1',
@@ -107,6 +108,17 @@ describe('MisEntradasScreen', () => {
     expect(await findByText('ANULADO')).toBeTruthy();
     expect(await findByText('EVENTO CANCELADO')).toBeTruthy();
     expect(await findByText('EVENTO FINALIZADO')).toBeTruthy();
+  });
+
+  it('un ticket legacy sin CompraId (previo a esta etapa) se sigue mostrando normalmente', async () => {
+    mockAuthValue = { user: { uid: 'cliente-1' }, initializing: false, hasAccion: () => true };
+    jest.spyOn(apiClient, 'get').mockResolvedValue({ data: [ticket({ id: 'ticket-legacy', compraId: null })] } as any);
+
+    const { findByText } = render(<MisEntradasScreen />);
+
+    expect(await findByText('Festival de Verano')).toBeTruthy();
+    expect(await findByText('General')).toBeTruthy();
+    expect(await findByText('UTILIZABLE')).toBeTruthy();
   });
 
   it('muestra el estado vacío cuando el Cliente no compró ninguna entrada', async () => {

@@ -73,22 +73,24 @@ namespace HoyDonde.API.Tests.Integration
                 }
             });
 
-            var tickets = await sut.BuyTicketsAsync(clienteUid, new TicketBuyRequest
+            var compra = await sut.BuyTicketsAsync(clienteUid, new TicketBuyRequest
             {
                 EventoId = eventId,
                 TicketTypeId = ticketTypeId,
                 Cantidad = 2
             });
 
-            Assert.Equal(2, tickets.Count);
-            Assert.All(tickets, t => Assert.Equal(clientePersonaId, t.ClientePersonaId));
+            Assert.Equal(2, compra.Tickets.Count);
+            Assert.All(compra.Tickets, t => Assert.Equal(clientePersonaId, t.ClientePersonaId));
+            Assert.All(compra.Tickets, t => Assert.Equal(compra.Id, t.CompraId));
 
-            foreach (var ticket in tickets)
+            foreach (var ticket in compra.Tickets)
             {
                 var snapshot = await _fixture.Db!.Collection("tickets").Document(ticket.Id).GetSnapshotAsync();
                 var persisted = snapshot.ConvertTo<Ticket>();
                 Assert.Equal(clientePersonaId, persisted.ClientePersonaId);
                 Assert.NotEqual(clienteUid, persisted.ClientePersonaId);
+                Assert.Equal(compra.Id, persisted.CompraId);
             }
         }
 
@@ -233,6 +235,7 @@ namespace HoyDonde.API.Tests.Integration
             {
                 Id = eventId,
                 Nombre = "Evento de prueba",
+                Ubicacion = "Cualquier lugar de prueba",
                 FechaInicio = fechaInicio,
                 FechaFin = fechaFin,
                 Estado = estado,
@@ -260,14 +263,14 @@ namespace HoyDonde.API.Tests.Integration
                 fechaFin: fechaFin,
                 precio: 250);
 
-            var tickets = await sut.BuyTicketsAsync(clienteUid, new TicketBuyRequest
+            var compra = await sut.BuyTicketsAsync(clienteUid, new TicketBuyRequest
             {
                 EventoId = eventId,
                 TicketTypeId = ticketTypeId,
                 Cantidad = 1
             });
 
-            var ticket = Assert.Single(tickets);
+            var ticket = Assert.Single(compra.Tickets);
             Assert.Equal("Evento de prueba", ticket.EventoNombre);
             Assert.Equal("General", ticket.TicketTypeNombre);
             Assert.Equal(250, ticket.PrecioPagado);
@@ -279,6 +282,18 @@ namespace HoyDonde.API.Tests.Integration
             Assert.Equal("Emitido", ticket.Estado);
             Assert.True(ticket.Utilizable);
             Assert.Null(ticket.MotivoNoUtilizable);
+            Assert.Equal(compra.Id, ticket.CompraId);
+
+            // CompraResponseDto (docs/api-mvp-plan.md §14): misma fotografía que el Ticket,
+            // cantidad/importe calculados dentro de la transacción, pago siempre simulado.
+            Assert.Equal(eventId, compra.EventoId);
+            Assert.Equal("Evento de prueba", compra.EventoNombre);
+            Assert.Equal("Cualquier lugar de prueba", compra.Ubicacion);
+            Assert.Equal(fechaInicio, compra.FechaInicio);
+            Assert.Equal(fechaFin, compra.FechaFin);
+            Assert.Equal(1, compra.CantidadEntradas);
+            Assert.Equal(250m, compra.ImporteTotal);
+            Assert.True(compra.PagoSimulado);
 
             var persisted = (await _fixture.Db!.Collection("tickets").Document(ticket.Id).GetSnapshotAsync()).ConvertTo<Ticket>();
             Assert.Equal("Evento de prueba", persisted.EventoNombre);
@@ -286,6 +301,22 @@ namespace HoyDonde.API.Tests.Integration
             Assert.Equal(250, persisted.PrecioPagado);
             Assert.Equal(fechaInicio, persisted.FechaInicio);
             Assert.Equal(fechaFin, persisted.FechaFin);
+            Assert.Equal(compra.Id, persisted.CompraId);
+
+            var compraSnapshot = await _fixture.Db!.Collection("compras").Document(compra.Id).GetSnapshotAsync();
+            Assert.True(compraSnapshot.Exists);
+            var persistedCompra = compraSnapshot.ConvertTo<Compra>();
+            Assert.Equal(clientePersonaId, persistedCompra.ClientePersonaId);
+            Assert.Equal(eventId, persistedCompra.EventoId);
+            Assert.Equal(1, persistedCompra.CantidadEntradas);
+            Assert.Equal(250m, persistedCompra.ImporteTotal);
+            Assert.True(persistedCompra.PagoSimulado);
+            // compra.FechaCompra/ticket.FechaCompra vienen del DTO en memoria (precisión de tick);
+            // persistedCompra pasó por un round-trip real a Firestore (precisión de microsegundo,
+            // igual que el resto de este archivo — ver TruncateToMicroseconds).
+            Assert.Equal(TruncateToMicroseconds(compra.FechaCompra), persistedCompra.FechaCompra);
+            Assert.Equal(TruncateToMicroseconds(ticket.FechaCompra), persistedCompra.FechaCompra);
+            Assert.Equal(compra.FechaCompra, ticket.FechaCompra);
         }
 
         [FirestoreEmulatorFact]
@@ -389,6 +420,13 @@ namespace HoyDonde.API.Tests.Integration
                     TicketTypeId = $"tipo-inexistente-{Guid.NewGuid():N}",
                     Cantidad = 1
                 }));
+
+            // Rollback completo: ni Compra ni Ticket huérfanos tras el fallo dentro de la
+            // transacción (docs/api-mvp-plan.md §14).
+            var comprasDelEvento = await _fixture.Db!.Collection("compras").WhereEqualTo(nameof(Compra.EventoId), eventId).GetSnapshotAsync();
+            Assert.Empty(comprasDelEvento.Documents);
+            var ticketsDelEvento = await _fixture.Db!.Collection("tickets").WhereEqualTo(nameof(Ticket.EventoId), eventId).GetSnapshotAsync();
+            Assert.Empty(ticketsDelEvento.Documents);
         }
 
         [FirestoreEmulatorFact]
@@ -406,6 +444,15 @@ namespace HoyDonde.API.Tests.Integration
 
             await Assert.ThrowsAsync<StockInsuficienteException>(() =>
                 sut.BuyTicketsAsync(clienteUid, new TicketBuyRequest { EventoId = eventId, TicketTypeId = ticketTypeId, Cantidad = 2 }));
+
+            // Rollback completo: ni Compra ni Ticket huérfanos, y el stock queda intacto.
+            var comprasDelEvento = await _fixture.Db!.Collection("compras").WhereEqualTo(nameof(Compra.EventoId), eventId).GetSnapshotAsync();
+            Assert.Empty(comprasDelEvento.Documents);
+            var ticketsDelEvento = await _fixture.Db!.Collection("tickets").WhereEqualTo(nameof(Ticket.EventoId), eventId).GetSnapshotAsync();
+            Assert.Empty(ticketsDelEvento.Documents);
+
+            var eventoPersistido = (await _fixture.Db!.Collection("events").Document(eventId).GetSnapshotAsync()).ConvertTo<Event>();
+            Assert.Equal(1, eventoPersistido.TicketTypes.Single(t => t.Id == ticketTypeId).CantidadDisponible);
         }
 
         [FirestoreEmulatorFact]
@@ -449,6 +496,14 @@ namespace HoyDonde.API.Tests.Integration
                 .WhereEqualTo(nameof(Ticket.EventoId), eventId)
                 .GetSnapshotAsync();
             Assert.Single(ticketsSnapshot.Documents);
+
+            // Exactamente una Compra sobrevive a la concurrencia, y el único Ticket apunta a ella.
+            var comprasSnapshot = await _fixture.Db!.Collection("compras")
+                .WhereEqualTo(nameof(Compra.EventoId), eventId)
+                .GetSnapshotAsync();
+            var compraGanadora = Assert.Single(comprasSnapshot.Documents).ConvertTo<Compra>();
+            var ticketGanador = ticketsSnapshot.Documents[0].ConvertTo<Ticket>();
+            Assert.Equal(compraGanadora.Id, ticketGanador.CompraId);
 
             var eventoPersistido = (await _fixture.Db!.Collection("events").Document(eventId).GetSnapshotAsync()).ConvertTo<Event>();
             var tipoPersistido = eventoPersistido.TicketTypes.Single(t => t.Id == ticketTypeId);
@@ -722,13 +777,13 @@ namespace HoyDonde.API.Tests.Integration
                 fechaFin: fechaFin,
                 precio: 300);
 
-            var comprados = await sut.BuyTicketsAsync(clienteUid, new TicketBuyRequest
+            var compra = await sut.BuyTicketsAsync(clienteUid, new TicketBuyRequest
             {
                 EventoId = eventId,
                 TicketTypeId = ticketTypeId,
                 Cantidad = 1
             });
-            var comprado = Assert.Single(comprados);
+            var comprado = Assert.Single(compra.Tickets);
             Assert.True(comprado.Utilizable);
 
             // Cancelación directa del documento del Event: sólo interesa aquí que la lectura de
