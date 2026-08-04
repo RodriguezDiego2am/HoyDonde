@@ -1,5 +1,5 @@
-import { buildEventosSectionHtml, buildResumenTableHtml, buildSecurityAuditSectionHtml } from './reportPdfBuilders';
-import type { ReporteAdminEventoDetalle, ReporteEventoDetalle, ReporteResumen, SecurityAuditReporteItem } from '@/services/reportService';
+import { buildDestacadosSectionHtml, buildEventosSectionHtml, buildResumenTableHtml, buildSecurityAuditSectionHtml } from './reportPdfBuilders';
+import type { ReporteAdminEventoDetalle, ReporteDestacados, ReporteEventoDetalle, ReporteResumen, SecurityAuditReporteItem } from '@/services/reportService';
 
 const RESUMEN: ReporteResumen = {
   cantidadEventos: 2,
@@ -13,6 +13,8 @@ const RESUMEN: ReporteResumen = {
   porcentajeAsistencia: 50,
   porcentajeUtilizacion: 30,
   importeEmitido: 1234.5,
+  entradasNoUtilizadasFinalizados: 5,
+  porcentajeNoUtilizacionFinalizados: 25,
 };
 
 function buildEvento(overrides: Partial<ReporteEventoDetalle> = {}): ReporteEventoDetalle {
@@ -34,6 +36,8 @@ function buildEvento(overrides: Partial<ReporteEventoDetalle> = {}): ReporteEven
     porcentajeAsistencia: 50,
     porcentajeUtilizacion: 40,
     importeEmitido: 400,
+    entradasNoUtilizadas: null,
+    porcentajeNoUtilizacion: null,
     tiposDeEntrada: [],
     ...overrides,
   };
@@ -102,6 +106,43 @@ describe('buildEventosSectionHtml', () => {
     expect(html).toContain('tipos de entrada');
     expect(html).toContain('&lt;b&gt;VIP&lt;/b&gt;');
     expect(html).not.toContain('<b>VIP</b>');
+  });
+});
+
+describe('buildDestacadosSectionHtml', () => {
+  const DESTACADOS: ReporteDestacados = {
+    eventoMayorOcupacion: { eventId: 'event-1', nombre: 'Festival <b>X</b>', porcentaje: 90 },
+    eventoMayorAsistencia: { eventId: 'event-2', nombre: 'Maratón', porcentaje: 70 },
+    eventoMayorImporte: { eventId: 'event-3', nombre: 'Expo', importeEmitido: 5000 },
+    top5PorImporte: [{ eventId: 'event-3', nombre: 'Expo', importeEmitido: 5000, entradasEmitidas: 50 }],
+  };
+
+  it('incluye los tres destacados y escapa nombres dinámicos', () => {
+    const html = buildDestacadosSectionHtml(DESTACADOS);
+
+    expect(html).toContain('Mayor ocupación');
+    expect(html).toContain('Mayor asistencia');
+    expect(html).toContain('Mayor importe emitido');
+    expect(html).not.toContain('<b>X</b>');
+    expect(html).toContain('&lt;b&gt;X&lt;/b&gt;');
+  });
+
+  it('incluye la tabla del Top 5', () => {
+    const html = buildDestacadosSectionHtml(DESTACADOS);
+
+    expect(html).toContain('Top 5 por importe emitido');
+    expect(html).toContain('Expo');
+  });
+
+  it('sin ningún destacado ni top5, devuelve vacío', () => {
+    const html = buildDestacadosSectionHtml({
+      eventoMayorOcupacion: null,
+      eventoMayorAsistencia: null,
+      eventoMayorImporte: null,
+      top5PorImporte: [],
+    });
+
+    expect(html).toBe('');
   });
 });
 

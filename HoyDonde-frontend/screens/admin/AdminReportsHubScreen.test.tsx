@@ -22,6 +22,14 @@ describe('AdminReportsHubScreen', () => {
     expect(mockPush).toHaveBeenCalledWith('/admin/reports/events');
   });
 
+  it('navega a /admin/reports/sales al tocar "Ventas simuladas"', () => {
+    const { getByText } = render(<AdminReportsHubScreen />);
+
+    fireEvent.press(getByText('Ventas simuladas'));
+
+    expect(mockPush).toHaveBeenCalledWith('/admin/reports/sales');
+  });
+
   it('navega a /admin/reports/security-audits al tocar "Auditoría de seguridad"', () => {
     const { getByText } = render(<AdminReportsHubScreen />);
 

@@ -217,6 +217,7 @@ builder.Services.AddScoped<ISecurityAdminService, SecurityAdminService>();
 // Organizador, y el comando dedicado que crea únicamente las dos Acciones nuevas contra un
 // Firestore real ya existente.
 builder.Services.AddScoped<IReporteService, ReporteService>();
+builder.Services.AddScoped<IVentasReporteService, VentasReporteService>();
 builder.Services.AddScoped<SeedReportActionsCommand>();
 
 // Baja física de roles (docs/api-mvp-plan.md §12): comando dedicado que crea únicamente la

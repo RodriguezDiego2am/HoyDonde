@@ -6,6 +6,8 @@ Cliente Expo SDK 54 / React Native 0.81 (TypeScript, Expo Router) de la platafor
 
 Inmediatamente después de una compra simulada exitosa (`app/events/[id].tsx`), el Cliente puede descargar un comprobante PDF ("HOYDONDE? — COMPROBANTE DE COMPRA SIMULADA", con N.º de operación) generado enteramente en el dispositivo (`expo-print`/`expo-sharing`) a partir de la `Compra` que devuelve la API, con el detalle agrupado por tipo de entrada y un código QR por entrada (mismo payload `{ticketId, eventId}` que ya usa el escáner de Control). Es un comprobante no fiscal de un pago simulado: no hay historial persistente de comprobantes más allá de esa pantalla — para volver a ver una entrada después, se usa Mis entradas.
 
+Organizador (`/organizer/reports`) y Administrador (`/admin/reports`) tienen, además del reporte de desempeño de eventos (filtra por fecha de evento), un reporte de **ventas simuladas** (`/organizer/reports/sales`, `/admin/reports/sales`) que filtra por fecha de compra: lectura rápida, evolución temporal (barras por día/semana/mes, en horario Argentina) y ranking de eventos por importe emitido. Los gráficos son componentes propios (`components/charts/`, Views/texto plano) — sin ninguna librería de charts. Ambos reportes exportan a PDF igual que el resto del módulo.
+
 ## Configuración
 
 Copiá `.env.example` a `.env` (en esta misma carpeta) y completá los valores públicos del SDK cliente de Firebase de tu propio proyecto (panel de Firebase → Configuración del proyecto → tus apps). Esos valores son públicos por diseño; nunca copies acá la cuenta de servicio del backend (`HoyDonde.API/firebase-service-account.json`).

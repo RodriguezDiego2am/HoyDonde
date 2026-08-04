@@ -47,6 +47,14 @@
         { "fieldPath": "OrganizadorPersonaId", "order": "ASCENDING" },
         { "fieldPath": "FechaInicio", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "compras",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "OrganizadorPersonaId", "order": "ASCENDING" },
+        { "fieldPath": "FechaCompra", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

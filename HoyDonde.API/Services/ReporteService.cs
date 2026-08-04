@@ -109,6 +109,7 @@ namespace HoyDonde.API.Services
                 FechaHasta = baseReporte.FechaHasta,
                 AclaracionImporte = baseReporte.AclaracionImporte,
                 Resumen = baseReporte.Resumen,
+                Destacados = baseReporte.Destacados,
                 // El orden de baseReporte.Eventos preserva el orden de 'eventos' (ReporteMetricasCalculator.Build
                 // itera con Select sobre la misma lista), así que el zip por índice es seguro.
                 Eventos = eventos.Zip(baseReporte.Eventos, ToAdminDetalle).ToList(),
@@ -134,6 +135,8 @@ namespace HoyDonde.API.Services
             PorcentajeAsistencia = detalle.PorcentajeAsistencia,
             PorcentajeUtilizacion = detalle.PorcentajeUtilizacion,
             ImporteEmitido = detalle.ImporteEmitido,
+            EntradasNoUtilizadas = detalle.EntradasNoUtilizadas,
+            PorcentajeNoUtilizacion = detalle.PorcentajeNoUtilizacion,
             TiposDeEntrada = detalle.TiposDeEntrada,
             OrganizadorPersonaId = evento.OrganizadorPersonaId,
         };

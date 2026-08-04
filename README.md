@@ -7,9 +7,9 @@ Plataforma de venta de entradas para eventos: organizadores publican eventos y t
 ## Perfiles y flujo
 
 - **Cliente**: se registra con Firebase, ve el catálogo público de eventos publicados (con filtros de fecha/categoría/ubicación), compra entradas (pago simulado, sin pasarela real) y las consulta con su código QR en "Mis entradas".
-- **Organizador**: crea eventos y tipos de entrada, publica/cancela eventos, crea y asigna personal de Control a sus eventos, y consulta reportes de sus propios eventos (con exportación a PDF).
+- **Organizador**: crea eventos y tipos de entrada, publica/cancela eventos, crea y asigna personal de Control a sus eventos, y consulta reportes de sus propios eventos (desempeño y ventas simuladas, ambos con exportación a PDF).
 - **Control**: inicia sesión solo con nombre de usuario (sin `@`), escanea el QR de una entrada con la cámara o la valida por ingreso manual; cada validación es contra el servidor (nunca se decide en el cliente) y una entrada usada no puede reutilizarse.
-- **Administrador**: da de alta Administradores/Organizadores, administra roles y las acciones que otorga cada rol, activa/desactiva usuarios, da de baja lógica (reversible) o física (irreversible, solo roles personalizados e inactivos) un rol, y consulta los reportes globales y la auditoría de seguridad.
+- **Administrador**: da de alta Administradores/Organizadores, administra roles y las acciones que otorga cada rol, activa/desactiva usuarios, da de baja lógica (reversible) o física (irreversible, solo roles personalizados e inactivos) un rol, y consulta los reportes globales (desempeño y ventas simuladas) y la auditoría de seguridad.
 
 Todos los botones y pantallas del frontend se habilitan por **acción efectiva del usuario** (`hasAccion(ACCIONES.X)`), nunca por el nombre de su rol — el backend vuelve a validar cada policy en cada request sin importar lo que muestre la UI.
 
@@ -109,7 +109,7 @@ Ninguno de los cuatro comandos necesita correrse contra el Firestore Emulator ni
 ## Pagos, reportes y bajas de rol
 
 - **Pagos simulados**: la compra de entradas no usa ninguna pasarela de pago real; es una demostración del flujo de stock/emisión de entradas.
-- **Reportes**: reporte propio del Organizador y reportes globales (eventos + auditoría de seguridad) del Administrador, con filtros de fecha/estado/categoría (y organizador/actor en los reportes de Admin) y exportación a PDF (`expo-print`/`expo-sharing`) desde el frontend.
+- **Reportes**: reporte propio del Organizador y reportes globales (eventos + ventas simuladas + auditoría de seguridad) del Administrador, con filtros de fecha/estado/categoría (y organizador/actor en los reportes de Admin) y exportación a PDF (`expo-print`/`expo-sharing`) desde el frontend. El reporte de ventas simuladas filtra por fecha de compra (no por fecha de evento) y agrega gráficos de evolución temporal y ranking de eventos, sin librerías de charts externas.
 - **Baja de roles**: un rol personalizado puede darse de **baja lógica** (reversible, conserva historial y asignaciones) o, ya inactivo y sin usuarios asignados, **baja física** (irreversible). Los 4 roles esenciales (`ADMINISTRADOR`/`ORGANIZADOR`/`CLIENTE`/`CONTROL`) nunca pueden eliminarse físicamente.
 - **Recuperación de contraseña**: "Olvidé mi contraseña" en Login y el cambio autenticado en "Mi cuenta" son exclusivamente Firebase Client SDK, nunca pasan por la API; un Administrador puede además generar un enlace de recuperación de Firebase para otro usuario (nunca ve ni establece su contraseña) desde el detalle de Usuario. Detalle completo en `CLAUDE.md` y `API_Documentation.md` §16.
 

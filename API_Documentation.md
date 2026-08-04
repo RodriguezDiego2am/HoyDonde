@@ -397,6 +397,8 @@ Los tres DTOs nunca incluyen UID de Firebase, `ExternalSubjectId`, `UsuarioId`, 
 
 `Compra` agrupa los tickets emitidos por esta operación (`Persona 1─* Compra 1─* Ticket`, `Evento 1─* Compra`): su `Id` se genera antes de empezar la transacción (mismo patrón que `Ticket.Id`), y persiste una **fotografía inmutable** tomada de esa misma lectura transaccional: `EventoNombre`, `Ubicacion`, `FechaInicio`, `FechaFin`, `FechaCompra`, `CantidadEntradas`, `ImporteTotal`, `PagoSimulado` (siempre `true` en el MVP). Cada `Ticket` emitido persiste su propia fotografía —`EventoNombre`, `TicketTypeNombre`, `PrecioPagado`, `FechaInicio`, `FechaFin`— y además `CompraId`, apuntando a esa misma `Compra`. Ninguno de estos campos se recalcula después ni se acepta del cliente (`TicketBuyRequest` no tiene campo de fecha, precio ni compraId).
 
+`Compra` también persiste, dentro de esa misma transacción, `OrganizadorPersonaId` (interno, **nunca** expuesto en `CompraResponseDto`; es la base de la query ownership de §17) y `Categoria` (`Event.EventCategory?`, nullable — una `Compra` creada antes de esta fotografía se lee de forma segura con `Categoria == null`, nunca se le inventa un valor). Ambos salen exclusivamente del `Event` leído en la transacción, igual criterio que el resto de la fotografía.
+
 `200 OK` → `CompraResponseDto` (ver forma abajo) — nunca una lista de tickets suelta.
 
 ### `GET /api/tickets/me` — Policy: `TICKET_VER_PROPIO`
@@ -682,13 +684,22 @@ Respuesta (`ReporteEventosResponseDto`):
     "cantidadEventos": 1, "capacidadInicial": 10, "stockDisponible": 8,
     "entradasEmitidas": 2, "entradasUsadas": 1, "entradasAnuladas": 0, "entradasPendientes": 1,
     "porcentajeOcupacion": 20.0, "porcentajeAsistencia": 50.0, "porcentajeUtilizacion": 10.0,
-    "importeEmitido": 200.00
+    "importeEmitido": 200.00,
+    "entradasNoUtilizadasFinalizados": 0, "porcentajeNoUtilizacionFinalizados": 0
   },
-  "eventos": [ { "eventId": "evento-...", "nombre": "...", "tiposDeEntrada": [ "..." ] } ]
+  "destacados": {
+    "eventoMayorOcupacion": { "eventId": "evento-...", "nombre": "...", "porcentaje": 20.0 },
+    "eventoMayorAsistencia": { "eventId": "evento-...", "nombre": "...", "porcentaje": 50.0 },
+    "eventoMayorImporte": { "eventId": "evento-...", "nombre": "...", "importeEmitido": 200.00 },
+    "top5PorImporte": [ { "eventId": "evento-...", "nombre": "...", "importeEmitido": 200.00, "entradasEmitidas": 2 } ]
+  },
+  "eventos": [ { "eventId": "evento-...", "nombre": "...", "entradasNoUtilizadas": null, "tiposDeEntrada": [ "..." ] } ]
 }
 ```
 
 Nunca expone `OrganizadorPersonaId`, UID de Firebase, `UsuarioId` ni `ExternalSubjectId` (el organizador ya es el actor autenticado). El importe siempre se llama **"importe emitido"**, nunca "recaudación"/"cobrado"/"ganancia" — `PrecioPagado` es la fotografía inmutable tomada en la compra (§7.1/§9), sumarla es válido para "cuánto se emitió", nunca para "cuánto se cobró" (el MVP no procesa pagos reales). Capacidad a nivel evento sale de `Event.CapacidadMaxima`; por tipo de entrada es una **derivación** (`CantidadDisponible` actual + entradas ya emitidas de ese tipo), no un dato persistido. División por cero en cualquier porcentaje → `0`, nunca una excepción.
+
+`destacados` y `entradasNoUtilizadas`/`porcentajeNoUtilizacion` por evento (docs/api-mvp-plan.md §11.11): procesamiento agregado calculado sobre los mismos `Event`/`Ticket` ya leídos para el resto del reporte, **sin ninguna consulta Firestore adicional**. `entradasNoUtilizadas`/`porcentajeNoUtilizacion` son `null` salvo que ese evento esté efectivamente `Finalizado` (nunca "ausentismo" de un evento futuro o en curso); el agregado `entradasNoUtilizadasFinalizados`/`porcentajeNoUtilizacionFinalizados` del resumen solo suma sobre el subconjunto `Finalizado`. Orden determinístico del Top 5 y de cada destacado: importe/porcentaje descendente, luego entradas emitidas descendente (cuando aplica), luego nombre, luego `eventId` como desempate final.
 
 ### `GET /api/reports/admin/events` — Policy: `REPORTE_VER_GLOBAL`
 
@@ -700,7 +711,7 @@ Mismos `fechaDesde`/`fechaHasta`/`estado`/`categoria` que el reporte del Organiz
 
 Query Firestore: sin `organizadorPersonaId`, solo rango sobre `FechaInicio` (índice automático de campo simple); con `organizadorPersonaId`, se agrega `WhereEqualTo(OrganizadorPersonaId, ...)` — mismo índice compuesto que el reporte del Organizador (ver abajo). `estado`/`categoria` siempre en memoria. Tickets vía `WhereIn(EventoId, chunk)` en lotes de máximo 30, igual que el reporte del Organizador.
 
-Respuesta (`ReporteAdminEventosResponseDto`): mismo shape que `ReporteEventosResponseDto`, pero cada elemento de `eventos` (`ReporteAdminEventoDetalleDto`) agrega `organizadorPersonaId` — nunca el Firebase UID, `UsuarioId` ni `ExternalSubjectId`. El frontend resuelve ese id a email reutilizando `GET /api/security/usuarios`.
+Respuesta (`ReporteAdminEventosResponseDto`): mismo shape que `ReporteEventosResponseDto` (incluye `destacados`), pero cada elemento de `eventos` (`ReporteAdminEventoDetalleDto`) agrega `organizadorPersonaId` — nunca el Firebase UID, `UsuarioId` ni `ExternalSubjectId`. El frontend resuelve ese id a email reutilizando `GET /api/security/usuarios`.
 
 ### `GET /api/reports/admin/security-audits` — Policy: `REPORTE_VER_GLOBAL`
 
@@ -827,3 +838,82 @@ Sin ambigüedad, las dos únicas vías reales para una cuenta Control:
 
 - **Conoce su contraseña actual:** puede cambiarla ella misma en `/account/security` (§16.2) — funciona exactamente igual que para cualquier otra cuenta, nunca depende de recibir un email.
 - **La olvidó:** no puede autorecuperarla por "Olvidé mi contraseña" (§16.1) — su email sintético no es una casilla real, nadie recibe ese correo aunque Firebase acepte la solicitud. Necesita que el Administrador genere el enlace (§16.3) desde `UsuarioDetailScreen` y se lo comparta manualmente (por el canal que corresponda, fuera de esta API).
+
+---
+
+## 17. Módulo de ventas simuladas (docs/api-mvp-plan.md §11.11) — cerrado (backend + frontend, sin ejecutar contra Firebase real)
+
+Reutiliza `REPORTE_VER_PROPIO`/`REPORTE_VER_GLOBAL` — no se agregó ninguna acción 25/26. **Diferencia central respecto al módulo de reportes de §15:** este reporte filtra por `Compra.FechaCompra` (cuándo se vendió); §15 filtra por `Event.FechaInicio` (cuándo ocurre el evento). No confundir ambas semánticas.
+
+### `GET /api/reports/organizer/sales` — Policy: `REPORTE_VER_PROPIO`
+
+```
+GET /api/reports/organizer/sales?fechaDesde=2026-01-01T00:00:00Z&fechaHasta=2026-02-01T00:00:00Z
+```
+
+| Query param | Obligatorio | Semántica |
+|---|---|---|
+| `fechaDesde` | Sí | UTC explícito, inclusiva sobre `Compra.FechaCompra`. |
+| `fechaHasta` | Sí | UTC explícito, exclusiva sobre `Compra.FechaCompra`. Rango máximo 366 días. |
+| `eventId` | No | Debe ser un evento propio (ownership releído de Firestore); evento ajeno → 403 `EVENT_OWNERSHIP`, inexistente → 404 `EVENT_NOT_FOUND`. |
+| `categoria` | No | `Event.EventCategory`, filtrado en memoria. |
+| `ticketTypeId` | Solo junto con `eventId` | Sin `eventId` → 400 `REPORT_FILTER_INVALID`. |
+
+`organizadorPersonaId` no existe como parámetro: sale siempre de `IAuthenticatedPersonaResolver`, mismo criterio que §15.
+
+### `GET /api/reports/admin/sales` — Policy: `REPORTE_VER_GLOBAL`
+
+```
+GET /api/reports/admin/sales?fechaDesde=2026-01-01T00:00:00Z&fechaHasta=2026-02-01T00:00:00Z&organizadorPersonaId=persona-...
+```
+
+Mismos `fechaDesde`/`fechaHasta` (obligatorios) + `organizadorPersonaId?` (opcional, arbitrario — solo Admin) + `eventId?` + `categoria?`. Deliberadamente **sin** `ticketTypeId` (no forma parte de los filtros del Administrador).
+
+### Queries Firestore e índice
+
+Sin `organizadorPersonaId`: solo rango de `Compra.FechaCompra` (índice automático de campo simple). Con `organizadorPersonaId` (Organizador siempre, Admin opcionalmente): se agrega `WhereEqualTo(OrganizadorPersonaId, ...)`, cubierto por el índice compuesto nuevo:
+
+```json
+{ "collectionGroup": "compras", "fields": [
+  { "fieldPath": "OrganizadorPersonaId", "order": "ASCENDING" },
+  { "fieldPath": "FechaCompra", "order": "ASCENDING" } ] }
+```
+
+Agregado a `firestore.indexes.json`, probado contra el Firestore Emulator. **No desplegado contra el proyecto Firebase real** — pendiente para cualquier instalación existente (incluida `hoydonde-f5a05`) antes de poder usar este reporte contra datos reales. `categoria`/`eventId` se filtran en memoria sobre la query ya acotada por fecha/ownership. Los `Ticket` del desglose por tipo de entrada se leen con `WhereIn(CompraId, chunk<=30)`; un `Ticket` legacy sin `CompraId` nunca matchea y queda excluido automáticamente.
+
+### Respuesta (`VentasReporteResponseDto`, misma forma para ambos endpoints)
+
+```json
+{
+  "fechaDesde": "2026-01-01T00:00:00Z", "fechaHasta": "2026-02-01T00:00:00Z",
+  "aclaracionImporte": "El MVP no procesa pagos reales: ...",
+  "resumen": {
+    "cantidadCompras": 3, "entradasEmitidas": 5, "importeEmitido": 500.00,
+    "importePromedioPorCompra": 166.67, "precioPromedioEntrada": 100.00, "clientesUnicos": 2,
+    "eventoConMayorImporte": { "eventoId": "evento-...", "eventoNombre": "...", "importeEmitido": 500.00, "entradasEmitidas": 5 },
+    "eventoConMasEntradas": { "eventoId": "evento-...", "eventoNombre": "...", "importeEmitido": 500.00, "entradasEmitidas": 5 }
+  },
+  "serieTemporal": [ { "periodoDesde": "2026-01-05T00:00:00Z", "periodoHasta": "2026-01-06T00:00:00Z", "etiqueta": "05/01", "cantidadCompras": 3, "entradasEmitidas": 5, "importeEmitido": 500.00 } ],
+  "topEventos": [ { "eventoId": "evento-...", "eventoNombre": "...", "cantidadCompras": 3, "entradasEmitidas": 5, "importeEmitido": 500.00, "importePromedioCompra": 166.67 } ],
+  "porCategoria": [ { "categoria": "Musica", "cantidadCompras": 3, "entradasEmitidas": 5, "importeEmitido": 500.00, "porcentajeDelImporteTotal": 100.0 } ],
+  "porTipoEntrada": [],
+  "filtrosDisponibles": {
+    "eventos": [ { "id": "evento-...", "nombre": "..." } ],
+    "tiposEntrada": []
+  }
+}
+```
+
+Nunca expone `OrganizadorPersonaId`, `ClientePersonaId`, UID, `UsuarioId` ni `ExternalSubjectId` — `clientesUnicos` es solo el conteo, nunca los ids usados para calcularlo. `importeEmitido` siempre decimal, redondeado a 2 decimales, nunca "recaudación"/"cobrado"/"facturación"/"ganancia". División por cero en cualquier promedio/porcentaje → `0`. `eventoConMayorImporte`/`eventoConMasEntradas` son `null` solo si no hay ninguna Compra en el conjunto filtrado.
+
+**Serie temporal:** granularidad diaria (rango ≤31 días), semanal desde el lunes (32-180 días) o mensual (181-366 días), calculada en `America/Argentina/Buenos_Aires` (`Services/ArgentinaTimeZoneProvider.cs`); continua (incluye períodos con cero); la suma de los buckets coincide exactamente con `resumen`. `periodoDesde`/`periodoHasta` viajan en UTC (los filtros HTTP siguen siendo UTC); `etiqueta` es el único campo pensado para mostrar directo en UI/PDF.
+
+**`topEventos`:** máximo 5, orden determinístico (`importeEmitido` desc, `entradasEmitidas` desc, `eventoNombre`, `eventoId` como desempate final).
+
+**`porTipoEntrada`:** vacío salvo que el filtro traiga `eventId` (única situación donde `ticketTypeId` es comparable entre sí, porque hoy cada `Compra` es homogénea a un único tipo). `cantidadComprasDistintas` cuenta `Compra.Id` distintos, no tickets.
+
+**`filtrosDisponibles`** (`VentasFiltrosDisponiblesDto`, sin ninguna consulta Firestore adicional — calculado en memoria sobre el mismo conjunto ya leído): `eventos` incluye **todos** los eventos con Compras en el conjunto ya acotado por rango/ownership/organizador/categoría, calculado **antes** de aplicar `eventId` — a diferencia de `topEventos` (máximo 5), así el selector de evento del frontend nunca queda limitado al Top 5 y sigue completo aunque ya haya un `eventId` aplicado (se puede cambiar sin limpiar todo el filtro). `tiposEntrada` solo se puebla cuando el filtro trae `eventId`, calculado antes de aplicar `ticketTypeId`; en el reporte del Administrador siempre queda vacío (su contrato no tiene `ticketTypeId`). Ambas listas son únicas por id y ordenadas por nombre y luego id; nunca exponen `OrganizadorPersonaId` ni `ClientePersonaId`.
+
+### Estado
+
+Backend **619/620 passed** (suite completa, Firestore Emulator real — el único fallo es un test de concurrencia preexistente y no relacionado con este módulo, ya documentado como intermitente bajo contención de la suite completa, verificado en verde de forma aislada). Frontend **546 passed** (`npm test`, corrida completa sin filtros), `npm run typecheck`/`npm run lint` limpios, `npx expo-doctor` 18/18, `npx expo export --platform android` exitoso. **No se tocó Firebase/Firestore real, no se desplegó el índice `compras`, no hubo commit ni push.** No verificado a mano en Expo Go contra la API/Firestore reales.

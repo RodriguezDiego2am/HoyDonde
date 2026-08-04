@@ -43,5 +43,18 @@ namespace HoyDonde.API.Models
 
         [Google.Cloud.Firestore.FirestoreProperty]
         public DateTime FechaFin { get; set; }
+
+        // Fotografía adicional para el reporte de ventas simuladas (docs/api-mvp-plan.md §11):
+        // ambos salen del Event leído dentro de la misma transacción de compra, nunca del cliente.
+        // OrganizadorPersonaId es exclusivamente interno (nunca se expone en CompraResponseDto) y
+        // es la base de la query ownership de GET /api/reports/organizer/sales. Categoria es
+        // nullable -a diferencia de Event.Categoria- para poder distinguir de forma segura una
+        // Compra legacy sin esta fotografía (creada antes de este enriquecimiento) de una Compra
+        // real de la categoría Musica: nunca se le "inventa" una categoría a un documento viejo.
+        [Google.Cloud.Firestore.FirestoreProperty]
+        public string OrganizadorPersonaId { get; set; } = string.Empty;
+
+        [Google.Cloud.Firestore.FirestoreProperty]
+        public Event.EventCategory? Categoria { get; set; }
     }
 }

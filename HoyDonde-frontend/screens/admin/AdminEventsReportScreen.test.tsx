@@ -62,6 +62,14 @@ const REPORT: ReporteAdminEventosResponse = {
     porcentajeAsistencia: 40,
     porcentajeUtilizacion: 20,
     importeEmitido: 500,
+    entradasNoUtilizadasFinalizados: 0,
+    porcentajeNoUtilizacionFinalizados: 0,
+  },
+  destacados: {
+    eventoMayorOcupacion: { eventId: 'event-1', nombre: 'Festival Global', porcentaje: 50 },
+    eventoMayorAsistencia: { eventId: 'event-1', nombre: 'Festival Global', porcentaje: 40 },
+    eventoMayorImporte: { eventId: 'event-1', nombre: 'Festival Global', importeEmitido: 500 },
+    top5PorImporte: [{ eventId: 'event-1', nombre: 'Festival Global', importeEmitido: 500, entradasEmitidas: 5 }],
   },
   eventos: [
     {
@@ -82,6 +90,8 @@ const REPORT: ReporteAdminEventosResponse = {
       porcentajeAsistencia: 40,
       porcentajeUtilizacion: 20,
       importeEmitido: 500,
+      entradasNoUtilizadas: null,
+      porcentajeNoUtilizacion: null,
       tiposDeEntrada: [],
       organizadorPersonaId: 'persona-org-1',
     },

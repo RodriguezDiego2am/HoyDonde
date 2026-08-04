@@ -25,6 +25,13 @@ const ENTRADAS: EntradaReporte[] = [
     href: '/admin/reports/events',
   },
   {
+    key: 'sales',
+    titulo: 'Ventas simuladas',
+    descripcion: 'Cuándo y cuánto se vendió, en toda la plataforma o por organizador.',
+    icono: 'insights',
+    href: '/admin/reports/sales',
+  },
+  {
     key: 'security-audits',
     titulo: 'Auditoría de seguridad',
     descripcion: 'Mutaciones de roles, acciones y usuarios administradas desde /admin.',

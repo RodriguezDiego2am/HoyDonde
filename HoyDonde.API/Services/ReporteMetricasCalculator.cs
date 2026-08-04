@@ -37,6 +37,7 @@ namespace HoyDonde.API.Services
                 FechaHasta = fechaHasta,
                 AclaracionImporte = AclaracionImporteFija,
                 Resumen = BuildResumen(detalles),
+                Destacados = BuildDestacados(detalles),
                 Eventos = detalles,
             };
         }
@@ -66,6 +67,18 @@ namespace HoyDonde.API.Services
 
             var stockDisponible = tiposDeEntrada.Sum(t => t.StockDisponible);
             var metricas = CalcularMetricas(ticketsRelevantes, capacidadInicial);
+            var estadoEfectivo = evento.GetEstadoEfectivo(utcNow);
+
+            // Entradas no utilizadas (docs/api-mvp-plan.md §11): solo tiene sentido una vez que el
+            // evento terminó -null/no aplicable para Borrador/Publicado vigente/Cancelado, nunca
+            // "ausentismo" de un evento futuro o en curso-.
+            int? entradasNoUtilizadas = null;
+            double? porcentajeNoUtilizacion = null;
+            if (estadoEfectivo == Event.EventEffectiveStatus.Finalizado)
+            {
+                entradasNoUtilizadas = metricas.Emitidas - metricas.Usadas;
+                porcentajeNoUtilizacion = PorcentajeSeguro(entradasNoUtilizadas.Value, metricas.Emitidas);
+            }
 
             return new ReporteEventoDetalleDto
             {
@@ -73,7 +86,7 @@ namespace HoyDonde.API.Services
                 Nombre = evento.Nombre,
                 Ubicacion = evento.Ubicacion,
                 Categoria = evento.Categoria.ToString(),
-                Estado = evento.GetEstadoEfectivo(utcNow).ToString(),
+                Estado = estadoEfectivo.ToString(),
                 FechaInicio = evento.FechaInicio,
                 FechaFin = evento.FechaFin,
                 CapacidadInicial = capacidadInicial,
@@ -86,6 +99,8 @@ namespace HoyDonde.API.Services
                 PorcentajeAsistencia = metricas.PorcentajeAsistencia,
                 PorcentajeUtilizacion = metricas.PorcentajeUtilizacion,
                 ImporteEmitido = metricas.ImporteEmitido,
+                EntradasNoUtilizadas = entradasNoUtilizadas,
+                PorcentajeNoUtilizacion = porcentajeNoUtilizacion,
                 TiposDeEntrada = tiposDeEntrada,
             };
         }
@@ -126,6 +141,10 @@ namespace HoyDonde.API.Services
             var pendientes = detalles.Sum(d => d.EntradasPendientes);
             var importe = detalles.Sum(d => d.ImporteEmitido);
 
+            var finalizados = detalles.Where(d => d.EntradasNoUtilizadas.HasValue).ToList();
+            var entradasNoUtilizadasFinalizados = finalizados.Sum(d => d.EntradasNoUtilizadas!.Value);
+            var entradasEmitidasFinalizados = finalizados.Sum(d => d.EntradasEmitidas);
+
             return new ReporteResumenDto
             {
                 CantidadEventos = detalles.Count,
@@ -139,6 +158,53 @@ namespace HoyDonde.API.Services
                 PorcentajeAsistencia = PorcentajeSeguro(usadas, emitidas),
                 PorcentajeUtilizacion = PorcentajeSeguro(usadas, capacidadInicial),
                 ImporteEmitido = Math.Round(importe, 2),
+                EntradasNoUtilizadasFinalizados = entradasNoUtilizadasFinalizados,
+                PorcentajeNoUtilizacionFinalizados = PorcentajeSeguro(entradasNoUtilizadasFinalizados, entradasEmitidasFinalizados),
+            };
+        }
+
+        // Procesamiento agregado (docs/api-mvp-plan.md §11): destacados y Top 5 por importe
+        // emitido, calculados sobre los mismos `detalles` ya construidos arriba -nunca una
+        // consulta Firestore adicional-. Orden determinístico igual que VentasMetricasCalculator:
+        // 1) métrica desc, 2) EntradasEmitidas desc (solo Top5/mayorImporte), 3) Nombre, 4) EventId.
+        private static ReporteDestacadosDto BuildDestacados(List<ReporteEventoDetalleDto> detalles)
+        {
+            if (detalles.Count == 0) return new ReporteDestacadosDto();
+
+            var mayorOcupacion = detalles
+                .OrderByDescending(d => d.PorcentajeOcupacion)
+                .ThenBy(d => d.Nombre, StringComparer.Ordinal)
+                .ThenBy(d => d.EventId, StringComparer.Ordinal)
+                .First();
+
+            var mayorAsistencia = detalles
+                .OrderByDescending(d => d.PorcentajeAsistencia)
+                .ThenBy(d => d.Nombre, StringComparer.Ordinal)
+                .ThenBy(d => d.EventId, StringComparer.Ordinal)
+                .First();
+
+            var mayorImporte = detalles
+                .OrderByDescending(d => d.ImporteEmitido)
+                .ThenByDescending(d => d.EntradasEmitidas)
+                .ThenBy(d => d.Nombre, StringComparer.Ordinal)
+                .ThenBy(d => d.EventId, StringComparer.Ordinal)
+                .First();
+
+            var top5 = detalles
+                .OrderByDescending(d => d.ImporteEmitido)
+                .ThenByDescending(d => d.EntradasEmitidas)
+                .ThenBy(d => d.Nombre, StringComparer.Ordinal)
+                .ThenBy(d => d.EventId, StringComparer.Ordinal)
+                .Take(5)
+                .Select(d => new ReporteTopEventoDto { EventId = d.EventId, Nombre = d.Nombre, ImporteEmitido = d.ImporteEmitido, EntradasEmitidas = d.EntradasEmitidas })
+                .ToList();
+
+            return new ReporteDestacadosDto
+            {
+                EventoMayorOcupacion = new ReporteEventoDestacadoPorcentajeDto { EventId = mayorOcupacion.EventId, Nombre = mayorOcupacion.Nombre, Porcentaje = mayorOcupacion.PorcentajeOcupacion },
+                EventoMayorAsistencia = new ReporteEventoDestacadoPorcentajeDto { EventId = mayorAsistencia.EventId, Nombre = mayorAsistencia.Nombre, Porcentaje = mayorAsistencia.PorcentajeAsistencia },
+                EventoMayorImporte = new ReporteEventoDestacadoImporteDto { EventId = mayorImporte.EventId, Nombre = mayorImporte.Nombre, ImporteEmitido = mayorImporte.ImporteEmitido },
+                Top5PorImporte = top5,
             };
         }
 

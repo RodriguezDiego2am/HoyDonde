@@ -15,11 +15,16 @@ namespace HoyDonde.API.Controllers
     {
         private readonly IReporteService _reporteService;
         private readonly ISecurityAuditReportService _securityAuditReportService;
+        private readonly IVentasReporteService _ventasReporteService;
 
-        public ReportsController(IReporteService reporteService, ISecurityAuditReportService securityAuditReportService)
+        public ReportsController(
+            IReporteService reporteService,
+            ISecurityAuditReportService securityAuditReportService,
+            IVentasReporteService ventasReporteService)
         {
             _reporteService = reporteService;
             _securityAuditReportService = securityAuditReportService;
+            _ventasReporteService = ventasReporteService;
         }
 
         // docs/api-mvp-plan.md §11: reporte de solo lectura de los eventos propios del
@@ -53,6 +58,30 @@ namespace HoyDonde.API.Controllers
         public async Task<IActionResult> GetSecurityAuditsReport([FromQuery] SecurityAuditReportFilterDto filter)
         {
             var result = await _securityAuditReportService.GetSecurityAuditsReportAsync(filter);
+            return Ok(result);
+        }
+
+        // docs/api-mvp-plan.md §11: ventas simuladas propias del Organizador, filtradas por
+        // Compra.FechaCompra (nunca Event.FechaInicio — ese es el reporte de desempeño de arriba).
+        // Reutiliza REPORTE_VER_PROPIO: no se agrega ninguna acción nueva.
+        [HttpGet("organizer/sales")]
+        [Authorize(Policy = Acciones.ReporteVerPropio)]
+        public async Task<IActionResult> GetOrganizerSalesReport([FromQuery] VentasOrganizerFilterDto filter)
+        {
+            var organizerId = GetAuthenticatedUserId();
+            if (string.IsNullOrEmpty(organizerId)) return Unauthorized();
+
+            var result = await _ventasReporteService.GetOrganizerSalesReportAsync(organizerId, filter);
+            return Ok(result);
+        }
+
+        // docs/api-mvp-plan.md §11: ventas simuladas globales, opcionalmente acotadas por
+        // organizadorPersonaId. Reutiliza REPORTE_VER_GLOBAL: no se agrega ninguna acción nueva.
+        [HttpGet("admin/sales")]
+        [Authorize(Policy = Acciones.ReporteVerGlobal)]
+        public async Task<IActionResult> GetAdminSalesReport([FromQuery] VentasAdminFilterDto filter)
+        {
+            var result = await _ventasReporteService.GetAdminSalesReportAsync(filter);
             return Ok(result);
         }
 

@@ -12,6 +12,7 @@ namespace HoyDonde.API.DTOs
         public DateTime FechaHasta { get; set; }
         public string AclaracionImporte { get; set; } = string.Empty;
         public ReporteResumenDto Resumen { get; set; } = new();
+        public ReporteDestacadosDto Destacados { get; set; } = new();
         public List<ReporteEventoDetalleDto> Eventos { get; set; } = new();
     }
 }

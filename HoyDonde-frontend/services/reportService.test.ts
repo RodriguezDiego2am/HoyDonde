@@ -85,4 +85,52 @@ describe('reportService', () => {
 
     expect(getSpy).toHaveBeenCalledWith('/reports/admin/security-audits', { params: {} });
   });
+
+  it('getOrganizerSalesReport llama a GET /reports/organizer/sales con el filtro exacto como query params', async () => {
+    const getSpy = jest.spyOn(apiClient, 'get').mockResolvedValue({ data: {} } as any);
+    const filter = {
+      fechaDesde: '2026-01-01T00:00:00.000Z',
+      fechaHasta: '2026-02-01T00:00:00.000Z',
+      eventId: 'event-1',
+      categoria: 'Musica',
+      ticketTypeId: 'tipo-1',
+    };
+
+    await reportService.getOrganizerSalesReport(filter);
+
+    expect(getSpy).toHaveBeenCalledWith('/reports/organizer/sales', { params: filter });
+  });
+
+  it('getOrganizerSalesReport nunca manda organizadorPersonaId', async () => {
+    const getSpy = jest.spyOn(apiClient, 'get').mockResolvedValue({ data: {} } as any);
+
+    await reportService.getOrganizerSalesReport({ fechaDesde: '2026-01-01T00:00:00.000Z', fechaHasta: '2026-02-01T00:00:00.000Z' });
+
+    const config = getSpy.mock.calls[0][1]!;
+    expect(config.params).not.toHaveProperty('organizadorPersonaId');
+  });
+
+  it('getAdminSalesReport llama a GET /reports/admin/sales con el filtro exacto como query params', async () => {
+    const getSpy = jest.spyOn(apiClient, 'get').mockResolvedValue({ data: {} } as any);
+    const filter = {
+      fechaDesde: '2026-01-01T00:00:00.000Z',
+      fechaHasta: '2026-02-01T00:00:00.000Z',
+      organizadorPersonaId: 'persona-1',
+      eventId: 'event-1',
+      categoria: 'Deportes',
+    };
+
+    await reportService.getAdminSalesReport(filter);
+
+    expect(getSpy).toHaveBeenCalledWith('/reports/admin/sales', { params: filter });
+  });
+
+  it('getAdminSalesReport nunca manda ticketTypeId (no forma parte del contrato del reporte de ventas del Admin)', async () => {
+    const getSpy = jest.spyOn(apiClient, 'get').mockResolvedValue({ data: {} } as any);
+
+    await reportService.getAdminSalesReport({ fechaDesde: '2026-01-01T00:00:00.000Z', fechaHasta: '2026-02-01T00:00:00.000Z' });
+
+    const config = getSpy.mock.calls[0][1]!;
+    expect(config.params).not.toHaveProperty('ticketTypeId');
+  });
 });

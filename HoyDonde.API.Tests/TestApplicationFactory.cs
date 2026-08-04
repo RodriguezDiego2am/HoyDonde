@@ -67,6 +67,7 @@ namespace HoyDonde.API.Tests
         public Mock<ISecurityAdminService> MockSecurityAdminService { get; } = new();
         public Mock<IReporteService> MockReporteService { get; } = new();
         public Mock<ISecurityAuditReportService> MockSecurityAuditReportService { get; } = new();
+        public Mock<IVentasReporteService> MockVentasReporteService { get; } = new();
 
         // Etapa 5 del refactor de seguridad: concede, para el uid dado, exactamente los
         // accionCodigos indicados (via un único rol de prueba), dejando MockUsuarioRepository/
@@ -181,6 +182,10 @@ namespace HoyDonde.API.Tests
                 var reporteServiceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IReporteService));
                 if (reporteServiceDescriptor != null) services.Remove(reporteServiceDescriptor);
 
+                // Mismo criterio: reporte de ventas simuladas contra MockVentasReporteService.
+                var ventasReporteServiceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IVentasReporteService));
+                if (ventasReporteServiceDescriptor != null) services.Remove(ventasReporteServiceDescriptor);
+
                 // Mismo criterio: ReportsController se prueba contra MockSecurityAuditReportService
                 // directamente. ISecurityAuditRepository (dependencia real de
                 // FirestoreSecurityAuditRepository -> FirestoreDb) también se retira: nada la
@@ -198,6 +203,7 @@ namespace HoyDonde.API.Tests
                 services.AddSingleton(MockTicketService.Object);
                 services.AddSingleton(MockSecurityAdminService.Object);
                 services.AddSingleton(MockReporteService.Object);
+                services.AddSingleton(MockVentasReporteService.Object);
                 services.AddSingleton(MockSecurityAuditReportService.Object);
                 services.AddSingleton(Mock.Of<ISecurityAuditRepository>());
                 services.AddSingleton(Mock.Of<ITicketValidationStore>());

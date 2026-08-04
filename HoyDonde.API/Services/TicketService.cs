@@ -93,6 +93,12 @@ namespace HoyDonde.API.Services
                     Ubicacion = evento.Ubicacion,
                     FechaInicio = evento.FechaInicio,
                     FechaFin = evento.FechaFin,
+                    // Fotografía para el reporte de ventas simuladas (docs/api-mvp-plan.md §11):
+                    // sale exclusivamente de este mismo Event leído en la transacción, nunca del
+                    // request del cliente (TicketBuyRequest no tiene ningún campo de organizador
+                    // ni de categoría).
+                    OrganizadorPersonaId = evento.OrganizadorPersonaId,
+                    Categoria = evento.Categoria,
                 };
 
                 // Create tickets, fotografiando Event/TicketType en este mismo instante. Los Ticket

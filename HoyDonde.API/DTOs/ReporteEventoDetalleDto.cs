@@ -27,6 +27,12 @@ namespace HoyDonde.API.DTOs
         public double PorcentajeUtilizacion { get; set; }
         public decimal ImporteEmitido { get; set; }
 
+        // Entradas emitidas nunca validadas (docs/api-mvp-plan.md §11): null/no aplicable salvo
+        // que el evento esté efectivamente Finalizado -nunca se llama "ausentismo" a entradas
+        // pendientes de un evento futuro o en curso, que simplemente no tienen este dato-.
+        public int? EntradasNoUtilizadas { get; set; }
+        public double? PorcentajeNoUtilizacion { get; set; }
+
         // Colapsa a un único elemento (el tipo filtrado) cuando el filtro trae ticketTypeId.
         public List<ReporteTicketTypeDetalleDto> TiposDeEntrada { get; set; } = new();
     }

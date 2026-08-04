@@ -407,5 +407,216 @@ namespace HoyDonde.API.Tests
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
             Assert.Equal("REPORT_RANGE_INVALID", body.GetProperty("code").GetString());
         }
+
+        // ==================================================================
+        // GET /api/reports/organizer/sales (docs/api-mvp-plan.md §11)
+        // ==================================================================
+
+        private static string ValidSalesQuery(string? extra = null) =>
+            "/api/reports/organizer/sales?fechaDesde=2026-01-01T00:00:00Z&fechaHasta=2026-02-01T00:00:00Z" + (extra ?? "");
+
+        [Fact]
+        public async Task GetOrganizerSalesReport_Anonymous_ReturnsUnauthorized()
+        {
+            var anonClient = _factory.CreateClient();
+            var response = await anonClient.GetAsync(ValidSalesQuery());
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GetOrganizerSalesReport_SinAccionReporteVerPropio_ReturnsForbidden()
+        {
+            var msg = new HttpRequestMessage(HttpMethod.Get, ValidSalesQuery());
+            msg.Headers.Authorization = new AuthenticationHeaderValue("Test");
+            msg.Headers.Add("Test-Uid", "uid-sin-permiso-sales");
+
+            var response = await _client.SendAsync(msg);
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GetOrganizerSalesReport_ConAccion_ReturnsOk_WithExpectedShape()
+        {
+            var expected = new VentasReporteResponseDto
+            {
+                FechaDesde = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                FechaHasta = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc),
+                AclaracionImporte = "El MVP no procesa pagos reales.",
+                Resumen = new VentasResumenDto { CantidadCompras = 3, EntradasEmitidas = 5, ImporteEmitido = 500m, ClientesUnicos = 2 },
+                SerieTemporal = new List<VentasSerieBucketDto> { new() { Etiqueta = "01/01", CantidadCompras = 3 } },
+                TopEventos = new List<VentasTopEventoDto> { new() { EventoId = "event-1", EventoNombre = "Festival", ImporteEmitido = 500m } },
+                PorCategoria = new List<VentasCategoriaDto> { new() { Categoria = "Musica", ImporteEmitido = 500m, PorcentajeDelImporteTotal = 100 } },
+            };
+
+            _factory.MockVentasReporteService
+                .Setup(s => s.GetOrganizerSalesReportAsync("test-uid-123", It.IsAny<VentasOrganizerFilterDto>()))
+                .ReturnsAsync(expected);
+
+            var response = await _client.GetAsync(ValidSalesQuery());
+            var content = await response.Content.ReadAsStringAsync();
+            var result = await response.Content.ReadFromJsonAsync<VentasReporteResponseDto>();
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.NotNull(result);
+            Assert.Equal(3, result!.Resumen.CantidadCompras);
+            Assert.Single(result.TopEventos);
+            Assert.DoesNotContain("test-uid-123", content);
+            Assert.DoesNotContain("persona-reports-test", content);
+        }
+
+        [Fact]
+        public async Task GetOrganizerSalesReport_BindsFechasEventIdCategoriaTicketTypeId()
+        {
+            VentasOrganizerFilterDto? captured = null;
+            _factory.MockVentasReporteService
+                .Setup(s => s.GetOrganizerSalesReportAsync(It.IsAny<string>(), It.IsAny<VentasOrganizerFilterDto>()))
+                .Callback<string, VentasOrganizerFilterDto>((_, f) => captured = f)
+                .ReturnsAsync(new VentasReporteResponseDto());
+
+            var response = await _client.GetAsync(
+                "/api/reports/organizer/sales?fechaDesde=2026-01-01T00:00:00Z&fechaHasta=2026-02-01T00:00:00Z&eventId=event-1&categoria=Musica&ticketTypeId=tipo-1");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.NotNull(captured);
+            Assert.Equal(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), captured!.FechaDesde);
+            Assert.Equal("event-1", captured.EventId);
+            Assert.Equal(Event.EventCategory.Musica, captured.Categoria);
+            Assert.Equal("tipo-1", captured.TicketTypeId);
+        }
+
+        [Fact]
+        public async Task GetOrganizerSalesReport_RangoInvalido_ReturnsBadRequest_WithReportRangeInvalidCode()
+        {
+            _factory.MockVentasReporteService
+                .Setup(s => s.GetOrganizerSalesReportAsync("test-uid-123", It.IsAny<VentasOrganizerFilterDto>()))
+                .ThrowsAsync(new ReporteRangoInvalidoException("El rango no puede exceder 366 días."));
+
+            var response = await _client.GetAsync(ValidSalesQuery());
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Equal("REPORT_RANGE_INVALID", body.GetProperty("code").GetString());
+        }
+
+        [Fact]
+        public async Task GetOrganizerSalesReport_FiltroInvalido_ReturnsBadRequest_WithReportFilterInvalidCode()
+        {
+            _factory.MockVentasReporteService
+                .Setup(s => s.GetOrganizerSalesReportAsync("test-uid-123", It.IsAny<VentasOrganizerFilterDto>()))
+                .ThrowsAsync(new ReporteFiltroInvalidoException("'ticketTypeId' requiere 'eventId'."));
+
+            var response = await _client.GetAsync(ValidSalesQuery());
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Equal("REPORT_FILTER_INVALID", body.GetProperty("code").GetString());
+        }
+
+        [Fact]
+        public async Task GetOrganizerSalesReport_EventoAjeno_ReturnsForbidden()
+        {
+            _factory.MockVentasReporteService
+                .Setup(s => s.GetOrganizerSalesReportAsync("test-uid-123", It.IsAny<VentasOrganizerFilterDto>()))
+                .ThrowsAsync(new EventOwnershipException("event-ajeno", "test-uid-123"));
+
+            var response = await _client.GetAsync(ValidSalesQuery("&eventId=event-ajeno"));
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GetOrganizerSalesReport_EventoInexistente_ReturnsNotFound()
+        {
+            _factory.MockVentasReporteService
+                .Setup(s => s.GetOrganizerSalesReportAsync("test-uid-123", It.IsAny<VentasOrganizerFilterDto>()))
+                .ThrowsAsync(new EventNotFoundException("event-inexistente"));
+
+            var response = await _client.GetAsync(ValidSalesQuery("&eventId=event-inexistente"));
+
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        // ==================================================================
+        // GET /api/reports/admin/sales (docs/api-mvp-plan.md §11)
+        // ==================================================================
+
+        private static string ValidAdminSalesQuery(string? extra = null) =>
+            "/api/reports/admin/sales?fechaDesde=2026-01-01T00:00:00Z&fechaHasta=2026-02-01T00:00:00Z" + (extra ?? "");
+
+        [Fact]
+        public async Task GetAdminSalesReport_Anonymous_ReturnsUnauthorized()
+        {
+            var anonClient = _factory.CreateClient();
+            var response = await anonClient.GetAsync(ValidAdminSalesQuery());
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GetAdminSalesReport_SinAccionReporteVerGlobal_ReturnsForbidden()
+        {
+            var msg = new HttpRequestMessage(HttpMethod.Get, ValidAdminSalesQuery());
+            msg.Headers.Authorization = new AuthenticationHeaderValue("Test");
+            msg.Headers.Add("Test-Uid", "uid-sin-permiso-admin-sales");
+
+            var response = await _client.SendAsync(msg);
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GetAdminSalesReport_ConAccion_ReturnsOk_WithExpectedShape()
+        {
+            var expected = new VentasReporteResponseDto
+            {
+                FechaDesde = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                FechaHasta = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc),
+                Resumen = new VentasResumenDto { CantidadCompras = 1, EntradasEmitidas = 1, ImporteEmitido = 10m },
+            };
+
+            _factory.MockVentasReporteService
+                .Setup(s => s.GetAdminSalesReportAsync(It.IsAny<VentasAdminFilterDto>()))
+                .ReturnsAsync(expected);
+
+            var response = await _client.GetAsync(ValidAdminSalesQuery());
+            var result = await response.Content.ReadFromJsonAsync<VentasReporteResponseDto>();
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.NotNull(result);
+            Assert.Equal(1, result!.Resumen.CantidadCompras);
+        }
+
+        [Fact]
+        public async Task GetAdminSalesReport_BindsFechasOrganizadorEventIdCategoria()
+        {
+            VentasAdminFilterDto? captured = null;
+            _factory.MockVentasReporteService
+                .Setup(s => s.GetAdminSalesReportAsync(It.IsAny<VentasAdminFilterDto>()))
+                .Callback<VentasAdminFilterDto>(f => captured = f)
+                .ReturnsAsync(new VentasReporteResponseDto());
+
+            var response = await _client.GetAsync(
+                ValidAdminSalesQuery("&organizadorPersonaId=persona-1&eventId=event-1&categoria=Deportes"));
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.NotNull(captured);
+            Assert.Equal("persona-1", captured!.OrganizadorPersonaId);
+            Assert.Equal("event-1", captured.EventId);
+            Assert.Equal(Event.EventCategory.Deportes, captured.Categoria);
+        }
+
+        [Fact]
+        public async Task GetAdminSalesReport_RangoInvalido_ReturnsBadRequest_WithReportRangeInvalidCode()
+        {
+            _factory.MockVentasReporteService
+                .Setup(s => s.GetAdminSalesReportAsync(It.IsAny<VentasAdminFilterDto>()))
+                .ThrowsAsync(new ReporteRangoInvalidoException("El rango no puede exceder 366 días."));
+
+            var response = await _client.GetAsync(ValidAdminSalesQuery());
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Equal("REPORT_RANGE_INVALID", body.GetProperty("code").GetString());
+        }
     }
 }

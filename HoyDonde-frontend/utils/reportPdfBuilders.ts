@@ -4,6 +4,7 @@ import type {
   ReporteEventoDetalle,
   ReporteAdminEventoDetalle,
   ReporteResumen,
+  ReporteDestacados,
   SecurityAuditReporteItem,
 } from '@/services/reportService';
 
@@ -27,8 +28,37 @@ export function buildResumenTableHtml(resumen: ReporteResumen): string {
       <tr><th>Entradas anuladas</th><td>${resumen.entradasAnuladas}</td><th>Importe emitido</th><td>${escapeHtml(formatPrecio(resumen.importeEmitido))}</td></tr>
       <tr><th>% Ocupación</th><td>${PORC(resumen.porcentajeOcupacion)}</td><th>% Asistencia</th><td>${PORC(resumen.porcentajeAsistencia)}</td></tr>
       <tr><th>% Utilización</th><td>${PORC(resumen.porcentajeUtilizacion)}</td><td></td><td></td></tr>
+      <tr><th>Entradas no utilizadas (finalizados)</th><td>${resumen.entradasNoUtilizadasFinalizados}</td><th>% no utilización (finalizados)</th><td>${PORC(resumen.porcentajeNoUtilizacionFinalizados)}</td></tr>
     </tbody>
   </table>`;
+}
+
+export function buildDestacadosSectionHtml(destacados: ReporteDestacados): string {
+  const items: string[] = [];
+  if (destacados.eventoMayorOcupacion) {
+    items.push(`<li>Mayor ocupación: <strong>${escapeHtml(destacados.eventoMayorOcupacion.nombre)}</strong> (${PORC(destacados.eventoMayorOcupacion.porcentaje)})</li>`);
+  }
+  if (destacados.eventoMayorAsistencia) {
+    items.push(`<li>Mayor asistencia: <strong>${escapeHtml(destacados.eventoMayorAsistencia.nombre)}</strong> (${PORC(destacados.eventoMayorAsistencia.porcentaje)})</li>`);
+  }
+  if (destacados.eventoMayorImporte) {
+    items.push(`<li>Mayor importe emitido: <strong>${escapeHtml(destacados.eventoMayorImporte.nombre)}</strong> (${escapeHtml(formatPrecio(destacados.eventoMayorImporte.importeEmitido))})</li>`);
+  }
+
+  if (items.length === 0 && destacados.top5PorImporte.length === 0) return '';
+
+  const top5Rows = destacados.top5PorImporte
+    .map((e) => `<tr><td>${escapeHtml(e.nombre)}</td><td>${escapeHtml(formatPrecio(e.importeEmitido))}</td><td>${e.entradasEmitidas}</td></tr>`)
+    .join('');
+
+  return `
+  <div class="section-title">Destacados</div>
+  ${items.length > 0 ? `<ul>${items.join('')}</ul>` : ''}
+  ${
+    destacados.top5PorImporte.length > 0
+      ? `<table><thead><tr><th>Top 5 por importe emitido</th><th>Importe emitido</th><th>Entradas</th></tr></thead><tbody>${top5Rows}</tbody></table>`
+      : ''
+  }`;
 }
 
 export function buildEventosSectionHtml(
@@ -61,6 +91,7 @@ export function buildEventosSectionHtml(
         <td>${PORC(e.porcentajeOcupacion)}</td>
         <td>${PORC(e.porcentajeAsistencia)}</td>
         <td>${escapeHtml(formatPrecio(e.importeEmitido))}</td>
+        <td>${e.entradasNoUtilizadas !== null ? `${e.entradasNoUtilizadas} (${PORC(e.porcentajeNoUtilizacion ?? 0)})` : '—'}</td>
       </tr>`;
     })
     .join('');
@@ -111,6 +142,7 @@ export function buildEventosSectionHtml(
         <th>% Ocup.</th>
         <th>% Asist.</th>
         <th>Importe emitido</th>
+        <th>No utilizadas (fin.)</th>
       </tr>
     </thead>
     <tbody>${filas}</tbody>

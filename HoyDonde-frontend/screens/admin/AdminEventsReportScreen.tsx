@@ -11,6 +11,8 @@ import { Surface } from '@/components/ui/Surface';
 import { ChipSelectRow } from '@/components/reports/ChipSelectRow';
 import { ReportLedgerRow } from '@/components/reports/ReportLedgerRow';
 import { SegmentedDateField } from '@/components/forms/SegmentedDateField';
+import { OcupacionAsistenciaBars } from '@/components/charts/OcupacionAsistenciaBars';
+import { TopEventosBarChart } from '@/components/charts/TopEventosBarChart';
 import { ACCIONES } from '@/constants/acciones';
 import { REPORT_CATEGORIAS, REPORT_ESTADOS } from '@/constants/reportFilterOptions';
 import { borderWidth, colors, fonts, radii, spacing } from '@/constants/theme';
@@ -21,7 +23,7 @@ import { ReporteAdminEventosResponse, ReporteEventoEstado, reportService } from 
 import { isValidLocalDateRange, nextLocalDayExclusive, parseLocalDate, startOfLocalDay, toUtcIso } from '@/utils/datetime';
 import { formatFecha, formatPrecio } from '@/utils/format';
 import { generateAndShareReportPdf, wrapReportDocument } from '@/utils/reportPdf';
-import { buildEventosSectionHtml, buildResumenTableHtml } from '@/utils/reportPdfBuilders';
+import { buildDestacadosSectionHtml, buildEventosSectionHtml, buildResumenTableHtml } from '@/utils/reportPdfBuilders';
 
 interface AppliedFilters {
   fechaDesde: string;
@@ -191,7 +193,10 @@ export default function AdminEventsReportScreen() {
         title: 'Reporte global de eventos',
         periodoLabel: `Período: ${applied.fechaDesdeDisplay} – ${applied.fechaHastaDisplay}`,
         filtros,
-        bodyHtml: buildResumenTableHtml(report.resumen) + buildEventosSectionHtml(report.eventos, { organizadorNombrePorPersonaId }),
+        bodyHtml:
+          buildResumenTableHtml(report.resumen) +
+          buildDestacadosSectionHtml(report.destacados) +
+          buildEventosSectionHtml(report.eventos, { organizadorNombrePorPersonaId }),
         disclaimer: report.aclaracionImporte,
       });
 
@@ -296,7 +301,35 @@ export default function AdminEventsReportScreen() {
             </Surface>
             <Text style={styles.disclaimer}>{report.aclaracionImporte}</Text>
 
-            <SectionDivider index="03" label={`Eventos (${report.eventos.length})`} />
+            {report.destacados.eventoMayorOcupacion || report.destacados.eventoMayorAsistencia || report.destacados.eventoMayorImporte ? (
+              <>
+                <SectionDivider index="03" label="Destacados" />
+                <Surface style={styles.card}>
+                  {report.destacados.eventoMayorOcupacion ? (
+                    <ReportLedgerRow label="Mayor ocupación" value={`${report.destacados.eventoMayorOcupacion.nombre} (${report.destacados.eventoMayorOcupacion.porcentaje.toFixed(1)}%)`} />
+                  ) : null}
+                  {report.destacados.eventoMayorAsistencia ? (
+                    <ReportLedgerRow label="Mayor asistencia" value={`${report.destacados.eventoMayorAsistencia.nombre} (${report.destacados.eventoMayorAsistencia.porcentaje.toFixed(1)}%)`} />
+                  ) : null}
+                  {report.destacados.eventoMayorImporte ? (
+                    <ReportLedgerRow label="Mayor importe emitido" value={`${report.destacados.eventoMayorImporte.nombre} (${formatPrecio(report.destacados.eventoMayorImporte.importeEmitido)})`} />
+                  ) : null}
+                </Surface>
+              </>
+            ) : null}
+
+            {report.destacados.top5PorImporte.length > 0 ? (
+              <>
+                <SectionDivider index="04" label="Top 5 por importe emitido" />
+                <Surface style={styles.card}>
+                  <TopEventosBarChart
+                    items={report.destacados.top5PorImporte.map((e) => ({ key: e.eventId, nombre: e.nombre, importeEmitido: e.importeEmitido, entradasEmitidas: e.entradasEmitidas }))}
+                  />
+                </Surface>
+              </>
+            ) : null}
+
+            <SectionDivider index="05" label={`Eventos (${report.eventos.length})`} />
             {report.eventos.length === 0 ? (
               <AsyncStateView variant="empty" icon="event-busy" message="Ningún evento coincide con los filtros aplicados." />
             ) : (
@@ -313,6 +346,12 @@ export default function AdminEventsReportScreen() {
                   </Text>
                   <ReportLedgerRow label="Emitidas / Usadas / Pendientes" value={`${evento.entradasEmitidas} / ${evento.entradasUsadas} / ${evento.entradasPendientes}`} />
                   <ReportLedgerRow label="Importe emitido" value={formatPrecio(evento.importeEmitido)} />
+                  <View style={styles.progressBlock}>
+                    <OcupacionAsistenciaBars porcentajeOcupacion={evento.porcentajeOcupacion} porcentajeAsistencia={evento.porcentajeAsistencia} />
+                  </View>
+                  {evento.entradasNoUtilizadas !== null ? (
+                    <ReportLedgerRow label="Entradas no utilizadas" value={`${evento.entradasNoUtilizadas} (${evento.porcentajeNoUtilizacion?.toFixed(1)}%)`} />
+                  ) : null}
                 </Surface>
               ))
             )}
@@ -403,6 +442,7 @@ const styles = StyleSheet.create({
   eventHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.sm, marginBottom: spacing.xs },
   eventName: { flex: 1, fontFamily: fonts.bold, fontSize: 16, color: colors.ink },
   eventMeta: { fontFamily: fonts.regular, fontSize: 12, color: colors.inkSoft, marginBottom: spacing.xs },
+  progressBlock: { marginTop: spacing.sm },
   exportRow: { marginTop: spacing.md },
   backdrop: { flex: 1, backgroundColor: 'rgba(23, 21, 18, 0.5)', justifyContent: 'flex-end' },
   sheet: {

@@ -319,6 +319,93 @@ namespace HoyDonde.API.Tests.Integration
             Assert.Equal(compra.FechaCompra, ticket.FechaCompra);
         }
 
+        // ---- Compra: fotografía de OrganizadorPersonaId/Categoria (docs/api-mvp-plan.md §11) ----
+
+        [FirestoreEmulatorFact]
+        public async Task BuyTicketsAsync_Compra_PersistsOrganizadorPersonaIdAndCategoria_FromEvent_NeverFromRequest()
+        {
+            var clienteUid = $"uid-{Guid.NewGuid():N}";
+            var personaResolver = ResolverFor((clienteUid, $"persona-{Guid.NewGuid():N}"));
+            var sut = BuildTicketService(_fixture, personaResolver);
+
+            var organizadorPersonaId = $"persona-organizador-{Guid.NewGuid():N}";
+            var eventId = $"event-{Guid.NewGuid():N}";
+            var ticketTypeId = $"tipo-{Guid.NewGuid():N}";
+            await _fixture.Db!.Collection("events").Document(eventId).SetAsync(new Event
+            {
+                Id = eventId,
+                Nombre = "Evento con organizador y categoría",
+                Ubicacion = "Rosario",
+                Categoria = Event.EventCategory.Deportes,
+                OrganizadorPersonaId = organizadorPersonaId,
+                FechaInicio = DateTime.UtcNow.AddDays(5),
+                FechaFin = DateTime.UtcNow.AddDays(6),
+                Estado = Event.EventStatus.Publicado,
+                TicketTypes = new List<TicketType> { new() { Id = ticketTypeId, Nombre = "General", Precio = 40, CantidadDisponible = 5, EventoId = eventId } },
+            });
+
+            // TicketBuyRequest no tiene ningún campo de organizador ni de categoría: no hay forma
+            // estructural de que el cliente los falsifique.
+            var compra = await sut.BuyTicketsAsync(clienteUid, new TicketBuyRequest { EventoId = eventId, TicketTypeId = ticketTypeId, Cantidad = 1 });
+
+            var persistedCompra = (await _fixture.Db!.Collection("compras").Document(compra.Id).GetSnapshotAsync()).ConvertTo<Compra>();
+            Assert.Equal(organizadorPersonaId, persistedCompra.OrganizadorPersonaId);
+            Assert.Equal(Event.EventCategory.Deportes, persistedCompra.Categoria);
+
+            // OrganizadorPersonaId es exclusivamente interno: CompraResponseDto nunca lo expone.
+            Assert.DoesNotContain("OrganizadorPersonaId", typeof(CompraResponseDto).GetProperties().Select(p => p.Name));
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task BuyTicketsAsync_Compra_RollbackOnFailure_NeverLeavesPartialOrganizadorCategoriaPhoto()
+        {
+            var clienteUid = $"uid-{Guid.NewGuid():N}";
+            var personaResolver = ResolverFor((clienteUid, $"persona-{Guid.NewGuid():N}"));
+            var sut = BuildTicketService(_fixture, personaResolver);
+
+            var (eventId, ticketTypeId) = await SeedEventoAsync(
+                Event.EventStatus.Publicado,
+                fechaInicio: DateTime.UtcNow.AddDays(5),
+                fechaFin: DateTime.UtcNow.AddDays(6),
+                cantidadDisponible: 1);
+
+            await Assert.ThrowsAsync<StockInsuficienteException>(() =>
+                sut.BuyTicketsAsync(clienteUid, new TicketBuyRequest { EventoId = eventId, TicketTypeId = ticketTypeId, Cantidad = 2 }));
+
+            var comprasDelEvento = await _fixture.Db!.Collection("compras").WhereEqualTo(nameof(Compra.EventoId), eventId).GetSnapshotAsync();
+            Assert.Empty(comprasDelEvento.Documents);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task Compra_LegacySinOrganizadorPersonaIdNiCategoria_SeLeeDeFormaSegura_SinInventarDatos()
+        {
+            // Simula un documento "compras" persistido antes del enriquecimiento de esta etapa
+            // (ambos campos ausentes en Firestore): debe poder leerse sin excepción, sin inventar
+            // una categoría (queda null, nunca el primer valor del enum) y con OrganizadorPersonaId
+            // vacío (mismo patrón de "no seteado" que el resto del código, p. ej. ValidadoPorPersonaId).
+            var compraId = $"compra-legacy-{Guid.NewGuid():N}";
+            await _fixture.Db!.Collection("compras").Document(compraId).SetAsync(new Dictionary<string, object>
+            {
+                ["ClientePersonaId"] = "persona-cliente-legacy",
+                ["EventoId"] = "event-legacy",
+                ["FechaCompra"] = DateTime.UtcNow.AddDays(-30),
+                ["CantidadEntradas"] = 2,
+                ["ImporteTotal"] = 200.0,
+                ["PagoSimulado"] = true,
+                ["EventoNombre"] = "Evento legacy",
+                ["Ubicacion"] = "Cordoba",
+                ["FechaInicio"] = DateTime.UtcNow.AddDays(-40),
+                ["FechaFin"] = DateTime.UtcNow.AddDays(-39),
+            });
+
+            var snapshot = await _fixture.Db!.Collection("compras").Document(compraId).GetSnapshotAsync();
+            var compra = snapshot.ConvertTo<Compra>();
+
+            Assert.Equal(string.Empty, compra.OrganizadorPersonaId);
+            Assert.Null(compra.Categoria);
+            Assert.Equal(2, compra.CantidadEntradas);
+        }
+
         [FirestoreEmulatorFact]
         public async Task BuyTicketsAsync_EventoBorrador_ThrowsEventoNoDisponibleParaCompra()
         {

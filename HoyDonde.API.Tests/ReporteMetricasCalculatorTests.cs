@@ -259,6 +259,141 @@ namespace HoyDonde.API.Tests
             Assert.Equal("Finalizado", detalle.Estado);
         }
 
+        // ---- Entradas no utilizadas: solo para eventos efectivamente Finalizados ----
+
+        [Fact]
+        public void Build_EventoFinalizado_CalculatesEntradasNoUtilizadas()
+        {
+            var tipo = BuildTicketType("tipo-1", "General", 10, 0);
+            var evento = BuildEvento("event-1", capacidadMaxima: 3, ticketTypes: new List<TicketType> { tipo }, fechaFin: UtcNow.AddDays(-1));
+            var tickets = new Dictionary<string, List<Ticket>>
+            {
+                ["event-1"] = new List<Ticket>
+                {
+                    BuildTicket("tipo-1", Ticket.TicketStatus.Usado, 10),
+                    BuildTicket("tipo-1", Ticket.TicketStatus.Emitido, 10),
+                    BuildTicket("tipo-1", Ticket.TicketStatus.Anulado, 10),
+                }
+            };
+
+            var resultado = ReporteMetricasCalculator.Build(UtcNow.AddDays(-5), UtcNow.AddDays(5), new List<Event> { evento }, tickets, null, UtcNow);
+
+            var detalle = Assert.Single(resultado.Eventos);
+            Assert.Equal("Finalizado", detalle.Estado);
+            // Emitidas(3) - Usadas(1) = 2 no utilizadas (pendiente + anulado).
+            Assert.Equal(2, detalle.EntradasNoUtilizadas);
+            Assert.Equal(66.67, detalle.PorcentajeNoUtilizacion);
+            Assert.Equal(2, resultado.Resumen.EntradasNoUtilizadasFinalizados);
+            Assert.Equal(66.67, resultado.Resumen.PorcentajeNoUtilizacionFinalizados);
+        }
+
+        [Theory]
+        [InlineData(Event.EventStatus.Borrador)]
+        [InlineData(Event.EventStatus.Publicado)]
+        [InlineData(Event.EventStatus.Cancelado)]
+        public void Build_EventoNoFinalizado_EntradasNoUtilizadas_IsNull_NeverCalledAusentismo(Event.EventStatus estado)
+        {
+            var tipo = BuildTicketType("tipo-1", "General", 10, 0);
+            var evento = BuildEvento("event-1", capacidadMaxima: 1, ticketTypes: new List<TicketType> { tipo }, estado: estado, fechaFin: UtcNow.AddDays(5));
+            var tickets = new Dictionary<string, List<Ticket>> { ["event-1"] = new List<Ticket> { BuildTicket("tipo-1", Ticket.TicketStatus.Emitido, 10) } };
+
+            var resultado = ReporteMetricasCalculator.Build(UtcNow.AddDays(-5), UtcNow.AddDays(10), new List<Event> { evento }, tickets, null, UtcNow);
+
+            var detalle = Assert.Single(resultado.Eventos);
+            Assert.Null(detalle.EntradasNoUtilizadas);
+            Assert.Null(detalle.PorcentajeNoUtilizacion);
+        }
+
+        [Fact]
+        public void Build_ResumenNoUtilizacion_OnlyAggregatesFinalizadoEvents()
+        {
+            var tipoFinalizado = BuildTicketType("tipo-1", "General", 10, 0);
+            var eventoFinalizado = BuildEvento("event-fin", capacidadMaxima: 2, ticketTypes: new List<TicketType> { tipoFinalizado }, fechaFin: UtcNow.AddDays(-1));
+            var tipoVigente = BuildTicketType("tipo-2", "General", 10, 0);
+            var eventoVigente = BuildEvento("event-vig", capacidadMaxima: 2, ticketTypes: new List<TicketType> { tipoVigente }, fechaFin: UtcNow.AddDays(5));
+
+            var tickets = new Dictionary<string, List<Ticket>>
+            {
+                ["event-fin"] = new List<Ticket> { BuildTicket("tipo-1", Ticket.TicketStatus.Emitido, 10), BuildTicket("tipo-1", Ticket.TicketStatus.Usado, 10) },
+                ["event-vig"] = new List<Ticket> { BuildTicket("tipo-2", Ticket.TicketStatus.Emitido, 10) },
+            };
+
+            var resultado = ReporteMetricasCalculator.Build(UtcNow.AddDays(-5), UtcNow.AddDays(10), new List<Event> { eventoFinalizado, eventoVigente }, tickets, null, UtcNow);
+
+            // Solo event-fin aporta al agregado: Emitidas(2) - Usadas(1) = 1.
+            Assert.Equal(1, resultado.Resumen.EntradasNoUtilizadasFinalizados);
+            Assert.Equal(50.0, resultado.Resumen.PorcentajeNoUtilizacionFinalizados);
+        }
+
+        [Fact]
+        public void Build_SinEventosFinalizados_ResumenNoUtilizacion_IsZero_NeverException()
+        {
+            var evento = BuildEvento("event-1", capacidadMaxima: 1, ticketTypes: new List<TicketType>(), fechaFin: UtcNow.AddDays(5));
+            var resultado = ReporteMetricasCalculator.Build(UtcNow.AddDays(-5), UtcNow.AddDays(10), new List<Event> { evento }, new Dictionary<string, List<Ticket>>(), null, UtcNow);
+
+            Assert.Equal(0, resultado.Resumen.EntradasNoUtilizadasFinalizados);
+            Assert.Equal(0, resultado.Resumen.PorcentajeNoUtilizacionFinalizados);
+        }
+
+        // ---- Destacados y Top 5 por importe emitido ----
+
+        [Fact]
+        public void Build_Destacados_IdentifiesMayorOcupacionAsistenciaImporte()
+        {
+            var tipoBajo = BuildTicketType("tipo-bajo", "General", 10, 8); // capacidad 10, ocupación baja
+            var eventoBajo = BuildEvento("event-bajo", capacidadMaxima: 10, ticketTypes: new List<TicketType> { tipoBajo });
+            var tipoAlto = BuildTicketType("tipo-alto", "General", 50, 0); // capacidad 2, ocupación/asistencia/importe altos
+            var eventoAlto = BuildEvento("event-alto", capacidadMaxima: 2, ticketTypes: new List<TicketType> { tipoAlto });
+
+            var tickets = new Dictionary<string, List<Ticket>>
+            {
+                ["event-bajo"] = new List<Ticket> { BuildTicket("tipo-bajo", Ticket.TicketStatus.Emitido, 10) },
+                ["event-alto"] = new List<Ticket>
+                {
+                    BuildTicket("tipo-alto", Ticket.TicketStatus.Usado, 50),
+                    BuildTicket("tipo-alto", Ticket.TicketStatus.Usado, 50),
+                },
+            };
+
+            var resultado = ReporteMetricasCalculator.Build(UtcNow.AddDays(-5), UtcNow.AddDays(5), new List<Event> { eventoBajo, eventoAlto }, tickets, null, UtcNow);
+
+            Assert.Equal("event-alto", resultado.Destacados.EventoMayorOcupacion!.EventId);
+            Assert.Equal("event-alto", resultado.Destacados.EventoMayorAsistencia!.EventId);
+            Assert.Equal("event-alto", resultado.Destacados.EventoMayorImporte!.EventId);
+            Assert.Equal(100m, resultado.Destacados.EventoMayorImporte.ImporteEmitido);
+        }
+
+        [Fact]
+        public void Build_Top5PorImporte_OrdersDescending_MaxFiveEntries()
+        {
+            var eventos = new List<Event>();
+            var tickets = new Dictionary<string, List<Ticket>>();
+            for (int i = 0; i < 7; i++)
+            {
+                var tipo = BuildTicketType($"tipo-{i}", "General", 10 + i, 0);
+                var evento = BuildEvento($"event-{i}", capacidadMaxima: 1, ticketTypes: new List<TicketType> { tipo });
+                eventos.Add(evento);
+                tickets[$"event-{i}"] = new List<Ticket> { BuildTicket($"tipo-{i}", Ticket.TicketStatus.Usado, 10 + i) };
+            }
+
+            var resultado = ReporteMetricasCalculator.Build(UtcNow.AddDays(-5), UtcNow.AddDays(5), eventos, tickets, null, UtcNow);
+
+            Assert.Equal(5, resultado.Destacados.Top5PorImporte.Count);
+            Assert.Equal("event-6", resultado.Destacados.Top5PorImporte[0].EventId); // importe 16, el mayor
+            Assert.True(resultado.Destacados.Top5PorImporte.Zip(resultado.Destacados.Top5PorImporte.Skip(1), (a, b) => a.ImporteEmitido >= b.ImporteEmitido).All(x => x));
+        }
+
+        [Fact]
+        public void Build_ZeroEventos_Destacados_AreAllNullOrEmpty()
+        {
+            var resultado = ReporteMetricasCalculator.Build(UtcNow.AddDays(-5), UtcNow.AddDays(5), new List<Event>(), new Dictionary<string, List<Ticket>>(), null, UtcNow);
+
+            Assert.Null(resultado.Destacados.EventoMayorOcupacion);
+            Assert.Null(resultado.Destacados.EventoMayorAsistencia);
+            Assert.Null(resultado.Destacados.EventoMayorImporte);
+            Assert.Empty(resultado.Destacados.Top5PorImporte);
+        }
+
         [Fact]
         public void ResponseDtos_NeverExposeInternalIdentifiers()
         {
