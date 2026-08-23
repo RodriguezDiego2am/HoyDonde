@@ -118,6 +118,16 @@ namespace HoyDonde.API.Tests
                 var firestoreDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(FirestoreDb));
                 if (firestoreDescriptor != null) services.Remove(firestoreDescriptor);
 
+                var paymentInboxDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IPaymentWebhookInbox));
+                if (paymentInboxDescriptor != null) services.Remove(paymentInboxDescriptor);
+
+                var purchaseCheckoutDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IPurchaseCheckoutService));
+                if (purchaseCheckoutDescriptor != null) services.Remove(purchaseCheckoutDescriptor);
+                var purchaseProcessingDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IPaymentProcessingService));
+                if (purchaseProcessingDescriptor != null) services.Remove(purchaseProcessingDescriptor);
+                var purchaseServiceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(PurchaseService));
+                if (purchaseServiceDescriptor != null) services.Remove(purchaseServiceDescriptor);
+
                 var eventServiceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IEventService));
                 if (eventServiceDescriptor != null) services.Remove(eventServiceDescriptor);
 
@@ -207,6 +217,9 @@ namespace HoyDonde.API.Tests
                 services.AddSingleton(MockSecurityAuditReportService.Object);
                 services.AddSingleton(Mock.Of<ISecurityAuditRepository>());
                 services.AddSingleton(Mock.Of<ITicketValidationStore>());
+                services.AddSingleton(Mock.Of<IPaymentWebhookInbox>());
+                services.AddSingleton(Mock.Of<IPaymentProcessingService>());
+                services.AddSingleton(Mock.Of<IPurchaseCheckoutService>());
                 // Etapa 5: estos tres quedan como Mock<T> reales (no Mock.Of<T> anónimos) para que
                 // GrantAccion pueda configurarlos por test y AccionAuthorizationHandler resuelva
                 // autorización real contra la implementación real de IPermissionService (que sigue

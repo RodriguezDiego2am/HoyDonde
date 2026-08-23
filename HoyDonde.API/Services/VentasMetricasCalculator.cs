@@ -22,22 +22,43 @@ namespace HoyDonde.API.Services
             IReadOnlyDictionary<string, List<Ticket>> ticketsPorCompra,
             string? eventIdFiltro)
         {
+                var comprasEmitidas = compras.Where(EmiteEntradas).ToList();
             return new VentasReporteResponseDto
             {
                 FechaDesde = fechaDesde,
                 FechaHasta = fechaHasta,
                 AclaracionImporte = AclaracionImporteFija,
-                Resumen = BuildResumen(compras),
-                SerieTemporal = VentasSerieBuilder.Build(compras.ToList(), fechaDesde, fechaHasta),
-                TopEventos = BuildTopEventos(compras),
-                PorCategoria = BuildPorCategoria(compras),
+                Resumen = BuildResumen(comprasEmitidas),
+                SerieTemporal = VentasSerieBuilder.Build(comprasEmitidas, fechaDesde, fechaHasta),
+                TopEventos = BuildTopEventos(comprasEmitidas),
+                PorCategoria = BuildPorCategoria(comprasEmitidas),
+                    PorEstadoCompra = BuildPorEstadoCompra(compras),
                 PorTipoEntrada = string.IsNullOrEmpty(eventIdFiltro)
                     ? new List<VentasTicketTypeDto>()
-                    : BuildPorTipoEntrada(compras, ticketsPorCompra),
+                    : BuildPorTipoEntrada(comprasEmitidas, ticketsPorCompra),
             };
         }
 
-        private static VentasResumenDto BuildResumen(IReadOnlyList<Compra> compras)
+        // Solo compras confirmadas reales y compras simuladas históricas tienen entradas
+            // emitidas; pending, rechazo, expiración y refund conservan trazabilidad sin inflar métricas.
+            public static bool EmiteEntradas(Compra compra) =>
+                compra.PagoSimulado || compra.EstadoCompra == Compra.PurchaseStatus.LegacySimulated || compra.EstadoCompra == Compra.PurchaseStatus.Confirmed;
+
+            private static List<VentasEstadoCompraDto> BuildPorEstadoCompra(IReadOnlyList<Compra> compras) =>
+                compras
+                    .GroupBy(c => c.PagoSimulado || c.EstadoCompra == Compra.PurchaseStatus.LegacySimulated
+                        ? Compra.PurchaseStatus.LegacySimulated.ToString()
+                        : c.EstadoCompra.ToString())
+                    .Select(g => new VentasEstadoCompraDto
+                    {
+                        EstadoCompra = g.Key,
+                        CantidadCompras = g.Count(),
+                        ImporteIniciado = Math.Round(g.Sum(c => c.ImporteTotal), 2),
+                    })
+                    .OrderBy(e => e.EstadoCompra, StringComparer.Ordinal)
+                    .ToList();
+
+            private static VentasResumenDto BuildResumen(IReadOnlyList<Compra> compras)
         {
             var cantidadCompras = compras.Count;
             var entradasEmitidas = compras.Sum(c => c.CantidadEntradas);

@@ -24,7 +24,9 @@ namespace HoyDonde.API.Tests
             int cantidad,
             decimal importe,
             Event.EventCategory? categoria = Event.EventCategory.Musica,
-            DateTime? fechaCompra = null) => new()
+            DateTime? fechaCompra = null,
+                bool pagoSimulado = true,
+                Compra.PurchaseStatus estadoCompra = Compra.PurchaseStatus.LegacySimulated) => new()
         {
             Id = Guid.NewGuid().ToString(),
             ClientePersonaId = clientePersonaId,
@@ -34,6 +36,8 @@ namespace HoyDonde.API.Tests
             CantidadEntradas = cantidad,
             ImporteTotal = importe,
             Categoria = categoria,
+                PagoSimulado = pagoSimulado,
+                EstadoCompra = estadoCompra,
         };
 
         [Fact]
@@ -259,6 +263,26 @@ namespace HoyDonde.API.Tests
             var resultado = VentasMetricasCalculator.Build(Desde, Hasta, compras, new Dictionary<string, List<Ticket>>(), null);
 
             Assert.Equal(66.67m, resultado.Resumen.ImporteEmitido);
+        }
+
+        [Fact]
+        public void Build_ExcludesPendingAndRefundedRealPurchasesFromEmittedMetrics_ButExposesTheirStatuses()
+        {
+            var confirmed = BuildCompra("event-confirmed", "Confirmado", "persona-confirmed", 2, 200m, pagoSimulado: false, estadoCompra: Compra.PurchaseStatus.Confirmed);
+            var pending = BuildCompra("event-pending", "Pendiente", "persona-pending", 3, 300m, pagoSimulado: false, estadoCompra: Compra.PurchaseStatus.PendingPayment);
+            var refunded = BuildCompra("event-refund", "Refund", "persona-refund", 4, 400m, pagoSimulado: false, estadoCompra: Compra.PurchaseStatus.RefundCompleted);
+            var legacy = BuildCompra("event-legacy", "Legado", "persona-legacy", 1, 100m);
+
+            var result = VentasMetricasCalculator.Build(Desde, Hasta, new List<Compra> { confirmed, pending, refunded, legacy }, new Dictionary<string, List<Ticket>>(), null);
+
+            Assert.Equal(2, result.Resumen.CantidadCompras);
+            Assert.Equal(3, result.Resumen.EntradasEmitidas);
+            Assert.Equal(300m, result.Resumen.ImporteEmitido);
+            Assert.DoesNotContain(result.TopEventos, e => e.EventoId == "event-pending" || e.EventoId == "event-refund");
+            Assert.Equal(1, result.PorEstadoCompra.Single(e => e.EstadoCompra == "PendingPayment").CantidadCompras);
+            Assert.Equal(1, result.PorEstadoCompra.Single(e => e.EstadoCompra == "RefundCompleted").CantidadCompras);
+            Assert.Equal(1, result.PorEstadoCompra.Single(e => e.EstadoCompra == "Confirmed").CantidadCompras);
+            Assert.Equal(1, result.PorEstadoCompra.Single(e => e.EstadoCompra == "LegacySimulated").CantidadCompras);
         }
 
         [Fact]

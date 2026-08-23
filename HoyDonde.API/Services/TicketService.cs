@@ -165,9 +165,11 @@ namespace HoyDonde.API.Services
             // MapToResponse). Se agrupa por EventoId y se hace una única lectura batch por
             // identificador distinto, en vez de una lectura por ticket.
             var eventosPorId = await GetEventosByIdsAsync(tickets.Select(t => t.EventoId));
+                var comprasPorId = await GetComprasByIdsAsync(tickets.Select(t => t.CompraId));
 
             return tickets
-                .Select(t => MapToResponse(t, eventosPorId.GetValueOrDefault(t.EventoId)))
+                    .Select(t => MapToResponse(t, eventosPorId.GetValueOrDefault(t.EventoId),
+                        !string.IsNullOrEmpty(t.CompraId) && comprasPorId.TryGetValue(t.CompraId, out var compra) && compra.PagoSimulado))
                 .ToList();
         }
 
@@ -215,13 +217,22 @@ namespace HoyDonde.API.Services
                 .ToDictionary(e => e.Id);
         }
 
+            private async Task<Dictionary<string, Compra>> GetComprasByIdsAsync(IEnumerable<string?> compraIds)
+            {
+                var ids = compraIds.Where(id => !string.IsNullOrEmpty(id)).Cast<string>().Distinct().ToList();
+                if (ids.Count == 0) return new Dictionary<string, Compra>();
+
+                var snapshots = await _firestore.GetAllSnapshotsAsync(ids.Select(id => _firestore.Collection(ComprasCollection).Document(id)));
+                return snapshots.Where(snapshot => snapshot.Exists).Select(snapshot => snapshot.ConvertTo<Compra>()).ToDictionary(compra => compra.Id);
+            }
+
         // Estado histórico del ticket + Utilizable/MotivoNoUtilizable derivados del Event actual
         // (docs/api-mvp-plan.md §3). `evento` es null solo en el caso defensivo de un ticket cuyo
         // Event referenciado ya no existe; se trata igual que un evento cancelado. FechaInicio y
         // FechaFin, en cambio, NUNCA salen de `evento`: son parte de la fotografía inmutable
         // tomada al comprar (Ticket.FechaInicio/FechaFin), para no reescribir el historial si el
         // Event cambiara.
-        private static TicketResponseDto MapToResponse(Ticket ticket, Event? evento)
+        private static TicketResponseDto MapToResponse(Ticket ticket, Event? evento, bool pagoSimulado = false)
         {
             string? motivo;
             bool utilizable;
@@ -277,6 +288,7 @@ namespace HoyDonde.API.Services
                 PrecioPagado = ticket.PrecioPagado,
                 FechaInicio = ticket.FechaInicio,
                 FechaFin = ticket.FechaFin,
+                    PagoSimulado = pagoSimulado,
             };
         }
     }

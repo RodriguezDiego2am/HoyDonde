@@ -42,6 +42,7 @@ export default function RootLayout() {
         <Stack.Screen name="login" />
         <Stack.Screen name="register" />
         <Stack.Screen name="events/[id]" />
+        <Stack.Screen name="purchases/[id]" />
         <Stack.Screen name="admin/index" />
         <Stack.Screen name="admin/altas" />
         <Stack.Screen name="admin/roles/index" />

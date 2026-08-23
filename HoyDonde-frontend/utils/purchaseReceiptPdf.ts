@@ -22,6 +22,10 @@ const DISCLAIMER_PAGO_SIMULADO =
   'La operación utiliza un pago simulado. El importe emitido no acredita dinero cobrado ni reemplaza una factura o recibo fiscal.';
 
 /** Nunca se genera un comprobante con datos que no cuadran entre sí — la compra ya realizada sigue siendo válida. */
+export class PurchaseReceiptNotConfirmedError extends Error {
+  constructor() { super('Solo se puede generar un comprobante cuando la compra está confirmada.'); this.name = 'PurchaseReceiptNotConfirmedError'; }
+}
+
 export class PurchaseReceiptInconsistencyError extends Error {
   constructor() {
     super('Los datos de la compra no son consistentes.');
@@ -34,6 +38,10 @@ export class PurchaseReceiptInconsistencyError extends Error {
  * backend dentro de la transacción de compra), nunca de recalcular sobre los `Ticket` — esta
  * verificación solo confirma que ambas fuentes coinciden, nunca reemplaza a `Compra` como fuente.
  */
+export function assertPurchaseReceiptEligible(compra: CompraResponse): void {
+  if (!compra.pagoSimulado && compra.estadoCompra !== 'Confirmed') throw new PurchaseReceiptNotConfirmedError();
+}
+
 export function assertCompraConsistente(compra: CompraResponse): void {
   const totalesTickets = computePurchaseTotals(compra.tickets);
   if (
@@ -122,6 +130,7 @@ function buildTicketSectionHtml(ticket: TicketResponse, index: number, total: nu
 }
 
 export function buildPurchaseReceiptHtml(compra: CompraResponse): string {
+  assertPurchaseReceiptEligible(compra);
   if (compra.tickets.length === 0) {
     throw new Error('No hay entradas para armar el comprobante.');
   }

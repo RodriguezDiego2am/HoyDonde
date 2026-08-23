@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import * as Linking from 'expo-linking';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import type { Href } from 'expo-router';
@@ -8,15 +9,14 @@ import { ActionButton } from '@/components/ui/ActionButton';
 import { SectionDivider } from '@/components/ui/SectionDivider';
 import { StatusStamp, eventEstadoTone } from '@/components/ui/StatusStamp';
 import { Surface } from '@/components/ui/Surface';
-import { PurchaseReceiptPanel } from '@/components/purchase/PurchaseReceiptPanel';
 import { borderWidth, colors, fonts, radii, spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import {
   ApiError,
-  CompraResponse,
   EventResponse,
   TicketTypeResponse,
   eventService,
+  purchaseService,
   ticketService,
 } from '@/services/APIService';
 import { formatFechaHora, formatPrecio } from '@/utils/format';
@@ -62,7 +62,9 @@ export default function EventDetailScreen() {
   const [reviewing, setReviewing] = useState(false);
   const [buying, setBuying] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
-  const [purchasedCompra, setPurchasedCompra] = useState<CompraResponse | null>(null);
+  // A retry after an ambiguous network result must reuse the same server-side purchase.
+  // Changing ticket type or quantity deliberately starts a new user intent and clears this key.
+  const purchaseAttemptKeyRef = useRef<string | null>(null);
 
   const loadEvent = useCallback(async () => {
     if (!id) return;
@@ -92,9 +94,10 @@ export default function EventDetailScreen() {
   const maxCantidad = selectedTicketType ? Math.min(MAX_POR_COMPRA, selectedTicketType.cantidadDisponible) : 1;
   const esGratis = selectedTicketType?.precio === 0;
   const obtenerLabel = esGratis ? 'Obtener entrada' : 'Comprar entradas';
-  const confirmarLabel = esGratis ? 'Obtener entrada' : 'Confirmar compra';
+  const confirmarLabel = esGratis ? 'Continuar' : 'Continuar al pago';
 
   const selectTicketType = (ticketTypeId: string) => {
+    purchaseAttemptKeyRef.current = null;
     setSelectedTicketTypeId(ticketTypeId);
     setCantidad(1);
     setReviewing(false);
@@ -102,6 +105,7 @@ export default function EventDetailScreen() {
   };
 
   const changeCantidad = (delta: number) => {
+    purchaseAttemptKeyRef.current = null;
     setCantidad((prev) => Math.min(Math.max(1, prev + delta), Math.max(1, maxCantidad)));
   };
 
@@ -120,13 +124,19 @@ export default function EventDetailScreen() {
     setBuying(true);
     setPurchaseError(null);
     try {
-      const compra = await ticketService.buy({
-        eventoId: event.id,
-        ticketTypeId: selectedTicketType.id,
-        cantidad,
-      });
-      setPurchasedCompra(compra);
+      const request = { eventoId: event.id, ticketTypeId: selectedTicketType.id, cantidad };
+      if (selectedTicketType.precio === 0) {
+        await ticketService.buy(request);
+        setReviewing(false);
+        router.replace('/(tabs)/tickets');
+        return;
+      }
+
+      purchaseAttemptKeyRef.current ??= `${event.id}:${selectedTicketType.id}:${cantidad}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+      const purchase = await purchaseService.start(request, purchaseAttemptKeyRef.current);
       setReviewing(false);
+      router.replace(`/purchases/${purchase.id}` as Href);
+      if (purchase.checkoutUrl) await Linking.openURL(purchase.checkoutUrl);
     } catch (error) {
       setPurchaseError(purchaseErrorMessage(error));
     } finally {
@@ -136,10 +146,6 @@ export default function EventDetailScreen() {
 
   const goToLogin = () => {
     router.push({ pathname: '/login', params: { returnTo: id ? `/events/${id}` : '/(tabs)' } });
-  };
-
-  const goToTickets = () => {
-    router.replace('/(tabs)/tickets' as Href);
   };
 
   return (
@@ -218,19 +224,7 @@ export default function EventDetailScreen() {
           </View>
 
           <SectionDivider index="02" label="Comprar" style={styles.sectionMargin} />
-          {purchasedCompra !== null ? (
-            <View style={styles.purchaseSuccessWrap}>
-              <View style={styles.purchaseSuccessBanner}>
-                <MaterialIcons name="check-circle" size={28} color={colors.success} />
-                <Text style={styles.purchaseSuccessTitle}>
-                  {purchasedCompra.cantidadEntradas === 1
-                    ? 'Entrada comprada'
-                    : `${purchasedCompra.cantidadEntradas} entradas compradas`}
-                </Text>
-              </View>
-              <PurchaseReceiptPanel compra={purchasedCompra} onGoToTickets={goToTickets} />
-            </View>
-          ) : initializing ? (
+          {initializing ? (
             <View style={styles.center}>
               <ActivityIndicator color={colors.tomato} />
             </View>
@@ -302,7 +296,7 @@ export default function EventDetailScreen() {
               <Text style={styles.demoNotice}>
                 {esGratis
                   ? 'Entrada gratuita: no requiere pago.'
-                  : 'Compra de demostración: no se realizará ningún cobro.'}
+                  : 'Serás redirigido a Mercado Pago para completar el pago.'}
               </Text>
 
               {purchaseError ? <Text style={styles.errorText}>{purchaseError}</Text> : null}
@@ -320,7 +314,7 @@ export default function EventDetailScreen() {
                   <Text style={styles.demoNotice}>
                     {esGratis
                       ? 'Entrada gratuita: no requiere pago.'
-                      : 'Compra de demostración: no se realizará ningún cobro.'}
+                      : 'Serás redirigido a Mercado Pago para completar el pago.'}
                   </Text>
                   <View style={styles.confirmActions}>
                     <View style={styles.confirmActionButton}>

@@ -17,7 +17,7 @@ const mockSignOut = jest.fn().mockResolvedValue(undefined);
 jest.mock('firebase/auth', () => ({ signOut: (...args: unknown[]) => (mockSignOut as any)(...args) }));
 
 // eslint-disable-next-line import/first -- debe importarse después de los jest.mock de sus dependencias
-import { apiClient } from './APIService';
+import { apiClient, purchaseService } from './APIService';
 
 function buildAxiosError(status: number, data?: unknown): AxiosError {
   return {
@@ -98,5 +98,21 @@ describe('apiClient response interceptor', () => {
       status: 409,
     });
     expect(mockSignOut).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('purchaseService', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('starts Checkout Pro with an idempotency key and only reads the authorized local purchase status', async () => {
+    const postSpy = jest.spyOn(apiClient, 'post').mockResolvedValue({ data: { id: 'purchase-1' } } as any);
+    const getSpy = jest.spyOn(apiClient, 'get').mockResolvedValue({ data: { id: 'purchase-1', estadoCompra: 'PendingPayment' } } as any);
+
+    await purchaseService.start({ eventoId: 'event-1', ticketTypeId: 'type-1', cantidad: 2 }, 'idempotency-1');
+    await purchaseService.getById('purchase-1');
+
+    expect(postSpy).toHaveBeenCalledWith('/purchases', { eventoId: 'event-1', ticketTypeId: 'type-1', cantidad: 2 }, { headers: { 'Idempotency-Key': 'idempotency-1' } });
+    expect(getSpy).toHaveBeenCalledWith('/purchases/purchase-1');
   });
 });

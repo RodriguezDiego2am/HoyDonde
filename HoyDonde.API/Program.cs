@@ -99,6 +99,11 @@ builder.Services.AddSingleton<FirestoreDb>(provider =>
     return firestoreDbBuilder.Build();
 });
 
+// Mercado Pago is explicitly disabled by default. Secrets are supplied by deployment configuration,
+// never by appsettings or public API responses.
+builder.Services.AddOptions<MercadoPagoOptions>()
+    .Bind(builder.Configuration.GetSection(MercadoPagoOptions.SectionName));
+
 // Configuración de autenticación: verifica el ID token de Firebase con el Admin SDK
 // (FirebaseAuth.DefaultInstance.VerifyIdTokenAsync vía IFirebaseIdTokenVerifier), no con
 // AddJwtBearer/Authority contra securetoken.google.com -ese enfoque fallaba con
@@ -192,6 +197,20 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<ITicketValidationStore, FirestoreTicketValidationStore>();
 builder.Services.AddScoped<ITicketService, TicketService>();
+builder.Services.AddSingleton<MercadoPagoSignatureVerifier>();
+builder.Services.AddScoped<IPaymentWebhookInbox, PaymentWebhookInbox>();
+builder.Services.AddScoped<PurchaseService>();
+builder.Services.AddScoped<IPurchaseCheckoutService, PurchaseCheckoutService>();
+builder.Services.AddScoped<IPaymentProcessingService, PaymentProcessingService>();
+builder.Services.AddHostedService<MercadoPagoInboxWorker>();
+builder.Services.AddHostedService<MercadoPagoReservationExpiryWorker>();
+builder.Services.AddHostedService<MercadoPagoRefundWorker>();
+builder.Services.AddHttpClient<IMercadoPagoGateway, MercadoPagoGateway>((provider, client) =>
+{
+    var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<MercadoPagoOptions>>().Value;
+    client.BaseAddress = new Uri(options.ApiBaseUrl, UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
 
 // Etapa 2 del refactor de seguridad (docs/security-refactor-plan.md §6)
 builder.Services.AddScoped<IRolRepository, FirestoreRolRepository>();

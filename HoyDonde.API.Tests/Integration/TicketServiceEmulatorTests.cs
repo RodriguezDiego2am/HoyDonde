@@ -119,6 +119,7 @@ namespace HoyDonde.API.Tests.Integration
             Assert.Single(propios);
             Assert.Equal(ticketA, propios[0].Id);
             Assert.Equal(personaAId, propios[0].ClientePersonaId);
+            Assert.False(propios[0].PagoSimulado);
         }
 
         [FirestoreEmulatorFact]
@@ -245,6 +246,29 @@ namespace HoyDonde.API.Tests.Integration
                 }
             });
             return (eventId, ticketTypeId);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task MisEntradas_RealConfirmedPurchasePersistsAndQueriesClientePersonaId_NotFirebaseUid()
+        {
+            var clienteUid = $"uid-{Guid.NewGuid():N}";
+            var clientePersonaId = $"persona-{Guid.NewGuid():N}";
+            var personaResolver = ResolverFor((clienteUid, clientePersonaId));
+            var fechaInicio = DateTime.UtcNow.AddDays(5);
+            var (eventId, ticketTypeId) = await SeedEventoAsync(Event.EventStatus.Publicado, fechaInicio, fechaInicio.AddHours(2), precio: 300m);
+            var purchases = new PurchaseService(_fixture.Db!);
+            var purchase = await purchases.ReserveAsync(new PurchaseReservationRequest
+            {
+                ClientePersonaId = clientePersonaId, EventoId = eventId, TicketTypeId = ticketTypeId, Cantidad = 1,
+            }, DateTime.UtcNow);
+            await purchases.ProcessVerifiedApprovalAsync(purchase.Id, purchase.ReservedAt!.Value.AddSeconds(1));
+
+            var misEntradas = await BuildTicketService(_fixture, personaResolver).GetTicketsByClienteIdAsync(clienteUid);
+
+            var ticket = Assert.Single(misEntradas);
+            Assert.Equal(clientePersonaId, ticket.ClientePersonaId);
+            Assert.NotEqual(clienteUid, ticket.ClientePersonaId);
+            Assert.False(ticket.PagoSimulado);
         }
 
         [FirestoreEmulatorFact]

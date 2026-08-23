@@ -285,6 +285,12 @@ export interface VentasFiltrosDisponibles {
 }
 
 /** Espejo de VentasReporteResponseDto: mismo shape para el reporte del Organizador y del Administrador. */
+export interface VentasEstadoCompra {
+  estadoCompra: string;
+  cantidadCompras: number;
+  importeIniciado: number;
+}
+
 export interface VentasReporteResponse {
   fechaDesde: string;
   fechaHasta: string;
@@ -294,6 +300,7 @@ export interface VentasReporteResponse {
   topEventos: VentasTopEvento[];
   porCategoria: VentasCategoria[];
   porTipoEntrada: VentasTicketType[];
+  porEstadoCompra?: VentasEstadoCompra[];
   filtrosDisponibles: VentasFiltrosDisponibles;
 }
 

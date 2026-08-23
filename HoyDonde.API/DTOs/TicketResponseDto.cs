@@ -34,5 +34,8 @@ namespace HoyDonde.API.DTOs
         public decimal PrecioPagado { get; set; }
         public DateTime FechaInicio { get; set; }
         public DateTime FechaFin { get; set; }
+
+            // True only for explicitly identified historical simulated purchases.
+            public bool PagoSimulado { get; set; }
     }
 }

@@ -39,6 +39,7 @@ jest.mock('expo-file-system', () => {
 // eslint-disable-next-line import/first -- debe importarse después de los jest.mock de sus dependencias
 import {
   PurchaseReceiptInconsistencyError,
+  PurchaseReceiptNotConfirmedError,
   assertCompraConsistente,
   buildPurchaseReceiptHtml,
   buildReceiptFileName,
@@ -156,6 +157,17 @@ describe('assertCompraConsistente', () => {
   it('lanza si cantidadEntradas no coincide con la cantidad de tickets', () => {
     const inconsistente = compra({ cantidadEntradas: 5 });
     expect(() => assertCompraConsistente(inconsistente)).toThrow(PurchaseReceiptInconsistencyError);
+  });
+});
+
+describe('confirmed-purchase eligibility', () => {
+  it('refuses a pending real purchase before any QR or PDF can be generated', () => {
+    expect(() => buildPurchaseReceiptHtml(compra({ pagoSimulado: false, estadoCompra: 'PendingPayment' }))).toThrow(PurchaseReceiptNotConfirmedError);
+  });
+
+  it('permits confirmed real and legacy simulated purchases', () => {
+    expect(() => buildPurchaseReceiptHtml(compra({ pagoSimulado: false, estadoCompra: 'Confirmed' }))).not.toThrow();
+    expect(() => buildPurchaseReceiptHtml(compra({ pagoSimulado: true, estadoCompra: 'LegacySimulated' }))).not.toThrow();
   });
 });
 

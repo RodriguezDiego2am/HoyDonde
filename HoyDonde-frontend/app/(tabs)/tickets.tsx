@@ -143,6 +143,7 @@ export default function MisEntradasScreen() {
         </View>
 
         <Text style={styles.ticketType}>{item.ticketTypeNombre}</Text>
+            {item.pagoSimulado ? <Text style={styles.legacyLabel}>COMPRA SIMULADA HISTÓRICA</Text> : null}
 
         <View style={styles.metaRow}>
           <MaterialIcons name="event" size={14} color={colors.inkSoft} />
@@ -314,6 +315,13 @@ const styles = StyleSheet.create({
     fontSize: 17,
     color: colors.ink,
     flexShrink: 1,
+  },
+  legacyLabel: {
+    fontFamily: fonts.bold,
+    fontSize: 10,
+    letterSpacing: 0.7,
+    color: colors.cobalt,
+    marginTop: spacing.xs,
   },
   ticketType: {
     fontFamily: fonts.semiBold,

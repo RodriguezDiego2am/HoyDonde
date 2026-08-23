@@ -1,0 +1,14 @@
+{
+  "fixtureVersion": "2026-08-23-sanitized",
+  "checkoutProduct": "Checkout Pro",
+  "country": "ARG",
+  "currency": "ARS",
+  "serverCorrelationField": "external_reference",
+  "preferenceFields": { "items": true, "backUrls": true },
+  "paymentSourceOfTruth": "GET /v1/payments/{id}",
+  "authoritativeApprovalTime": "approvedAt",
+  "webhook": { "signatureHeader": "x-signature", "algorithm": "HMAC-SHA256" },
+  "totalRefund": { "endpoint": "POST /v1/payments/{id}/refunds", "omitsAmount": true },
+  "preferenceCreation": { "idempotencyVerified": false, "noBlindRetry": true },
+  "rolloutAllowed": false
+}

@@ -235,6 +235,7 @@ export interface TicketResponse {
   precioPagado: number;
   fechaInicio: string;
   fechaFin: string;
+  pagoSimulado?: boolean;
 }
 
 export interface TicketBuyRequest {
@@ -249,6 +250,34 @@ export interface TicketBuyRequest {
  * `ubicacion`/`eventoNombre`/`fechaInicio`/`fechaFin`/`fechaCompra` son la fotografía inmutable
  * tomada por el backend dentro de la transacción de compra, fuente única del comprobante.
  */
+export type PurchaseStatus =
+  | 'LegacySimulated'
+  | 'PendingPayment'
+  | 'VerificationException'
+  | 'PaymentNotApproved'
+  | 'Expired'
+  | 'RefundRequired'
+  | 'RefundInProgress'
+  | 'RefundPending'
+  | 'RefundFailed'
+  | 'RefundCompleted'
+  | 'Confirmed';
+
+export interface PurchaseStatusResponse {
+  id: string;
+  estadoCompra: PurchaseStatus;
+  estadoReserva: string;
+  checkoutState: string;
+  checkoutUrl: string | null;
+  refundStatus: string | null;
+}
+
+export interface PurchaseStartRequest {
+  eventoId: string;
+  ticketTypeId: string;
+  cantidad: number;
+}
+
 export interface CompraResponse {
   id: string;
   eventoId: string;
@@ -260,6 +289,8 @@ export interface CompraResponse {
   cantidadEntradas: number;
   importeTotal: number;
   pagoSimulado: boolean;
+  // Legacy responses omit this value; simulated history remains eligible for receipts.
+  estadoCompra?: PurchaseStatus;
   tickets: TicketResponse[];
 }
 
@@ -271,6 +302,20 @@ export const ticketService = {
 
   getMine: async (): Promise<TicketResponse[]> => {
     const response = await apiClient.get<TicketResponse[]>('/tickets/me');
+    return response.data;
+  },
+};
+
+export const purchaseService = {
+  start: async (payload: PurchaseStartRequest, idempotencyKey: string): Promise<PurchaseStatusResponse> => {
+    const response = await apiClient.post<PurchaseStatusResponse>('/purchases', payload, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
+    return response.data;
+  },
+
+  getById: async (purchaseId: string): Promise<PurchaseStatusResponse> => {
+    const response = await apiClient.get<PurchaseStatusResponse>(`/purchases/${purchaseId}`);
     return response.data;
   },
 };
