@@ -1,0 +1,7 @@
+PROVIDER="claude"
+FILE_PATTERNS="*.cs,*.csproj,*.json,*.ts,*.tsx,*.js,*.md"
+EXCLUDE_PATTERNS="**/bin/**,**/obj/**,**/node_modules/**,.expo/**,*.lock,*.map,firestore-debug.log,HoyDonde.API/firebase-service-account.json,HoyDonde-frontend/.env"
+RULES_FILE="AGENTS.md"
+STRICT_MODE="true"
+TIMEOUT="300"
+PR_BASE_BRANCH="auto-detect"
