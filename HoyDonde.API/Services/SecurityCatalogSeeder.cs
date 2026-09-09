@@ -57,6 +57,8 @@ namespace HoyDonde.API.Services
             (Acciones.ReporteVerPropio, "Consultar el reporte de los propios eventos."),
             // Recuperación de contraseña (docs/api-mvp-plan.md §13)
             (Acciones.UsuarioRestablecerPassword, "Generar un enlace de recuperación de contraseña para otro usuario."),
+            // Copias manuales de Firestore: exclusiva de ADMINISTRADOR en instalaciones nuevas.
+            (Acciones.BackupAdministrar, "Crear, restaurar y consultar copias manuales de Firestore."),
         };
 
         private static readonly IReadOnlyDictionary<string, string[]> AccionesPorRol = new Dictionary<string, string[]>
@@ -66,7 +68,7 @@ namespace HoyDonde.API.Services
                 Acciones.UsuarioCrearAdmin, Acciones.UsuarioCrearOrganizador,
                 Acciones.RolCrear, Acciones.RolEditar, Acciones.RolActivar, Acciones.RolAsignarAccion, Acciones.RolQuitarAccion, Acciones.RolEliminar,
                 Acciones.UsuarioAsignarRol, Acciones.UsuarioQuitarRol, Acciones.UsuarioVerPermisosEfectivos, Acciones.UsuarioDesactivar,
-                Acciones.ReporteVerGlobal, Acciones.UsuarioRestablecerPassword,
+                Acciones.ReporteVerGlobal, Acciones.UsuarioRestablecerPassword, Acciones.BackupAdministrar,
             },
             ["ORGANIZADOR"] = new[]
             {

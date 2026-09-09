@@ -40,6 +40,7 @@ namespace HoyDonde.API.Middleware
                 [typeof(EventValidationException)] = (HttpStatusCode.BadRequest, "EVENT_VALIDATION_ERROR", ex => ex.Message),
                 [typeof(ReporteRangoInvalidoException)] = (HttpStatusCode.BadRequest, "REPORT_RANGE_INVALID", ex => ex.Message),
                 [typeof(ReporteFiltroInvalidoException)] = (HttpStatusCode.BadRequest, "REPORT_FILTER_INVALID", ex => ex.Message),
+                [typeof(BackupEliminacionNoConfirmadaException)] = (HttpStatusCode.BadRequest, "BACKUP_DELETE_NOT_CONFIRMED", ex => ex.Message),
                 [typeof(ArgumentException)] = (HttpStatusCode.BadRequest, "VALIDATION_ERROR", ex => ex.Message),
 
                 [typeof(EventNotFoundException)] = (HttpStatusCode.NotFound, "EVENT_NOT_FOUND", ex => ex.Message),
@@ -48,6 +49,7 @@ namespace HoyDonde.API.Middleware
                 [typeof(RolNoEncontradoException)] = (HttpStatusCode.NotFound, "ROLE_NOT_FOUND", ex => ex.Message),
                 [typeof(AccionNoEncontradaException)] = (HttpStatusCode.NotFound, "ACTION_NOT_FOUND", ex => ex.Message),
                 [typeof(UsuarioNoEncontradoException)] = (HttpStatusCode.NotFound, "USER_NOT_FOUND", ex => ex.Message),
+                [typeof(BackupNoEncontradoException)] = (HttpStatusCode.NotFound, "BACKUP_NOT_FOUND", ex => ex.Message),
 
                 // El Message de EventOwnershipException incluye el UID del actor (uso interno de
                 // logging exclusivamente): la respuesta pública usa un texto fijo, nunca ex.Message.
@@ -68,6 +70,9 @@ namespace HoyDonde.API.Middleware
                 [typeof(RolDebeEstarInactivoException)] = (HttpStatusCode.Conflict, "ROL_DEBE_ESTAR_INACTIVO", ex => ex.Message),
                 [typeof(RolTieneUsuariosAsignadosException)] = (HttpStatusCode.Conflict, "ROL_TIENE_USUARIOS_ASIGNADOS", ex => ex.Message),
                 [typeof(UsuarioSinIdentidadRecuperableException)] = (HttpStatusCode.Conflict, "USER_IDENTITY_NOT_RECOVERABLE", ex => ex.Message),
+                [typeof(BackupNoRestaurableException)] = (HttpStatusCode.Conflict, "BACKUP_NOT_RESTORABLE", ex => ex.Message),
+                [typeof(RestauracionEnCursoException)] = (HttpStatusCode.Conflict, "BACKUP_RESTORE_IN_PROGRESS", ex => ex.Message),
+                [typeof(BackupNoEliminableException)] = (HttpStatusCode.Conflict, "BACKUP_NOT_DELETABLE", ex => ex.Message),
             };
 
         public ExceptionMiddleware(

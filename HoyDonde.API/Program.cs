@@ -14,28 +14,47 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.OpenApi.Models;
 using Serilog;
+using Serilog.Formatting.Json;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configuración de Serilog
+// Cloud Run collects structured logs from stdout. Do not write credentials, configuration values,
+// or log files into the container filesystem.
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .Enrich.FromLogContext()
-    .WriteTo.Console()
-    .WriteTo.File("logs/hoydonde.txt", rollingInterval: RollingInterval.Day)
+    .Enrich.WithProperty("service", "HoyDonde.API")
+    .WriteTo.Console(new JsonFormatter(renderMessage: true))
     .CreateLogger();
 
 builder.Host.UseSerilog();
 
-// Configuración de Firebase: la credencial se carga una sola vez acá y se reutiliza tanto
-// para Firebase Admin (FirebaseApp) como para Firestore (abajo), en vez de dejar que
-// FirestoreDb dependa de una fuente de credenciales distinta e implícita.
+// Firebase uses an explicitly configured local service-account file when present. On Cloud
+// Run, the attached runtime service account supplies Application Default Credentials (ADC), so
+// no key file or GOOGLE_APPLICATION_CREDENTIALS variable is needed in the container.
 var firebaseCredentialsPath = builder.Configuration["Firebase:CredentialsPath"] ?? "firebase-service-account.json";
+var isFirestoreEmulator = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FIRESTORE_EMULATOR_HOST"));
+var isCloudRun = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("K_SERVICE"));
 GoogleCredential? firebaseCredential = null;
+
 if (File.Exists(firebaseCredentialsPath))
 {
     firebaseCredential = GoogleCredential.FromFile(firebaseCredentialsPath);
+    Log.Information("Using configured local Firebase credentials.");
+}
+else if (!isFirestoreEmulator && isCloudRun)
+{
+    firebaseCredential = GoogleCredential.GetApplicationDefault();
+    Log.Information("Using Application Default Credentials for Firebase.");
+}
+else if (!isFirestoreEmulator)
+{
+    Log.Warning("No local Firebase credentials are configured. Firestore requires a local credential file or Cloud Run Application Default Credentials.");
+}
+
+if (firebaseCredential != null)
+{
     // WebApplicationFactory<Program> reejecuta este Program.cs una vez por cada instancia de
     // TestApplicationFactory/EmulatorWebApplicationFactory creada en el mismo proceso xunit, y
     // xunit corre clases de test en paralelo por default; FirebaseApp.Create solo puede
@@ -54,22 +73,10 @@ if (File.Exists(firebaseCredentialsPath))
     {
     }
 }
-else
-{
-    Log.Warning("Firebase credentials file not found at {Path}. App may fail to authenticate.", firebaseCredentialsPath);
-}
 
-// Configuración de Firestore: antes usaba FirestoreDb.Create(projectId), que ignora
-// Firebase:CredentialsPath por completo y exige GOOGLE_APPLICATION_CREDENTIALS
-// (Application Default Credentials) para autenticar fuera del emulador -de ahí que hubiera
-// que exportar esa variable a mano en cada sesión-. Ahora reutiliza la misma credencial de
-// archivo que Firebase Admin (arriba) vía FirestoreDbBuilder.GoogleCredential.
-// EmulatorDetection.EmulatorOrProduction preserva el comportamiento contra Firestore
-// Emulator (FIRESTORE_EMULATOR_HOST) sin tocar los fixtures de test: tanto
-// TestApplicationFactory como EmulatorWebApplicationFactory reemplazan este singleton
-// FirestoreDb ANTES de que algo lo resuelva (es un registro AddSingleton con factory
-// lazy), así que el throw de abajo solo puede dispararse en una ejecución real
-// (dotnet run) sin emulador y sin credencial válida - nunca durante `dotnet test`.
+// Firestore reuses the same explicitly selected local-file or ADC credential as Firebase Admin.
+// The Firestore Emulator remains credential-free. Test factories replace this lazy singleton
+// before it is resolved, preserving their existing emulator behavior.
 builder.Services.AddSingleton<FirestoreDb>(provider =>
 {
     var projectId = builder.Configuration["Firebase:ProjectId"];
@@ -254,6 +261,18 @@ builder.Services.AddScoped<SeedPasswordResetActionCommand>();
 builder.Services.AddScoped<ISecurityAuditRepository, FirestoreSecurityAuditRepository>();
 builder.Services.AddScoped<ISecurityAuditReportService, SecurityAuditReportService>();
 
+// Copias manuales de Firestore: el cliente llama a la API administrada de Google (export/import
+// nativos), separado detrás de una interfaz para no depender del emulador en pruebas de servicio.
+builder.Services.AddScoped<IFirestoreBackupRepository, FirestoreBackupRepository>();
+builder.Services.AddScoped<IFirestoreBackupService, FirestoreBackupService>();
+builder.Services.AddHttpClient<IManagedFirestoreBackupClient, ManagedFirestoreBackupClient>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
+// Copias manuales de Firestore: comando dedicado que crea únicamente la Accion
+// BACKUP_ADMINISTRAR contra un Firestore real ya existente.
+builder.Services.AddScoped<SeedBackupActionCommand>();
 
 var app = builder.Build();
 
@@ -320,6 +339,21 @@ if (args.Length > 0 && string.Equals(args[0], "seed-password-reset-action", Stri
     return;
 }
 
+// Comando dedicado de copias manuales de Firestore:
+// "dotnet run --project HoyDonde.API -- seed-backup-action". Igual criterio que los demás
+// comandos de seed: no es un endpoint HTTP, no levanta el servidor. Crea únicamente la Accion
+// BACKUP_ADMINISTRAR; nunca crea/edita roles ni asigna acciones a roles.
+if (args.Length > 0 && string.Equals(args[0], "seed-backup-action", StringComparison.OrdinalIgnoreCase))
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var command = scope.ServiceProvider.GetRequiredService<SeedBackupActionCommand>();
+        Environment.ExitCode = await command.RunAsync();
+    }
+    Log.CloseAndFlush();
+    return;
+}
+
 // Uso de middlewares personalizados
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseMiddleware<LoggingMiddleware>();
@@ -337,6 +371,8 @@ if (app.Environment.IsDevelopment())
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Cloud Run liveness checks must not require a Firebase token or Firestore access.
+app.MapGet("/healthz", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 app.MapControllers();
 
 // Seeding de Roles

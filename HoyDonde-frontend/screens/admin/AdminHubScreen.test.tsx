@@ -26,6 +26,7 @@ describe('AdminHubScreen', () => {
     expect(queryByText('Altas')).toBeNull();
     expect(queryByText('Roles y acciones')).toBeNull();
     expect(queryByText('Usuarios')).toBeNull();
+    expect(queryByText('Copias de seguridad')).toBeNull();
     expect(getByText('Tu cuenta no tiene acciones de administración habilitadas.')).toBeTruthy();
   });
 
@@ -66,6 +67,15 @@ describe('AdminHubScreen', () => {
     expect(getByText('Altas')).toBeTruthy();
     expect(getByText('Roles y acciones')).toBeTruthy();
     expect(getByText('Usuarios')).toBeTruthy();
+  });
+
+  it('muestra "Copias de seguridad" solo con BACKUP_ADMINISTRAR y navega a /admin/backups', () => {
+    mockHasAccion = (accion) => accion === 'BACKUP_ADMINISTRAR';
+    const { getByText, queryByText } = render(<AdminHubScreen />);
+
+    expect(queryByText('Reportes')).toBeNull();
+    fireEvent.press(getByText('Copias de seguridad'));
+    expect(mockPush).toHaveBeenCalledWith('/admin/backups');
   });
 
   it('muestra "Reportes" solo con REPORTE_VER_GLOBAL y navega a /admin/reports', () => {

@@ -177,6 +177,15 @@ namespace HoyDonde.API.Tests
                 var controlAsignacionRepositoryDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IControlAsignacionRepository));
                 if (controlAsignacionRepositoryDescriptor != null) services.Remove(controlAsignacionRepositoryDescriptor);
 
+                // Copias manuales de Firestore: IFirestoreBackupRepository depende de FirestoreDb, y
+                // FirestoreBackupService depende de ese repositorio, así que ValidateOnBuild necesita
+                // poder resolver ambos. Mismo tratamiento que todo repositorio con esta dependencia.
+                var backupRepositoryDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IFirestoreBackupRepository));
+                if (backupRepositoryDescriptor != null) services.Remove(backupRepositoryDescriptor);
+
+                var backupServiceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IFirestoreBackupService));
+                if (backupServiceDescriptor != null) services.Remove(backupServiceDescriptor);
+
                 // Etapa 5 del refactor de seguridad: SecurityAdminController se prueba contra
                 // MockSecurityAdminService directamente (mismo patrón que MockEventService), no
                 // contra la implementación real -esa se cubre en tests de servicio/integración
@@ -229,6 +238,8 @@ namespace HoyDonde.API.Tests
                 services.AddSingleton(MockAccionRepository.Object);
                 services.AddSingleton(Mock.Of<IIdentidadHuerfanaRepository>());
                 services.AddSingleton(Mock.Of<IControlAsignacionRepository>());
+                services.AddSingleton(Mock.Of<IFirestoreBackupRepository>());
+                services.AddSingleton(Mock.Of<IFirestoreBackupService>());
 
                 // Add Fake Authentication
                 services.AddAuthentication("Test")
