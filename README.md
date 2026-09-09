@@ -57,6 +57,48 @@ Para probar desde un dispositivo físico con Expo Go en la misma red Wi-Fi, expo
 dotnet run --project HoyDonde.API --urls "http://0.0.0.0:5053"
 ```
 
+## Despliegue en Cloud Run
+
+> Usá un proyecto Firebase/GCP de **staging** separado antes de conectar una app móvil o datos de producción. El proyecto configurado debe tener Firestore y Firebase Authentication habilitados.
+
+La API usa una cuenta de servicio de ejecución adjunta a Cloud Run y Application Default Credentials (ADC); **no** copies una clave JSON ni configures `GOOGLE_APPLICATION_CREDENTIALS` en la imagen. Otorgale a esa cuenta, como mínimo, acceso de lectura/escritura a Firestore (por ejemplo, `roles/datastore.user` en el proyecto de staging). Las copias administradas de Firestore requieren además los permisos específicos de Firestore Admin y Cloud Storage que correspondan al bucket elegido.
+
+Variables de entorno:
+
+- `Firebase__ProjectId`: **obligatoria**; ID del proyecto Firebase/GCP de staging.
+- `FirestoreBackups__BucketName`: obligatoria si vas a probar copias administradas; debe ser un bucket del mismo entorno y con permisos otorgados a la cuenta de servicio.
+- `ASPNETCORE_ENVIRONMENT=Production`: ya está configurada en la imagen.
+- Cloud Run proporciona `PORT`; la imagen escucha en `8080`.
+
+Construí la imagen desde la raíz y desplegala con una cuenta de servicio de ejecución existente:
+
+```bash
+export PROJECT_ID="tu-proyecto-gcp"
+export FIREBASE_PROJECT_ID="tu-proyecto-firebase-staging"
+export BACKUP_BUCKET="tu-proyecto-firebase-staging.appspot.com"
+export REGION="us-central1"
+export RUNTIME_SERVICE_ACCOUNT="hoydonde-run@${PROJECT_ID}.iam.gserviceaccount.com"
+export IMAGE="gcr.io/${PROJECT_ID}/hoydonde-api"
+
+gcloud builds submit --tag "$IMAGE"
+gcloud run deploy hoydonde-api \
+  --image "$IMAGE" \
+  --region "$REGION" \
+  --service-account "$RUNTIME_SERVICE_ACCOUNT" \
+  --set-env-vars "Firebase__ProjectId=$FIREBASE_PROJECT_ID,FirestoreBackups__BucketName=$BACKUP_BUCKET" \
+  --allow-unauthenticated
+```
+
+`--allow-unauthenticated` permite que Expo Go llegue a la API; las rutas de negocio siguen requiriendo su token Firebase. Verificá primero el endpoint sin autenticación y luego configurá la URL pública en Expo Go:
+
+```bash
+export SERVICE_URL="https://<servicio>-<hash>-uc.a.run.app"
+curl -i "$SERVICE_URL/healthz"        # 200 {"status":"ok"}
+
+# HoyDonde-frontend/.env
+EXPO_PUBLIC_API_URL=$SERVICE_URL/api
+```
+
 ## Ejecutar el frontend (Expo Go)
 
 ```bash

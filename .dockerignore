@@ -1,0 +1,35 @@
+# Source control and local tooling
+.git/
+.github/
+.gga/
+.pi/
+.vs/
+
+# Credentials and environment files
+.env
+.env.*
+**/.env
+**/.env.*
+!**/.env.example
+**/*service-account*.json
+**/*credential*.json
+*.pem
+*.key
+*.pfx
+
+# Build output and local logs
+**/bin/
+**/obj/
+**/build/
+**/dist/
+logs/
+
+# Frontend dependencies and Expo artifacts
+**/node_modules/
+HoyDonde-frontend/.expo/
+
+# IDE and OS files
+*.user
+*.suo
+*.swp
+.DS_Store
