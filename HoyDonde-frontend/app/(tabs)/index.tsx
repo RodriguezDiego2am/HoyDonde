@@ -7,9 +7,9 @@ import { ActionButton } from '@/components/ui/ActionButton';
 import { StatusStamp, eventEstadoTone } from '@/components/ui/StatusStamp';
 import { TicketCard } from '@/components/ui/TicketCard';
 import { CategoriaOption, EventFilterPanel } from '@/components/cartelera/EventFilterPanel';
-import { colors, fonts, spacing } from '@/constants/theme';
+import { borderWidth, colors, fonts, radii, spacing } from '@/constants/theme';
 import { EventResponse, eventService } from '@/services/APIService';
-import { formatPrecio } from '@/utils/format';
+import { formatFechaHora, formatPrecio } from '@/utils/format';
 import { isValidLocalDateRange, nextLocalDayExclusive, parseLocalDate, startOfLocalDay, toUtcIso } from '@/utils/datetime';
 
 const PAGE_SIZE = 10;
@@ -56,6 +56,11 @@ function precioDesde(item: EventResponse): number | null {
   return Math.min(...item.ticketGroups.map((tg) => tg.precio));
 }
 
+function eventCardAccessibilityLabel(item: EventResponse, precio: number | null): string {
+  const price = precio === null ? 'Sin entradas disponibles' : `Entradas desde ${formatPrecio(precio)}`;
+  return `Ver detalle de ${item.nombre}. ${item.categoria}. ${item.estado}. ${formatFechaHora(item.fechaInicio)}. ${item.ubicacion}. ${price}.`;
+}
+
 function ediciónDeHoy(): string {
   const now = new Date();
   return `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -98,6 +103,7 @@ export default function CarteleraScreen() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasNextPage, setHasNextPage] = useState(false);
   const [lastEventId, setLastEventId] = useState<string | undefined>(undefined);
@@ -140,11 +146,16 @@ export default function CarteleraScreen() {
         setEvents((prev) => (mode === 'more' ? mergeSinDuplicados(prev, data.data) : data.data));
         setHasNextPage(data.hasNextPage);
         setLastEventId(data.lastDocumentId);
-        if (mode !== 'more') {
+        if (mode === 'more') {
+          setLoadMoreError(null);
+        } else {
+          setLoadMoreError(null);
           setError(null);
         }
       } catch {
-        if (mode !== 'more') {
+        if (mode === 'more') {
+          setLoadMoreError('No se pudieron cargar más eventos. Verificá tu conexión.');
+        } else {
           setError('No se pudieron cargar los eventos. Verificá tu conexión.');
         }
       } finally {
@@ -164,8 +175,9 @@ export default function CarteleraScreen() {
   }, []);
 
   const onRefresh = () => {
-    if (fetchInFlight.current) return;
+    if (fetchInFlight.current || refreshing) return;
     setRefreshing(true);
+    setLoadMoreError(null);
     fetchEvents('refresh', appliedFilters, undefined);
   };
 
@@ -253,7 +265,7 @@ export default function CarteleraScreen() {
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Ver detalle de ${item.nombre}`}
+        accessibilityLabel={eventCardAccessibilityLabel(item, precio)}
         onPress={() => openEvent(item.id)}
         style={({ pressed }) => pressed && styles.cardPressed}
       >
@@ -305,18 +317,32 @@ export default function CarteleraScreen() {
             <Text style={styles.edition}>ED. {ediciónDeHoy()}</Text>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Actualizar cartelera"
+              accessibilityLabel={refreshing ? 'Actualizando cartelera' : 'Actualizar cartelera'}
+                accessibilityState={{ busy: refreshing, disabled: refreshing }}
+                disabled={refreshing}
               onPress={onRefresh}
-              hitSlop={10}
-              style={({ pressed }) => [styles.reloadButton, pressed && styles.reloadButtonPressed]}
+                            style={({ pressed }) => [styles.reloadButton, pressed && !refreshing && styles.reloadButtonPressed]}
             >
-              <MaterialIcons name="refresh" size={18} color={colors.ink} />
+              {refreshing ? (
+                  <ActivityIndicator size="small" color={colors.paper} />
+                ) : (
+                  <MaterialIcons name="refresh" size={18} color={colors.paper} />
+                )}
             </Pressable>
           </View>
         </View>
         <View style={styles.hairline} />
-        <Text style={styles.title}>Cartelera</Text>
-        <Text style={styles.subtitle}>Eventos publicados</Text>
+                <Text style={styles.cityGuide}>GUÍA DE CIUDAD · HECHA PARA SALIR</Text>
+        <View style={styles.titleRow}>
+          <View>
+            <Text style={styles.title}>Cartelera</Text>
+            <Text style={styles.subtitle}>Eventos publicados para descubrir</Text>
+          </View>
+          <View style={styles.liveStamp}>
+            <Text style={styles.liveStampTop}>ENTRADAS</Text>
+            <Text style={styles.liveStampBottom}>EN VIVO</Text>
+          </View>
+        </View>
 
         <View style={styles.filtersBar}>
           <Pressable
@@ -345,7 +371,7 @@ export default function CarteleraScreen() {
                 onPress={handleClearFilters}
                 hitSlop={8}
               >
-                <MaterialIcons name="close" size={16} color={colors.inkSoft} />
+                <MaterialIcons name="close" size={16} color={colors.sand} />
               </Pressable>
             </View>
           ) : null}
@@ -401,6 +427,12 @@ export default function CarteleraScreen() {
           data={events}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
+          ListHeaderComponent={
+            <View style={styles.discoveryHeader}>
+              <Text style={styles.discoveryLabel}>EN CARTEL</Text>
+              <Text style={styles.discoveryCount}>{events.length} para descubrir</Text>
+            </View>
+          }
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.ink} />}
           onEndReached={loadMore}
@@ -409,6 +441,11 @@ export default function CarteleraScreen() {
             loadingMore ? (
               <View style={styles.footer}>
                 <ActivityIndicator size="small" color={colors.tomato} />
+              </View>
+            ) : loadMoreError ? (
+              <View style={styles.loadMoreError} accessibilityRole="alert">
+                <Text style={styles.errorText}>{loadMoreError}</Text>
+                <ActionButton label="Reintentar cargar más" variant="secondary" onPress={loadMore} />
               </View>
             ) : null
           }
@@ -441,11 +478,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.paper,
   },
   masthead: {
+    backgroundColor: colors.ink,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xxl,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 3,
-    borderBottomColor: colors.ink,
+    paddingBottom: spacing.lg,
+    borderBottomWidth: 6,
+    borderBottomColor: colors.tomato,
+            borderBottomLeftRadius: radii.lg,
+            borderBottomRightRadius: radii.xl,
   },
   eyebrowRow: {
     flexDirection: 'row',
@@ -456,7 +496,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 13,
     letterSpacing: 1.5,
-    color: colors.ink,
+    color: colors.lime,
   },
   eyebrowRight: {
     flexDirection: 'row',
@@ -467,37 +507,70 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
     fontSize: 12,
     letterSpacing: 1,
-    color: colors.inkSoft,
+    color: colors.sand,
   },
   reloadButton: {
     borderWidth: 1,
-    borderColor: colors.ink,
-    borderRadius: 14,
-    width: 28,
-    height: 28,
+    borderColor: colors.paper,
+    borderRadius: radii.pill,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
   reloadButtonPressed: {
-    backgroundColor: colors.sand,
+    backgroundColor: colors.cobalt,
   },
   hairline: {
     height: 1,
-    backgroundColor: colors.ink,
-    opacity: 0.25,
+    backgroundColor: colors.sand,
     marginTop: spacing.sm,
+  },
+  cityGuide: {
+            fontFamily: fonts.bold,
+            fontSize: 10,
+            letterSpacing: 1.3,
+            color: colors.sand,
+            marginTop: spacing.md,
+          },
+          titleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginTop: spacing.md,
+    gap: spacing.md,
   },
   title: {
     fontFamily: fonts.black,
-    fontSize: 34,
-    color: colors.ink,
-    marginTop: spacing.sm,
+    fontSize: 46,
+    lineHeight: 46,
+    color: colors.paper,
   },
   subtitle: {
     fontFamily: fonts.regular,
     fontSize: 14,
-    color: colors.inkSoft,
-    marginTop: 2,
+    color: colors.sand,
+    marginTop: 4,
+  },
+  liveStamp: {
+    backgroundColor: colors.cobalt,
+    borderWidth: 1,
+    borderColor: colors.paper,
+    paddingVertical: 5,
+    paddingHorizontal: 7,
+    alignItems: 'center',
+  },
+  liveStampTop: {
+    fontFamily: fonts.bold,
+    fontSize: 9,
+    letterSpacing: 0.8,
+    color: colors.paper,
+  },
+  liveStampBottom: {
+    fontFamily: fonts.black,
+    fontSize: 11,
+    letterSpacing: 0.8,
+    color: colors.lime,
   },
   filtersBar: {
     flexDirection: 'row',
@@ -510,13 +583,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    backgroundColor: colors.lime,
     borderWidth: 1,
-    borderColor: colors.ink,
-    paddingVertical: 6,
+    borderColor: colors.lime,
+    paddingVertical: 8,
     paddingHorizontal: 12,
   },
   filtersButtonPressed: {
-    backgroundColor: colors.sand,
+    backgroundColor: colors.paper,
   },
   filtersButtonText: {
     fontFamily: fonts.bold,
@@ -527,7 +601,7 @@ const styles = StyleSheet.create({
   },
   filtersBadge: {
     backgroundColor: colors.tomato,
-    borderRadius: 10,
+    borderRadius: radii.pill,
     minWidth: 18,
     height: 18,
     alignItems: 'center',
@@ -537,7 +611,7 @@ const styles = StyleSheet.create({
   filtersBadgeText: {
     fontFamily: fonts.bold,
     fontSize: 11,
-    color: colors.paper,
+    color: colors.ink,
   },
   filtersSummaryWrap: {
     flexDirection: 'row',
@@ -548,7 +622,7 @@ const styles = StyleSheet.create({
   filtersSummaryText: {
     fontFamily: fonts.medium,
     fontSize: 12,
-    color: colors.inkSoft,
+    color: colors.sand,
     flexShrink: 1,
   },
   center: {
@@ -595,8 +669,29 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   list: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
     gap: spacing.md,
+  },
+  discoveryHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: borderWidth.thin,
+    borderBottomColor: colors.ink,
+  },
+  discoveryLabel: {
+    fontFamily: fonts.black,
+    fontSize: 15,
+    letterSpacing: 1,
+    color: colors.ink,
+  },
+  discoveryCount: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: colors.cobalt,
   },
   card: {
     marginBottom: spacing.md,
@@ -606,15 +701,15 @@ const styles = StyleSheet.create({
   },
   stubDay: {
     fontFamily: fonts.black,
-    fontSize: 24,
+    fontSize: 31,
     color: colors.ink,
-    lineHeight: 26,
+    lineHeight: 32,
   },
   stubMonth: {
     fontFamily: fonts.bold,
     fontSize: 12,
     letterSpacing: 1,
-    color: colors.tomato,
+    color: colors.paperBright,
     marginTop: 2,
   },
   stubTime: {
@@ -630,8 +725,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   eventName: {
-    fontFamily: fonts.bold,
-    fontSize: 18,
+    fontFamily: fonts.black,
+    fontSize: 20,
+    lineHeight: 23,
     color: colors.ink,
     flexShrink: 1,
   },
@@ -646,10 +742,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 11,
     letterSpacing: 0.8,
-    color: colors.ink,
-    borderWidth: 1,
-    borderColor: colors.ink,
-    paddingVertical: 2,
+    color: colors.paper,
+    backgroundColor: colors.cobalt,
+    paddingVertical: 3,
     paddingHorizontal: 6,
     textTransform: 'uppercase',
   },
@@ -662,6 +757,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     color: colors.inkSoft,
     fontSize: 13,
+    flexShrink: 1,
   },
   eventDescription: {
     fontFamily: fonts.regular,
@@ -683,6 +779,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     letterSpacing: 0.5,
     color: colors.ink,
+  },
+  loadMoreError: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
   },
   footer: {
     paddingVertical: spacing.md,

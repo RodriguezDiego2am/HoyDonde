@@ -1,20 +1,18 @@
 /**
- * Tokens de la identidad visual "Cartelera urbana" (docs/api-mvp-plan.md §6):
- * afiche cultural impreso, no dashboard genérico. Reutilizable por las
- * etapas Frontend 1-4.
+ * Tokens de la identidad visual "Cartelera urbana": una guía de ciudad
+ * editorial, con bloques de tinta, papel cálido y acentos de afiche.
  */
-
 export const colors = {
   paper: '#F3EBDD',
+  paperBright: '#FFF9EE',
   ink: '#171512',
+  inkSoft: '#6B6357',
+  sand: '#D8CDBB',
   tomato: '#F04E3E',
   cobalt: '#3454D1',
   lime: '#C8F25B',
-  sand: '#D8CDBB',
   success: '#167A50',
   error: '#C83737',
-  /** Tinta atenuada para texto secundario: reemplaza el uso de opacity, mejor contraste sobre paper/sand. */
-  inkSoft: '#6B6357',
 } as const;
 
 export const spacing = {
@@ -27,14 +25,25 @@ export const spacing = {
 } as const;
 
 export const radii = {
-  sm: 2,
-  md: 4,
-  lg: 8,
+  sm: 8,
+  md: 14,
+  lg: 22,
+  xl: 30,
+  pill: 999,
 } as const;
 
 export const borderWidth = {
   thin: 1,
   thick: 2,
+} as const;
+
+/** Elevación corta y opaca: más afiche pegado que tarjeta SaaS flotante. */
+export const posterShadow = {
+  shadowColor: colors.ink,
+  shadowOffset: { width: 4, height: 5 },
+  shadowOpacity: 1,
+  shadowRadius: 0,
+  elevation: 5,
 } as const;
 
 export const fonts = {

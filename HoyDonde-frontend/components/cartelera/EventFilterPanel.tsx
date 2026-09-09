@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, KeyboardAvoidingView } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 import { ActionButton } from '@/components/ui/ActionButton';
@@ -52,6 +52,10 @@ export function EventFilterPanel({
   onApply,
   onClear,
 }: EventFilterPanelProps) {
+  const { width } = useWindowDimensions();
+  // Dos campos segmentados no entran con seguridad juntos en pantallas de 320 px.
+  const stackDateFields = width < 360;
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -62,7 +66,7 @@ export function EventFilterPanel({
           onPress={onClose}
         />
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.sheetWrap}
         >
           <View style={styles.sheet} testID="event-filter-panel">
@@ -84,7 +88,7 @@ export function EventFilterPanel({
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              <View style={styles.dateRow}>
+              <View style={[styles.dateRow, stackDateFields && styles.dateRowStacked]}>
                 <View style={styles.dateField}>
                   <SegmentedDateField
                     label="Desde"
@@ -184,8 +188,8 @@ const styles = StyleSheet.create({
     borderWidth: borderWidth.thin,
     borderColor: colors.ink,
     borderRadius: radii.sm,
-    width: 32,
-    height: 32,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -199,7 +203,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.md,
   },
-  dateField: {
+  dateRowStacked: {
+      flexDirection: 'column',
+      gap: 0,
+    },
+    dateField: {
     flex: 1,
   },
   errorText: {
@@ -227,8 +235,11 @@ const styles = StyleSheet.create({
     borderWidth: borderWidth.thin,
     borderColor: colors.ink,
     borderRadius: radii.sm,
-    paddingVertical: 6,
+    minHeight: 44,
+      paddingVertical: 6,
     paddingHorizontal: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
   },
   chipActive: {
     backgroundColor: colors.ink,

@@ -4,16 +4,16 @@ import { StyleSheet, View } from 'react-native';
 
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { ACCIONES } from '@/constants/acciones';
-import { borderWidth, colors, fonts } from '@/constants/theme';
+import { borderWidth, colors, fonts, radii, spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 
-type TabIconName = 'ticket.fill' | 'wallet.pass.fill' | 'qrcode.viewfinder';
+type TabIconName = 'ticket.fill' | 'person.fill' | 'qrcode.viewfinder';
 
-/** Insignia circular tipo sello: se rellena de tomate cuando la pestaña está activa, como una entrada validada. */
+/** Insignia de pestaña: el estado activo se sella en lima, no solo por color de texto. */
 function TabIcon({ focused, name }: { focused: boolean; name: TabIconName }) {
   return (
     <View style={[styles.iconBadge, focused && styles.iconBadgeActive]}>
-      <IconSymbol size={20} name={name} color={focused ? colors.paper : colors.inkSoft} />
+      <IconSymbol size={20} name={name} color={focused ? colors.ink : colors.sand} />
     </View>
   );
 }
@@ -28,8 +28,8 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.ink,
-        tabBarInactiveTintColor: colors.inkSoft,
+        tabBarActiveTintColor: colors.lime,
+        tabBarInactiveTintColor: colors.sand,
         tabBarLabelStyle: styles.label,
         tabBarItemStyle: styles.item,
         tabBarStyle: styles.bar,
@@ -54,7 +54,7 @@ export default function TabLayout() {
         name="explore"
         options={{
           title: 'Perfil',
-          tabBarIcon: ({ focused }) => <TabIcon focused={focused} name="wallet.pass.fill" />,
+          tabBarIcon: ({ focused }) => <TabIcon focused={focused} name="person.fill" />,
         }}
       />
     </Tabs>
@@ -63,29 +63,34 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   bar: {
-    backgroundColor: colors.paper,
-    borderTopColor: colors.ink,
+    backgroundColor: colors.ink,
+    borderTopColor: colors.tomato,
     borderTopWidth: borderWidth.thick,
-    paddingTop: 6,
+    minHeight: 76,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.lg,
+    borderTopLeftRadius: radii.lg,
+    borderTopRightRadius: radii.lg,
   },
   item: {
-    paddingTop: 2,
+    minHeight: 52,
+    paddingTop: spacing.xs,
   },
   label: {
     fontFamily: fonts.bold,
-    fontSize: 11,
+    fontSize: 10,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
   },
   iconBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 38,
+    height: 38,
+    borderRadius: radii.md,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 2,
+    marginBottom: spacing.xs,
   },
   iconBadgeActive: {
-    backgroundColor: colors.tomato,
+    backgroundColor: colors.lime,
   },
 });

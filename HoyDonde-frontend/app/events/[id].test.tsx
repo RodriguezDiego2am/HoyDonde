@@ -257,7 +257,27 @@ describe('EventDetailScreen', () => {
     expect(retryKey).toBe(firstKey);
   });
 
-  it('entrada gratuita confirma directamente con el flujo existente y nunca abre Checkout Pro', async () => {
+  it('permite seleccionar el tipo de entrada desde la fila visible', async () => {
+      jest.spyOn(apiClient, 'get').mockResolvedValue({
+        data: evento({
+          ticketGroups: [
+            { id: 'tipo-general', nombre: 'General', precio: 5000, cantidadDisponible: 3 },
+            { id: 'tipo-vip', nombre: 'VIP', precio: 9000, cantidadDisponible: 2 },
+          ],
+        }),
+      } as any);
+      const { findByLabelText } = render(<EventDetailScreen />);
+
+      const vipRow = await findByLabelText(/VIP\..*2 disponibles/);
+      fireEvent.press(vipRow);
+
+      expect(vipRow.props.accessibilityState).toEqual(expect.objectContaining({ selected: true, disabled: false }));
+      expect((await findByLabelText(/General\..*3 disponibles/)).props.accessibilityState).toEqual(
+        expect.objectContaining({ selected: false })
+      );
+    });
+
+    it('entrada gratuita confirma directamente con el flujo existente y nunca abre Checkout Pro', async () => {
     mockAuthValue = { user: { uid: 'cliente-1' }, initializing: false, hasAccion: () => true };
     jest.spyOn(apiClient, 'get').mockResolvedValue({
       data: evento({ ticketGroups: [{ id: 'tipo-free', nombre: 'Entrada libre', precio: 0, cantidadDisponible: 5 }] }),
