@@ -118,6 +118,16 @@ namespace HoyDonde.API.Tests
                 var firestoreDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(FirestoreDb));
                 if (firestoreDescriptor != null) services.Remove(firestoreDescriptor);
 
+                var paymentInboxDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IPaymentWebhookInbox));
+                if (paymentInboxDescriptor != null) services.Remove(paymentInboxDescriptor);
+
+                var purchaseCheckoutDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IPurchaseCheckoutService));
+                if (purchaseCheckoutDescriptor != null) services.Remove(purchaseCheckoutDescriptor);
+                var purchaseProcessingDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IPaymentProcessingService));
+                if (purchaseProcessingDescriptor != null) services.Remove(purchaseProcessingDescriptor);
+                var purchaseServiceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(PurchaseService));
+                if (purchaseServiceDescriptor != null) services.Remove(purchaseServiceDescriptor);
+
                 var eventServiceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IEventService));
                 if (eventServiceDescriptor != null) services.Remove(eventServiceDescriptor);
 
@@ -167,6 +177,15 @@ namespace HoyDonde.API.Tests
                 var controlAsignacionRepositoryDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IControlAsignacionRepository));
                 if (controlAsignacionRepositoryDescriptor != null) services.Remove(controlAsignacionRepositoryDescriptor);
 
+                // Copias manuales de Firestore: IFirestoreBackupRepository depende de FirestoreDb, y
+                // FirestoreBackupService depende de ese repositorio, así que ValidateOnBuild necesita
+                // poder resolver ambos. Mismo tratamiento que todo repositorio con esta dependencia.
+                var backupRepositoryDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IFirestoreBackupRepository));
+                if (backupRepositoryDescriptor != null) services.Remove(backupRepositoryDescriptor);
+
+                var backupServiceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IFirestoreBackupService));
+                if (backupServiceDescriptor != null) services.Remove(backupServiceDescriptor);
+
                 // Etapa 5 del refactor de seguridad: SecurityAdminController se prueba contra
                 // MockSecurityAdminService directamente (mismo patrón que MockEventService), no
                 // contra la implementación real -esa se cubre en tests de servicio/integración
@@ -207,6 +226,9 @@ namespace HoyDonde.API.Tests
                 services.AddSingleton(MockSecurityAuditReportService.Object);
                 services.AddSingleton(Mock.Of<ISecurityAuditRepository>());
                 services.AddSingleton(Mock.Of<ITicketValidationStore>());
+                services.AddSingleton(Mock.Of<IPaymentWebhookInbox>());
+                services.AddSingleton(Mock.Of<IPaymentProcessingService>());
+                services.AddSingleton(Mock.Of<IPurchaseCheckoutService>());
                 // Etapa 5: estos tres quedan como Mock<T> reales (no Mock.Of<T> anónimos) para que
                 // GrantAccion pueda configurarlos por test y AccionAuthorizationHandler resuelva
                 // autorización real contra la implementación real de IPermissionService (que sigue
@@ -216,6 +238,8 @@ namespace HoyDonde.API.Tests
                 services.AddSingleton(MockAccionRepository.Object);
                 services.AddSingleton(Mock.Of<IIdentidadHuerfanaRepository>());
                 services.AddSingleton(Mock.Of<IControlAsignacionRepository>());
+                services.AddSingleton(Mock.Of<IFirestoreBackupRepository>());
+                services.AddSingleton(Mock.Of<IFirestoreBackupService>());
 
                 // Add Fake Authentication
                 services.AddAuthentication("Test")

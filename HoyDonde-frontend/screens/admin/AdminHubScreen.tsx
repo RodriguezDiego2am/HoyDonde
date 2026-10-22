@@ -30,6 +30,7 @@ export default function AdminHubScreen() {
   const puedeVerRoles = hasAccion(ACCIONES.ROL_EDITAR);
   const puedeVerUsuarios = hasAccion(ACCIONES.USUARIO_VER_PERMISOS_EFECTIVOS);
   const puedeVerReportes = hasAccion(ACCIONES.REPORTE_VER_GLOBAL);
+  const puedeAdministrarBackups = hasAccion(ACCIONES.BACKUP_ADMINISTRAR);
 
   const entradas: EntradaHub[] = [];
   if (puedeDarAltas) {
@@ -66,6 +67,15 @@ export default function AdminHubScreen() {
       descripcion: 'Actividad global de eventos y auditoría de seguridad.',
       icono: 'query-stats',
       href: '/admin/reports',
+    });
+  }
+  if (puedeAdministrarBackups) {
+    entradas.push({
+      key: 'backups',
+      titulo: 'Copias de seguridad',
+      descripcion: 'Crear, restaurar y consultar copias manuales de Firestore.',
+      icono: 'backup',
+      href: '/admin/backups',
     });
   }
 

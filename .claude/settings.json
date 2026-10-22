@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(**/firebase-service-account.json)",
+      "Edit(**/firebase-service-account.json)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Read(**/google-services.json)",
+      "Edit(**/google-services.json)",
+      "Read(**/GoogleService-Info.plist)",
+      "Edit(**/GoogleService-Info.plist)"
+    ]
+  }
+}

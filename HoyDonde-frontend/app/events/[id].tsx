@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import * as Linking from 'expo-linking';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import type { Href } from 'expo-router';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -8,15 +9,14 @@ import { ActionButton } from '@/components/ui/ActionButton';
 import { SectionDivider } from '@/components/ui/SectionDivider';
 import { StatusStamp, eventEstadoTone } from '@/components/ui/StatusStamp';
 import { Surface } from '@/components/ui/Surface';
-import { PurchaseReceiptPanel } from '@/components/purchase/PurchaseReceiptPanel';
-import { borderWidth, colors, fonts, radii, spacing } from '@/constants/theme';
+import { borderWidth, colors, fonts, posterShadow, radii, spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import {
   ApiError,
-  CompraResponse,
   EventResponse,
   TicketTypeResponse,
   eventService,
+  purchaseService,
   ticketService,
 } from '@/services/APIService';
 import { formatFechaHora, formatPrecio } from '@/utils/format';
@@ -62,7 +62,9 @@ export default function EventDetailScreen() {
   const [reviewing, setReviewing] = useState(false);
   const [buying, setBuying] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
-  const [purchasedCompra, setPurchasedCompra] = useState<CompraResponse | null>(null);
+  // A retry after an ambiguous network result must reuse the same server-side purchase.
+  // Changing ticket type or quantity deliberately starts a new user intent and clears this key.
+  const purchaseAttemptKeyRef = useRef<string | null>(null);
 
   const loadEvent = useCallback(async () => {
     if (!id) return;
@@ -92,9 +94,10 @@ export default function EventDetailScreen() {
   const maxCantidad = selectedTicketType ? Math.min(MAX_POR_COMPRA, selectedTicketType.cantidadDisponible) : 1;
   const esGratis = selectedTicketType?.precio === 0;
   const obtenerLabel = esGratis ? 'Obtener entrada' : 'Comprar entradas';
-  const confirmarLabel = esGratis ? 'Obtener entrada' : 'Confirmar compra';
+  const confirmarLabel = esGratis ? 'Continuar' : 'Continuar al pago';
 
   const selectTicketType = (ticketTypeId: string) => {
+    purchaseAttemptKeyRef.current = null;
     setSelectedTicketTypeId(ticketTypeId);
     setCantidad(1);
     setReviewing(false);
@@ -102,6 +105,7 @@ export default function EventDetailScreen() {
   };
 
   const changeCantidad = (delta: number) => {
+    purchaseAttemptKeyRef.current = null;
     setCantidad((prev) => Math.min(Math.max(1, prev + delta), Math.max(1, maxCantidad)));
   };
 
@@ -120,13 +124,19 @@ export default function EventDetailScreen() {
     setBuying(true);
     setPurchaseError(null);
     try {
-      const compra = await ticketService.buy({
-        eventoId: event.id,
-        ticketTypeId: selectedTicketType.id,
-        cantidad,
-      });
-      setPurchasedCompra(compra);
+      const request = { eventoId: event.id, ticketTypeId: selectedTicketType.id, cantidad };
+      if (selectedTicketType.precio === 0) {
+        await ticketService.buy(request);
+        setReviewing(false);
+        router.replace('/(tabs)/tickets');
+        return;
+      }
+
+      purchaseAttemptKeyRef.current ??= `${event.id}:${selectedTicketType.id}:${cantidad}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+      const purchase = await purchaseService.start(request, purchaseAttemptKeyRef.current);
       setReviewing(false);
+      router.replace(`/purchases/${purchase.id}` as Href);
+      if (purchase.checkoutUrl) await Linking.openURL(purchase.checkoutUrl);
     } catch (error) {
       setPurchaseError(purchaseErrorMessage(error));
     } finally {
@@ -138,14 +148,10 @@ export default function EventDetailScreen() {
     router.push({ pathname: '/login', params: { returnTo: id ? `/events/${id}` : '/(tabs)' } });
   };
 
-  const goToTickets = () => {
-    router.replace('/(tabs)/tickets' as Href);
-  };
-
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
-        <ActionButton label="← Volver" variant="ghost" onPress={() => router.back()} />
+        <ActionButton label="← Volver" variant="secondary" onPress={() => router.back()} />
       </View>
 
       {loadState === 'loading' ? (
@@ -169,22 +175,25 @@ export default function EventDetailScreen() {
       ) : event ? (
         <ScrollView contentContainerStyle={styles.scroll}>
           <View style={styles.masthead}>
+            <Text style={styles.featureKicker}>EVENTO DESTACADO</Text>
             <View style={styles.mastheadTopRow}>
               <Text style={styles.categoriaEyebrow}>{event.categoria}</Text>
-              <StatusStamp label={event.estado} tone={eventEstadoTone(event.estado)} />
+              <View style={styles.statusInset}>
+                <StatusStamp label={event.estado} tone={eventEstadoTone(event.estado)} />
+              </View>
             </View>
             <Text style={styles.title}>{event.nombre}</Text>
 
             <View style={styles.metaRow}>
-              <MaterialIcons name="place" size={16} color={colors.inkSoft} />
+              <MaterialIcons name="place" size={16} color={colors.lime} />
               <Text style={styles.metaText}>{event.ubicacion}</Text>
             </View>
             <View style={styles.metaRow}>
-              <MaterialIcons name="event" size={16} color={colors.inkSoft} />
+              <MaterialIcons name="event" size={16} color={colors.lime} />
               <Text style={styles.metaText}>Desde {formatFechaHora(event.fechaInicio)}</Text>
             </View>
             <View style={styles.metaRow}>
-              <MaterialIcons name="event-available" size={16} color={colors.inkSoft} />
+              <MaterialIcons name="event-available" size={16} color={colors.lime} />
               <Text style={styles.metaText}>Hasta {formatFechaHora(event.fechaFin)}</Text>
             </View>
 
@@ -200,9 +209,19 @@ export default function EventDetailScreen() {
                 const agotado = tg.cantidadDisponible <= 0;
                 const selected = selectedTicketTypeId === tg.id;
                 return (
-                  <View
+                  <Pressable
                     key={tg.id}
-                    style={[styles.ticketRow, selected && styles.ticketRowSelected, agotado && styles.ticketRowDisabled]}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`${tg.nombre}. ${formatPrecio(tg.precio)}. ${agotado ? 'Agotada' : `${tg.cantidadDisponible} disponibles`}.`}
+                    accessibilityState={{ selected, disabled: agotado }}
+                    disabled={agotado}
+                    onPress={() => selectTicketType(tg.id)}
+                    style={({ pressed }) => [
+                      styles.ticketRow,
+                      selected && styles.ticketRowSelected,
+                      agotado && styles.ticketRowDisabled,
+                      pressed && !agotado && styles.ticketRowPressed,
+                    ]}
                   >
                     <View style={styles.ticketRowInfo}>
                       <Text style={styles.ticketRowName}>{tg.nombre}</Text>
@@ -211,26 +230,14 @@ export default function EventDetailScreen() {
                       </Text>
                     </View>
                     <Text style={styles.ticketRowPrice}>{formatPrecio(tg.precio)}</Text>
-                  </View>
+                  </Pressable>
                 );
               })
             )}
           </View>
 
           <SectionDivider index="02" label="Comprar" style={styles.sectionMargin} />
-          {purchasedCompra !== null ? (
-            <View style={styles.purchaseSuccessWrap}>
-              <View style={styles.purchaseSuccessBanner}>
-                <MaterialIcons name="check-circle" size={28} color={colors.success} />
-                <Text style={styles.purchaseSuccessTitle}>
-                  {purchasedCompra.cantidadEntradas === 1
-                    ? 'Entrada comprada'
-                    : `${purchasedCompra.cantidadEntradas} entradas compradas`}
-                </Text>
-              </View>
-              <PurchaseReceiptPanel compra={purchasedCompra} onGoToTickets={goToTickets} />
-            </View>
-          ) : initializing ? (
+          {initializing ? (
             <View style={styles.center}>
               <ActivityIndicator color={colors.tomato} />
             </View>
@@ -250,7 +257,8 @@ export default function EventDetailScreen() {
               <Text style={styles.stateHint}>No hay entradas disponibles para comprar en este momento.</Text>
             </Surface>
           ) : (
-            <Surface style={styles.purchasePanel}>
+            <Surface variant="ink" style={styles.purchasePanel}>
+              <Text style={styles.purchaseKicker}>RESERVÁ TU LUGAR</Text>
               <Text style={styles.purchaseLabel}>Tipo de entrada</Text>
               <View style={styles.typeChipRow}>
                 {event.ticketGroups.map((tg) => {
@@ -261,6 +269,7 @@ export default function EventDetailScreen() {
                       key={tg.id}
                       label={agotado ? `${tg.nombre} (agotado)` : tg.nombre}
                       variant={selected ? 'primary' : 'secondary'}
+                      selected={selected}
                       disabled={agotado}
                       onPress={() => selectTicketType(tg.id)}
                     />
@@ -270,12 +279,19 @@ export default function EventDetailScreen() {
 
               <Text style={[styles.purchaseLabel, styles.purchaseLabelSpacing]}>Cantidad</Text>
               <View style={styles.stepperRow}>
-                <ActionButton label="−" variant="secondary" onPress={() => changeCantidad(-1)} disabled={cantidad <= 1} />
+                <ActionButton
+                  label="−"
+                  accessibilityLabel="Reducir cantidad"
+                  variant="secondary"
+                  onPress={() => changeCantidad(-1)}
+                  disabled={cantidad <= 1}
+                />
                 <Text testID="stepper-value" style={styles.stepperValue}>
                   {cantidad}
                 </Text>
                 <ActionButton
                   label="+"
+                  accessibilityLabel="Aumentar cantidad"
                   variant="secondary"
                   onPress={() => changeCantidad(1)}
                   disabled={cantidad >= maxCantidad}
@@ -302,14 +318,14 @@ export default function EventDetailScreen() {
               <Text style={styles.demoNotice}>
                 {esGratis
                   ? 'Entrada gratuita: no requiere pago.'
-                  : 'Compra de demostración: no se realizará ningún cobro.'}
+                  : 'Serás redirigido a Mercado Pago para completar el pago.'}
               </Text>
 
               {purchaseError ? <Text style={styles.errorText}>{purchaseError}</Text> : null}
 
               {!reviewing ? (
                 <View style={styles.retryButton}>
-                  <ActionButton label={obtenerLabel} onPress={startReview} />
+                  <ActionButton label={obtenerLabel} variant="lime" onPress={startReview} />
                 </View>
               ) : (
                 <Surface variant="sand" style={styles.confirmBox}>
@@ -320,14 +336,14 @@ export default function EventDetailScreen() {
                   <Text style={styles.demoNotice}>
                     {esGratis
                       ? 'Entrada gratuita: no requiere pago.'
-                      : 'Compra de demostración: no se realizará ningún cobro.'}
+                      : 'Serás redirigido a Mercado Pago para completar el pago.'}
                   </Text>
                   <View style={styles.confirmActions}>
                     <View style={styles.confirmActionButton}>
                       <ActionButton label="Cancelar" variant="ghost" onPress={cancelReview} disabled={buying} />
                     </View>
                     <View style={styles.confirmActionButton}>
-                      <ActionButton label={confirmarLabel} onPress={confirmPurchase} loading={buying} />
+                      <ActionButton label={confirmarLabel} variant="lime" onPress={confirmPurchase} loading={buying} />
                     </View>
                   </View>
                 </Surface>
@@ -346,8 +362,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.paper,
   },
   topBar: {
+    backgroundColor: colors.ink,
+    borderBottomWidth: borderWidth.thick,
+    borderBottomColor: colors.tomato,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.xxl,
+    paddingBottom: spacing.sm,
     alignItems: 'flex-start',
   },
   center: {
@@ -375,29 +395,49 @@ const styles = StyleSheet.create({
   },
   scroll: {
     padding: spacing.lg,
-    paddingTop: spacing.sm,
+    paddingTop: 0,
   },
   masthead: {
-    borderBottomWidth: borderWidth.thick,
-    borderBottomColor: colors.ink,
-    paddingBottom: spacing.lg,
+    backgroundColor: colors.ink,
+    borderBottomWidth: 6,
+    borderBottomColor: colors.lime,
+    borderBottomLeftRadius: radii.lg,
+    borderBottomRightRadius: radii.xl,
+    padding: spacing.lg,
+  },
+  featureKicker: {
+    borderRadius: radii.pill,
+    alignSelf: 'flex-start',
+    backgroundColor: colors.cobalt,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    fontFamily: fonts.bold,
+    fontSize: 10,
+    letterSpacing: 1,
+    color: colors.paper,
   },
   mastheadTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: spacing.md,
   },
   categoriaEyebrow: {
     fontFamily: fonts.bold,
     fontSize: 12,
     letterSpacing: 1.2,
-    color: colors.tomato,
+    color: colors.lime,
     textTransform: 'uppercase',
+  },
+  statusInset: {
+    backgroundColor: colors.paper,
+    padding: 2,
   },
   title: {
     fontFamily: fonts.black,
-    fontSize: 30,
-    color: colors.ink,
+    fontSize: 44,
+    lineHeight: 47,
+    color: colors.paper,
     marginTop: spacing.sm,
   },
   metaRow: {
@@ -409,12 +449,12 @@ const styles = StyleSheet.create({
   metaText: {
     fontFamily: fonts.medium,
     fontSize: 14,
-    color: colors.inkSoft,
+    color: colors.sand,
   },
   description: {
     fontFamily: fonts.regular,
     fontSize: 15,
-    color: colors.ink,
+    color: colors.paper,
     marginTop: spacing.md,
     lineHeight: 21,
   },
@@ -430,17 +470,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: borderWidth.thin,
     borderColor: colors.ink,
-    borderRadius: radii.sm,
-    paddingVertical: spacing.sm,
+    borderRadius: radii.lg,
+    ...posterShadow,
+    paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
     backgroundColor: colors.sand,
   },
   ticketRowSelected: {
     borderWidth: borderWidth.thick,
     backgroundColor: colors.lime,
+    transform: [{ translateX: -2 }, { translateY: -2 }],
   },
   ticketRowDisabled: {
     opacity: 0.5,
+  },
+  ticketRowPressed: {
+    opacity: 0.82,
   },
   ticketRowInfo: {
     flexShrink: 1,
@@ -477,13 +522,30 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: colors.ink,
   },
-  purchasePanel: {},
+  purchasePanel: {
+    borderRadius: radii.xl,
+    padding: spacing.lg,
+    ...posterShadow,
+    borderWidth: borderWidth.thick,
+    borderColor: colors.ink,
+  },
+  purchaseKicker: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.cobalt,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    fontFamily: fonts.bold,
+    fontSize: 10,
+    letterSpacing: 1,
+    color: colors.paper,
+  },
   purchaseLabel: {
     fontFamily: fonts.bold,
     fontSize: 12,
     letterSpacing: 0.8,
     textTransform: 'uppercase',
-    color: colors.inkSoft,
+    color: colors.lime,
+    marginTop: spacing.sm,
   },
   purchaseLabelSpacing: {
     marginTop: spacing.lg,
@@ -503,14 +565,14 @@ const styles = StyleSheet.create({
   stepperValue: {
     fontFamily: fonts.black,
     fontSize: 22,
-    color: colors.ink,
+    color: colors.lime,
     minWidth: 32,
     textAlign: 'center',
   },
   stockHint: {
     fontFamily: fonts.regular,
     fontSize: 12,
-    color: colors.inkSoft,
+    color: colors.sand,
     marginTop: spacing.xs,
   },
   summary: {
@@ -524,34 +586,35 @@ const styles = StyleSheet.create({
   summaryLabel: {
     fontFamily: fonts.regular,
     fontSize: 14,
-    color: colors.inkSoft,
+    color: colors.sand,
   },
   summaryValue: {
     fontFamily: fonts.medium,
     fontSize: 14,
-    color: colors.ink,
+    color: colors.paper,
   },
   summaryHairline: {
     height: 1,
-    backgroundColor: colors.ink,
-    opacity: 0.25,
+    backgroundColor: colors.sand,
     marginVertical: spacing.sm,
   },
   summaryTotalLabel: {
     fontFamily: fonts.bold,
     fontSize: 16,
-    color: colors.ink,
+    color: colors.paper,
   },
   summaryTotalValue: {
     fontFamily: fonts.black,
-    fontSize: 18,
-    color: colors.tomato,
+    fontSize: 20,
+    color: colors.lime,
   },
   demoNotice: {
+    backgroundColor: colors.cobalt,
     fontFamily: fonts.semiBold,
     fontSize: 13,
-    color: colors.cobalt,
+    color: colors.paper,
     marginTop: spacing.md,
+    padding: spacing.sm,
   },
   errorText: {
     fontFamily: fonts.medium,
@@ -569,11 +632,11 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
   confirmActions: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: spacing.sm,
     marginTop: spacing.sm,
   },
   confirmActionButton: {
-    flex: 1,
+    width: '100%',
   },
 });

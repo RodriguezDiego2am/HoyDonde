@@ -18,7 +18,7 @@ https://localhost:7131
 
 Swagger/OpenAPI está disponible solo en `Development`, en `/swagger`.
 
-No hay una URL base de producción documentada en el repositorio: el proyecto de Firebase real (`Firebase:ProjectId` en `appsettings.json`, hoy `hoydonde-app`) y el hosting del backend son responsabilidad de despliegue, fuera del alcance de este documento.
+No hay una URL base de producción documentada en el repositorio: el proyecto de Firebase real (`Firebase:ProjectId` en `appsettings.json`, hoy `hoydonde-f5a05`) y el hosting del backend son responsabilidad de despliegue, fuera del alcance de este documento.
 
 ---
 
@@ -99,7 +99,7 @@ Firebase UID
 - Cada `[Authorize(Policy = "ACCION_CODIGO")]` se resuelve exclusivamente vía `AccionAuthorizationHandler` → `IPermissionService.TieneAccionAsync`, que recorre esa cadena completa en Firestore. **Nada lee un claim para autorizar.**
 - Un `Usuario` puede tener varios roles; un `Rol` puede otorgar varias acciones.
 - Si el `Usuario` está inactivo (`IsActive == false`), o la asignación de rol está inactiva, o el `Rol` está inactivo, o la `Accion` está inactiva, `TieneAccionAsync` devuelve `false` y el handler simplemente no llama a `context.Succeed(...)` — ASP.NET deniega por default, sin excepción ni 500. Esto es lo que hace que **un Usuario desactivado reciba 403 en cualquier endpoint protegido**, sin lógica adicional en el controller.
-- El catálogo tiene exactamente **24 acciones** (`Authorization/Acciones.cs`), sembradas por `SecurityCatalogSeeder` en 4 roles iniciales: `ADMINISTRADOR`, `ORGANIZADOR`, `CLIENTE`, `CONTROL`. Roles y acciones son entidades Firestore administrables (`/api/security`, §9), no enums ni constantes de código. `REPORTE_VER_GLOBAL` (`ADMINISTRADOR`) y `REPORTE_VER_PROPIO` (`ORGANIZADOR`) son del módulo de reportes (§15); `ROL_ELIMINAR` (`ADMINISTRADOR`) es de la baja física de roles (§10.1); `USUARIO_RESTABLECER_PASSWORD` (`ADMINISTRADOR`) es de la recuperación de contraseña (§16).
+- El catálogo tiene exactamente **25 acciones** (`Authorization/Acciones.cs`), sembradas por `SecurityCatalogSeeder` en 4 roles iniciales: `ADMINISTRADOR`, `ORGANIZADOR`, `CLIENTE`, `CONTROL`. Roles y acciones son entidades Firestore administrables (`/api/security`, §9), no enums ni constantes de código. `REPORTE_VER_GLOBAL` (`ADMINISTRADOR`) y `REPORTE_VER_PROPIO` (`ORGANIZADOR`) son del módulo de reportes (§15); `ROL_ELIMINAR` (`ADMINISTRADOR`) es de la baja física de roles (§10.1); `USUARIO_RESTABLECER_PASSWORD` (`ADMINISTRADOR`) es de la recuperación de contraseña (§16); `BACKUP_ADMINISTRAR` (`ADMINISTRADOR`) es de las copias manuales de Firestore (§18).
 - Una policy concedida **nunca es suficiente por sí sola** para tocar el recurso de otro actor: cada operación vuelve a leer el dueño/asignación real desde Firestore y lo compara contra el `PersonaId` del actor autenticado (`IAuthenticatedPersonaResolver`, §5). Ejemplos: `EVENTO_PUBLICAR_PROPIO` no alcanza para publicar el evento de otro organizador; `TICKET_VALIDAR` no alcanza para validar tickets de un evento al que ese Control no está asignado.
 
 ---
@@ -538,8 +538,7 @@ Todo error de este API (excepción de dominio tipada, `ModelState` inválido, o 
 {
   "code": "EVENT_NOT_FOUND",
   "message": "El evento 'evento-123' no existe.",
-  "traceId": "3fa4c9d2-....",
-  "errors": null
+  "traceId": "3fa4c9d2-...."
 }
 ```
 
@@ -547,7 +546,7 @@ Todo error de este API (excepción de dominio tipada, `ModelState` inválido, o 
 - **`message`**: texto público. Para la enorme mayoría de las excepciones tipadas es directamente su mensaje (contiene solo ids/nombres ya conocidos por quien hizo la petición, nunca UID/`ExternalSubjectId`/nombres internos de colección/mensajes crudos de Firestore o Firebase). La única excepción deliberada es `EVENT_OWNERSHIP`, cuyo mensaje interno incluye el UID del actor (solo para logging): la respuesta pública usa un texto fijo genérico.
 - **`traceId`**: correlaciona la respuesta con el log estructurado del servidor para esa misma request (mismo id que `RequestId` en los logs de `LoggingMiddleware`).
 - **`errors`**: **solo** presente para errores de validación de campos (`code: "VALIDATION_ERROR"`), como `{ "ubicacion": ["La ubicación del evento es obligatoria."] }`. En cualquier otro error, este campo está ausente (no `null` explícito — se omite del JSON).
-- **`detail`** *(no listado arriba porque casi siempre está ausente)*: solo aparece en un `500` en entorno `Development`, con el detalle técnico de la excepción para diagnóstico local. En `Production`, un `500` **nunca** incluye este campo ni ningún detalle interno — el `message` es un texto genérico fijo ("Ocurrió un error inesperado. Contactá al soporte indicando el TraceId.").
+- **`detail`** *(no listado arriba porque casi siempre está ausente)*: solo aparece en un `500` en entorno `Development`, con el detalle técnico de la excepción para diagnóstico local. En `Production`, un `500` **nunca** incluye este campo ni ningún detalle interno — el `message` es un texto genérico fijo ("Ocurrió un error inesperado. Contactá al soporte indicando el RequestId.").
 
 ### Códigos por excepción tipada
 
@@ -555,6 +554,7 @@ Todo error de este API (excepción de dominio tipada, `ModelState` inválido, o 
 |---|---|---|
 | 400 | `VALIDATION_ERROR` | `ModelState` inválido (DataAnnotations) o `ArgumentException` de servicio |
 | 400 | `EVENT_VALIDATION_ERROR` | Reglas de negocio de Event/TicketGroup a nivel de servicio |
+| 400 | `BACKUP_DELETE_NOT_CONFIRMED` | Eliminar una copia sin `confirmarEliminacion: true` (§18) |
 | 403 | `IDENTITY_NOT_PROVISIONED` | Token válido, pero sin `Usuario` provisionado para ese UID |
 | 403 | `EVENT_OWNERSHIP` | El actor no es el organizador dueño del evento |
 | 403 | `CONTROL_FOREIGN` | El Control pertenece exclusivamente a otro organizador |
@@ -562,6 +562,7 @@ Todo error de este API (excepción de dominio tipada, `ModelState` inválido, o 
 | 404 | `TICKET_TYPE_INVALID` | `ticketTypeId` no corresponde al evento |
 | 404 | `CONTROL_INVALID` | `controlPersonaId` no es un Control elegible |
 | 404 | `ROLE_NOT_FOUND` / `ACTION_NOT_FOUND` / `USER_NOT_FOUND` | Recurso de administración de seguridad inexistente |
+| 404 | `BACKUP_NOT_FOUND` | Copia de Firestore inexistente (§18) |
 | 409 | `EVENT_INVALID_TRANSITION` | Transición de estado no permitida |
 | 409 | `EVENT_MISSING_TICKET_TYPES` | Publicar sin tipos de ticket |
 | 409 | `EVENT_NOT_EDITABLE` | Editar un evento fuera de `Borrador` |
@@ -575,6 +576,9 @@ Todo error de este API (excepción de dominio tipada, `ModelState` inválido, o 
 | 409 | `ROL_DEBE_ESTAR_INACTIVO` | Baja física de un rol todavía activo |
 | 409 | `ROL_TIENE_USUARIOS_ASIGNADOS` | Baja física de un rol con al menos una `UsuarioRol` (activa o inactiva) |
 | 409 | `USER_IDENTITY_NOT_RECOVERABLE` | El Usuario no tiene una identidad de Firebase recuperable (§16) |
+| 409 | `BACKUP_NOT_RESTORABLE` | La copia elegida no es una exportación `Succeeded` (§18) |
+| 409 | `BACKUP_RESTORE_IN_PROGRESS` | Ya hay una restauración sin terminar (§18) |
+| 409 | `BACKUP_NOT_DELETABLE` | La copia está en curso o no es una exportación (§18) |
 | 500 | `UNEXPECTED_ERROR` | Cualquier excepción no anticipada |
 
 `403 Forbidden` "puro" (sin body de `ErrorResponse`, generado directamente por el middleware de autorización de ASP.NET) ocurre cuando el actor está autenticado pero la policy nunca llega a `Succeed` — por ejemplo, un `Usuario` desactivado, o uno sin la acción concedida. `401 Unauthorized` ocurre cuando no hay identidad autenticada en absoluto (sin header `Authorization`, o token inválido/expirado).
@@ -623,16 +627,15 @@ No se requiere `firebase login` ni credenciales reales para el comando de test: 
 
 Explícitamente no implementadas (`docs/api-mvp-plan.md` §10) — no asumir que existen:
 
-- Pagos reales, reservas temporales de stock, reventa de tickets.
+- Reservas temporales de stock, reventa de tickets. (Los **pagos reales sí están implementados**: `MercadoPagoGateway`, `PurchaseCheckoutService`, `PurchasesController` y `POST /api/payments/mercado-pago/webhook`, más sus workers en `MercadoPagoWorkers`. `CLAUDE.md` documenta ese módulo en "Real payments — Mercado Pago Checkout Pro"; este documento todavía no tiene una sección de endpoints propia para él.)
 - QR firmado / validación offline.
 - Notificaciones push/email.
-- Analíticas de organizador con pantalla/PDF (§15 documenta el backend ya implementado del reporte de eventos propios; falta la UI y la exportación).
 - Auditoría de dominio (`security_audits`-equivalente) para compras/validaciones/cambios de estado de evento — hoy solo hay `ILogger` estructurado.
 - Aprobación administrativa de eventos antes de publicar.
 - Transición `Finalizado` persistida vía job/scheduler (permanece derivada indefinidamente).
 - Endpoint de "desasignar" un Control de un evento.
 - Edición de un evento después de publicado (ni siquiera parcial).
-- Pantallas más allá del alcance de Frontend 0 (catálogo, login, registro de Cliente, perfil/logout) — Frontend 1–5 (`docs/api-mvp-plan.md` §7) permanecen pendientes; ver `CLAUDE.md`, "Frontend status".
+- (Frontend 0–5 están cerrados, incluidas las pantallas de reportes y su exportación a PDF; ver `CLAUDE.md`, "Frontend status", para el detalle de qué se verificó a mano y qué solo con pruebas automáticas.)
 
 ---
 
@@ -917,3 +920,36 @@ Nunca expone `OrganizadorPersonaId`, `ClientePersonaId`, UID, `UsuarioId` ni `Ex
 ### Estado
 
 Backend **619/620 passed** (suite completa, Firestore Emulator real — el único fallo es un test de concurrencia preexistente y no relacionado con este módulo, ya documentado como intermitente bajo contención de la suite completa, verificado en verde de forma aislada). Frontend **546 passed** (`npm test`, corrida completa sin filtros), `npm run typecheck`/`npm run lint` limpios, `npx expo-doctor` 18/18, `npx expo export --platform android` exitoso. **No se tocó Firebase/Firestore real, no se desplegó el índice `compras`, no hubo commit ni push.** No verificado a mano en Expo Go contra la API/Firestore reales.
+
+---
+
+## 18. Copias manuales de Firestore (`/api/backups`)
+
+Todos los endpoints requieren la policy dedicada `BACKUP_ADMINISTRAR`; no reutilizan `REPORTE_VER_GLOBAL`. Para instalaciones nuevas, `SecurityCatalogSeeder` la asigna únicamente a `ADMINISTRADOR`.
+
+| Método y ruta | Descripción |
+|---|---|
+| `GET /api/backups` | Devuelve historial y consulta el estado de operaciones aún en curso. No hay scheduler ni Cloud Function. |
+| `POST /api/backups` | Inicia una exportación nativa de Firestore a Cloud Storage y responde `202 Accepted`. |
+| `POST /api/backups/{backupId}/restore` | Crea primero una exportación automática del estado actual; recién al completarse inicia la importación de la copia seleccionada. Responde `202 Accepted`. |
+| `DELETE /api/backups/{backupId}` | Elimina los objetos de la exportación administrada en Cloud Storage y, solo si esa eliminación termina correctamente, su registro de historial terminal. Requiere body `{ "confirmarEliminacion": true }`. |
+
+Códigos de error propios del módulo: `BACKUP_NOT_FOUND` (404), `BACKUP_NOT_RESTORABLE` (409, la copia elegida no es una exportación `Succeeded`), `BACKUP_RESTORE_IN_PROGRESS` (409, ya hay una restauración sin terminar: nunca puede haber dos importaciones a la vez sobre producción), `BACKUP_NOT_DELETABLE` (409, la copia está en curso o no es una exportación) y `BACKUP_DELETE_NOT_CONFIRMED` (400, falta `confirmarEliminacion`; el campo no es `[Required]` justamente para que la omisión llegue al servicio y devuelva este código en vez de un `VALIDATION_ERROR` genérico). `DELETE` responde `DeleteFirestoreBackupResponseDto` (`{ "message": "Copia eliminada." }`). Ninguno usa `VALIDATION_ERROR`, que queda reservado a errores de validación de campos con su objeto `errors`.
+
+Las filas (`FirestoreBackupResponseDto`) solo exponen `id`, `kind`, `operation`, `state`, `createdAt` y `completedAt`. Los estados son `Pending`, `Running`, `Succeeded` y `Failed`; ningún error técnico del proveedor, URI de Storage ni nombre de operación se devuelve al cliente. El historial se persiste en `firestore_backups`; los documentos de negocio nunca se serializan desde la API: se usan exclusivamente las operaciones administradas `exportDocuments` e `importDocuments` de Firestore.
+
+Una restauración usa la importación administrada de Firestore: sobrescribe los documentos incluidos en la exportación elegida y no borra documentos creados después que no estén incluidos en esa copia. Si falla la copia automática previa, la importación queda `Failed` y no se inicia. Toda tentativa y resultado de crear/exportar, importar/restaurar o eliminar historial se registra en `security_audits` con `TargetTipo = "FirestoreBackup"` y sin detalle técnico.
+
+La eliminación de una exportación terminal lista los objetos de Cloud Storage bajo su prefijo `gs://` administrado y elimina cada uno antes de borrar la metadata. Un prefijo sin objetos se considera eliminado correctamente. Si falla el listado o el borrado de cualquier objeto, la metadata se conserva y se registra el fallo de la eliminación. La referencia de retención es 7 copias diarias y 4 semanales; no hay aplicación automática de retención.
+
+### Configuración e IAM
+
+`FirestoreBackups:BucketName` debe ser el bucket asociado a Firebase (en este proyecto, `hoydonde-f5a05.appspot.com`; puede sobrescribirse por configuración de despliegue). La cuenta de servicio configurada en `Firebase:CredentialsPath` necesita el rol `roles/datastore.importExportAdmin` para `databases.exportDocuments`/`databases.importDocuments` y `roles/storage.objectAdmin` (acotado al bucket cuando la política lo permita) para listar, leer, escribir y eliminar los objetos de exportación. El Firestore Emulator no implementa esas operaciones administradas; las transiciones de servicio/controlador se prueban con `IManagedFirestoreBackupClient` falso, y la configuración IAM/export/import real debe validarse en un proyecto no productivo.
+
+Para un Firestore ya existente, el operador debe ejecutar primero el comando de seed:
+
+```bash
+dotnet run --project HoyDonde.API -- seed-backup-action
+```
+
+El comando crea únicamente la acción `BACKUP_ADMINISTRAR`, es idempotente y nunca crea/edita roles ni asigna acciones. Después, debe asignarse **solo** a `ADMINISTRADOR` mediante `/api/security`; la siembra automática solo cubre instalaciones nuevas.

@@ -22,6 +22,11 @@ function buildReport(overrides: Partial<VentasReporteResponse> = {}): VentasRepo
     topEventos: [{ eventoId: 'event-1', eventoNombre: 'Festival <script>', cantidadCompras: 3, entradasEmitidas: 5, importeEmitido: 500, importePromedioCompra: 166.67 }],
     porCategoria: [{ categoria: 'Musica', cantidadCompras: 3, entradasEmitidas: 5, importeEmitido: 500, porcentajeDelImporteTotal: 100 }],
     porTipoEntrada: [],
+    porEstadoCompra: [
+      { estadoCompra: 'LegacySimulated', cantidadCompras: 1, importeIniciado: 100 },
+      { estadoCompra: 'Confirmed', cantidadCompras: 1, importeIniciado: 200 },
+      { estadoCompra: 'PendingPayment', cantidadCompras: 1, importeIniciado: 300 },
+    ],
     filtrosDisponibles: { eventos: [], tiposEntrada: [] },
     ...overrides,
   };
@@ -70,6 +75,14 @@ describe('buildVentasBodyHtml', () => {
 
     expect(html).toContain('Por categoría');
     expect(html).toContain('Musica');
+  });
+
+  it('muestra categorías de estado sin sumar pendientes como importe emitido', () => {
+    const html = buildVentasBodyHtml(buildReport());
+
+    expect(html).toContain('Estados de compra');
+    expect(html).toContain('Pendiente de pago');
+    expect(html).toContain('Compra simulada histórica');
   });
 
   it('sin desglose por tipo de entrada, no agrega esa sección', () => {

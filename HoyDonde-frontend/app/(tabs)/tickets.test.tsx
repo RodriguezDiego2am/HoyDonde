@@ -110,6 +110,25 @@ describe('MisEntradasScreen', () => {
     expect(await findByText('EVENTO FINALIZADO')).toBeTruthy();
   });
 
+  it('etiqueta la compra simulada histórica sin confundirla con una compra real confirmada', async () => {
+    mockAuthValue = { user: { uid: 'cliente-1' }, initializing: false, hasAccion: () => true };
+    jest.spyOn(apiClient, 'get').mockResolvedValue({ data: [ticket({ pagoSimulado: true })] } as any);
+
+    const { findByText } = render(<MisEntradasScreen />);
+
+    expect(await findByText('COMPRA SIMULADA HISTÓRICA')).toBeTruthy();
+  });
+
+  it('no etiqueta como simulada una entrada sin CompraId cuando no hay semántica histórica explícita', async () => {
+    mockAuthValue = { user: { uid: 'cliente-1' }, initializing: false, hasAccion: () => true };
+    jest.spyOn(apiClient, 'get').mockResolvedValue({ data: [ticket({ compraId: null, pagoSimulado: false })] } as any);
+
+    const { findByText, queryByText } = render(<MisEntradasScreen />);
+
+    expect(await findByText('Festival de Verano')).toBeTruthy();
+    expect(queryByText('COMPRA SIMULADA HISTÓRICA')).toBeNull();
+  });
+
   it('un ticket legacy sin CompraId (previo a esta etapa) se sigue mostrando normalmente', async () => {
     mockAuthValue = { user: { uid: 'cliente-1' }, initializing: false, hasAccion: () => true };
     jest.spyOn(apiClient, 'get').mockResolvedValue({ data: [ticket({ id: 'ticket-legacy', compraId: null })] } as any);

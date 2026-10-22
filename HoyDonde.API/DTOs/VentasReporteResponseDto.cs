@@ -18,6 +18,10 @@ namespace HoyDonde.API.DTOs
         public List<VentasTopEventoDto> TopEventos { get; set; } = new();
         public List<VentasCategoriaDto> PorCategoria { get; set; } = new();
 
+        // Visibilidad operativa de compras reales no finales y del histórico simulado. Estos
+        // importes son iniciados, no emitidos ni cobrados.
+        public List<VentasEstadoCompraDto> PorEstadoCompra { get; set; } = new();
+
         // Vacío salvo que el filtro traiga un eventId (ver VentasTicketTypeDto).
         public List<VentasTicketTypeDto> PorTipoEntrada { get; set; } = new();
 

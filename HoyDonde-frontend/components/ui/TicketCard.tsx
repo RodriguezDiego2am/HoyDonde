@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, View, ViewStyle } from 'react-native';
 
-import { borderWidth, colors } from '@/constants/theme';
+import { borderWidth, colors, posterShadow, radii, spacing } from '@/constants/theme';
 import { TicketDivider } from '@/components/ui/TicketDivider';
 
 interface TicketCardProps {
@@ -13,7 +13,7 @@ interface TicketCardProps {
   style?: ViewStyle;
 }
 
-/** Entrada troquelada: talón + perforación + cuerpo principal. Elemento de identidad reutilizado en Cartelera y Perfil. */
+/** Entrada troquelada con talón de color y volumen físico, reutilizable en Cartelera y Perfil. */
 export function TicketCard({ stub, orientation = 'row', children, style }: TicketCardProps) {
   const isRow = orientation === 'row';
 
@@ -28,10 +28,12 @@ export function TicketCard({ stub, orientation = 'row', children, style }: Ticke
 
 const styles = StyleSheet.create({
   base: {
-    backgroundColor: colors.sand,
-    borderWidth: borderWidth.thin,
+    backgroundColor: colors.paperBright,
+    borderWidth: borderWidth.thick,
     borderColor: colors.ink,
-    borderRadius: 0,
+    borderRadius: radii.lg,
+    overflow: 'hidden',
+    ...posterShadow,
   },
   baseRow: {
     flexDirection: 'row',
@@ -41,25 +43,28 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
   },
   stubRow: {
-    width: 72,
-    paddingVertical: 12,
+    width: 76,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xs,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: colors.tomato,
   },
   stubColumn: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.tomato,
   },
   main: {
     flexShrink: 1,
   },
   mainRow: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
   },
   mainColumn: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
   },
 });

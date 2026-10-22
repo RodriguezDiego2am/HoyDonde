@@ -42,6 +42,7 @@ namespace HoyDonde.API.Tests
             // Recuperación de contraseña (docs/api-mvp-plan.md §13): 23 -> 24 acciones para
             // instalaciones nuevas.
             accionRepository.Verify(r => r.CreateAsync(It.Is<Accion>(x => x.Codigo == "USUARIO_RESTABLECER_PASSWORD")), Times.Once);
+            accionRepository.Verify(r => r.CreateAsync(It.Is<Accion>(x => x.Codigo == "BACKUP_ADMINISTRAR")), Times.Once);
 
             rolRepository.Verify(r => r.AssignAccionAsync("CONTROL", "TICKET_VALIDAR", SecurityCatalogSeeder.SeedActor), Times.Once);
             rolRepository.Verify(r => r.AssignAccionAsync("CLIENTE", "TICKET_COMPRAR", SecurityCatalogSeeder.SeedActor), Times.Once);
@@ -60,6 +61,11 @@ namespace HoyDonde.API.Tests
             rolRepository.Verify(r => r.AssignAccionAsync("ORGANIZADOR", "USUARIO_RESTABLECER_PASSWORD", It.IsAny<string>()), Times.Never);
             rolRepository.Verify(r => r.AssignAccionAsync("CLIENTE", "USUARIO_RESTABLECER_PASSWORD", It.IsAny<string>()), Times.Never);
             rolRepository.Verify(r => r.AssignAccionAsync("CONTROL", "USUARIO_RESTABLECER_PASSWORD", It.IsAny<string>()), Times.Never);
+
+            rolRepository.Verify(r => r.AssignAccionAsync("ADMINISTRADOR", "BACKUP_ADMINISTRAR", SecurityCatalogSeeder.SeedActor), Times.Once);
+            rolRepository.Verify(r => r.AssignAccionAsync("ORGANIZADOR", "BACKUP_ADMINISTRAR", It.IsAny<string>()), Times.Never);
+            rolRepository.Verify(r => r.AssignAccionAsync("CLIENTE", "BACKUP_ADMINISTRAR", It.IsAny<string>()), Times.Never);
+            rolRepository.Verify(r => r.AssignAccionAsync("CONTROL", "BACKUP_ADMINISTRAR", It.IsAny<string>()), Times.Never);
         }
 
         [Fact]

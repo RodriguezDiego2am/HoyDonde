@@ -47,3 +47,21 @@ npm run lint && npm run typecheck && npm test
 ## When in doubt
 
 Read `CLAUDE.md` for the full picture: functional domain, event/ticket lifecycle, reports module, role deactivation vs. physical deletion, DTO/exception conventions, and working rules. Don't duplicate it here — update `CLAUDE.md` itself if behavior changes.
+
+## GGA review contract
+
+### REJECT
+
+- Secrets or credentials; `ApplicationUser`, role claims, SQL/EF, `users`, or `user_audits`.
+- Frontend authorization as a security boundary, or any break in Firebase UID → IdentidadExterna → Usuario → UsuarioRol → Rol → RolAccion → Accion → Policy.
+- UID/`UsuarioId` domain ownership, persistence-model HTTP contracts, controller error handling, ineffective audit actions, or unsafe backup operations.
+
+### REQUIRE
+
+- Resolve and enforce Persona ownership/Control assignment in addition to dynamic action policies; keep DTOs and centralized error middleware intact.
+- Keep controllers thin, business rules in services, persistence in repositories; use transactions for invariants and batch reads instead of N+1 queries.
+- Add focused tests and use the Firestore emulator where persistence behavior changes. `CLAUDE.md` and `API_Documentation.md` remain detailed authority.
+
+### PREFER
+
+- Review backend guidance in `HoyDonde.API/AGENTS.md` and frontend guidance in `HoyDonde-frontend/AGENTS.md`; require action-based UI gating through `hasAccion`.

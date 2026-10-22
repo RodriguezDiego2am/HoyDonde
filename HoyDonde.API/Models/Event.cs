@@ -30,6 +30,10 @@ namespace HoyDonde.API.Models
         [Google.Cloud.Firestore.FirestoreProperty]
         public int CapacidadMaxima { get; set; }
 
+        // Updated in the same Firestore transaction as every real reservation transition.
+        [Google.Cloud.Firestore.FirestoreProperty]
+        public int ReservasActivas { get; set; }
+
         [Google.Cloud.Firestore.FirestoreProperty]
         public string OrganizadorPersonaId { get; set; } = string.Empty;
 

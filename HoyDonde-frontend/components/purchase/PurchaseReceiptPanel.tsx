@@ -10,6 +10,7 @@ import { formatFechaHora } from '@/utils/format';
 import {
   PurchaseReceiptInconsistencyError,
   assertCompraConsistente,
+  assertPurchaseReceiptEligible,
   buildPurchaseReceiptHtml,
   buildReceiptFileName,
   formatPrecioOGratis,
@@ -41,6 +42,7 @@ export function PurchaseReceiptPanel({ compra, onGoToTickets }: PurchaseReceiptP
   // engañoso — se bloquea la descarga con un aviso seguro en vez de intentarlo.
   const isConsistent = useMemo(() => {
     try {
+      assertPurchaseReceiptEligible(compra);
       assertCompraConsistente(compra);
       return true;
     } catch {
@@ -75,7 +77,7 @@ export function PurchaseReceiptPanel({ compra, onGoToTickets }: PurchaseReceiptP
 
   return (
     <Surface style={styles.container}>
-      <Text style={styles.eyebrow}>RESUMEN DE LA COMPRA</Text>
+      <Text style={styles.eyebrow}>{compra.pagoSimulado ? 'COMPRA SIMULADA HISTÓRICA' : 'COMPRA CONFIRMADA'}</Text>
       <Text style={styles.eventName}>{compra.eventoNombre}</Text>
 
       <View style={styles.metaRow}>

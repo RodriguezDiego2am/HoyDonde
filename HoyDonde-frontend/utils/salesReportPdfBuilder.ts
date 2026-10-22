@@ -81,6 +81,14 @@ function buildPorCategoriaHtml(porCategoria: VentasReporteResponse['porCategoria
   </table>`;
 }
 
+function displayPurchaseStatus(status: string): string {
+  return ({ LegacySimulated: 'Compra simulada histórica', Confirmed: 'Pago real confirmado', PendingPayment: 'Pendiente de pago', VerificationException: 'Verificación pendiente', PaymentNotApproved: 'Pago no aprobado', Expired: 'Reserva vencida', RefundRequired: 'Devolución requerida', RefundInProgress: 'Devolución en proceso', RefundPending: 'Devolución pendiente', RefundFailed: 'Devolución fallida', RefundCompleted: 'Devolución completada' } as Record<string, string>)[status] ?? status;
+}
+function buildPorEstadoCompraHtml(rows: NonNullable<VentasReporteResponse['porEstadoCompra']>): string {
+  if (rows.length === 0) return '';
+  return `<div class="section-title">Estados de compra</div><table><thead><tr><th>Estado</th><th>Compras</th><th>Importe iniciado</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${escapeHtml(displayPurchaseStatus(row.estadoCompra))}</td><td>${row.cantidadCompras}</td><td>${escapeHtml(formatPrecio(row.importeIniciado))}</td></tr>`).join('')}</tbody></table>`;
+}
+
 function buildPorTipoEntradaHtml(porTipo: VentasReporteResponse['porTipoEntrada']): string {
   if (porTipo.length === 0) return '';
   const filas = porTipo
@@ -114,5 +122,6 @@ export function buildVentasBodyHtml(report: VentasReporteResponse): string {
     ${buildSerieTemporalHtml(report.serieTemporal)}
     ${buildTopEventosHtml(report.topEventos)}
     ${buildPorCategoriaHtml(report.porCategoria)}
+    ${buildPorEstadoCompraHtml(report.porEstadoCompra ?? [])}
     ${buildPorTipoEntradaHtml(report.porTipoEntrada)}`;
 }

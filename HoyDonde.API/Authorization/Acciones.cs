@@ -2,12 +2,7 @@ using System.Collections.Generic;
 
 namespace HoyDonde.API.Authorization
 {
-    // Códigos de Accion centralizados (docs/security-refactor-plan.md §3/§7, Etapa 5): única
-    // fuente de verdad para policies, atributos [Authorize(Policy=...)] y el catálogo sembrado
-    // por SecurityCatalogSeeder. El catálogo tiene exactamente 24 acciones (docs/api-mvp-plan.md
-    // §11: REPORTE_VER_GLOBAL/REPORTE_VER_PROPIO del módulo de reportes; §12: ROL_ELIMINAR de la
-    // baja física de roles; §13: USUARIO_RESTABLECER_PASSWORD de la recuperación de contraseña);
-    // no agregar códigos nuevos acá sin agregarlos también al seeder (y viceversa).
+    // Central catalog for policies and SecurityCatalogSeeder. New entries must be added to both.
     public static class Acciones
     {
         public const string UsuarioCrearAdmin = "USUARIO_CREAR_ADMIN";
@@ -34,6 +29,7 @@ namespace HoyDonde.API.Authorization
         public const string ReporteVerGlobal = "REPORTE_VER_GLOBAL";
         public const string ReporteVerPropio = "REPORTE_VER_PROPIO";
         public const string UsuarioRestablecerPassword = "USUARIO_RESTABLECER_PASSWORD";
+        public const string BackupAdministrar = "BACKUP_ADMINISTRAR";
 
         public static readonly IReadOnlyList<string> Todas = new[]
         {
@@ -42,8 +38,7 @@ namespace HoyDonde.API.Authorization
             TicketComprar, TicketVerPropio, TicketValidar,
             RolCrear, RolEditar, RolActivar, RolAsignarAccion, RolQuitarAccion, RolEliminar,
             UsuarioAsignarRol, UsuarioQuitarRol, UsuarioVerPermisosEfectivos, UsuarioDesactivar,
-            ReporteVerGlobal, ReporteVerPropio,
-            UsuarioRestablecerPassword,
+            ReporteVerGlobal, ReporteVerPropio, UsuarioRestablecerPassword, BackupAdministrar,
         };
     }
 }

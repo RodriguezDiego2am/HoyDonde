@@ -364,3 +364,8 @@ FodyWeavers.xsd
 
 # Firebase Admin SDK - credencial privada local
 HoyDonde.API/firebase-service-account.json
+# Local AI tooling state (Pi, gentle-ai, engram)
+.atl/
+.pi/
+.engram/
+HoyDonde.API/firebase-service-account.json:Zone.Identifier

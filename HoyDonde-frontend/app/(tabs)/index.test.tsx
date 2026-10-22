@@ -118,7 +118,7 @@ describe('CarteleraScreen (catálogo)', () => {
     mockSearch.mockResolvedValueOnce({ data: [evento('e1')], hasNextPage: false, lastDocumentId: undefined });
     const { findByLabelText } = render(<CarteleraScreen />);
 
-    const card = await findByLabelText('Ver detalle de Evento e1');
+    const card = await findByLabelText(/Ver detalle de Evento e1\. Musica\. Publicado\..*Parque Central\. Sin entradas disponibles\./);
     fireEvent.press(card);
 
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/events/[id]', params: { id: 'e1' } });
@@ -337,7 +337,25 @@ describe('CarteleraScreen (catálogo)', () => {
     );
   });
 
-  it('distingue el estado vacío "sin filtros" del estado vacío "con filtros"', async () => {
+  it('muestra actualización en curso y bloquea una segunda recarga', async () => {
+      mockSearch.mockResolvedValueOnce({ data: [evento('e1')], hasNextPage: false, lastDocumentId: undefined });
+      const utils = render(<CarteleraScreen />);
+      await utils.findByText('Evento e1');
+
+      let resolveRefresh!: (value: unknown) => void;
+      mockSearch.mockReturnValueOnce(new Promise((resolve) => { resolveRefresh = resolve; }));
+      fireEvent.press(utils.getByLabelText('Actualizar cartelera'));
+
+      expect(await utils.findByLabelText('Actualizando cartelera')).toBeTruthy();
+      fireEvent.press(utils.getByLabelText('Actualizando cartelera'));
+      expect(mockSearch).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        resolveRefresh({ data: [evento('e1')], hasNextPage: false, lastDocumentId: undefined });
+      });
+    });
+
+    it('distingue el estado vacío "sin filtros" del estado vacío "con filtros"', async () => {
     mockSearch.mockResolvedValueOnce({ data: [evento('e1')], hasNextPage: false, lastDocumentId: undefined });
     const utils = render(<CarteleraScreen />);
     await utils.findByText('Evento e1');
@@ -350,7 +368,24 @@ describe('CarteleraScreen (catálogo)', () => {
     expect(await utils.findByText('No encontramos eventos con estos filtros.')).toBeTruthy();
   });
 
-  it('funciona en uso anónimo, sin ningún dato de sesión', async () => {
+  it('muestra un error de paginación y permite reintentar sin perder eventos cargados', async () => {
+      mockSearch.mockResolvedValueOnce({ data: [evento('e1')], hasNextPage: true, lastDocumentId: 'e1' });
+      const utils = render(<CarteleraScreen />);
+      await utils.findByText('Evento e1');
+
+      mockSearch.mockRejectedValueOnce(new Error('network down'));
+      fireEvent(utils.getByTestId('cartelera-list'), 'onEndReached');
+
+      expect(await utils.findByText('No se pudieron cargar más eventos. Verificá tu conexión.')).toBeTruthy();
+      expect(utils.getByText('Evento e1')).toBeTruthy();
+
+      mockSearch.mockResolvedValueOnce({ data: [evento('e2')], hasNextPage: false, lastDocumentId: 'e2' });
+      fireEvent.press(utils.getByText('Reintentar cargar más'));
+
+      expect(await utils.findByText('Evento e2')).toBeTruthy();
+    });
+
+    it('funciona en uso anónimo, sin ningún dato de sesión', async () => {
     mockSearch.mockResolvedValueOnce({ data: [evento('e1')], hasNextPage: false, lastDocumentId: undefined });
     const { findByText } = render(<CarteleraScreen />);
 
