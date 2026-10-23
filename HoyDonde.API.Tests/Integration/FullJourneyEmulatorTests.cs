@@ -154,15 +154,18 @@ namespace HoyDonde.API.Tests.Integration
             }
             var ticketId = compra.Tickets[0].Id;
             Assert.Equal(compra.Id, compra.Tickets[0].CompraId);
+            // The QR is the backend-issued opaque token, returned to the buyer in the purchase response.
+            var qrToken = compra.Tickets[0].QrToken;
+            Assert.True(QrTokenGenerator.LooksLikeToken(qrToken));
 
             // 4. Control asignado valida el ticket.
             var validateResponse = await client.SendAsync(
-                Request(HttpMethod.Post, $"/api/tickets/validate?ticketId={ticketId}&eventId={eventId}", controlUid));
+                Request(HttpMethod.Post, "/api/tickets/validate", controlUid, new { qrToken, eventId }));
             Assert.Equal(HttpStatusCode.OK, validateResponse.StatusCode);
 
             // 5. Un segundo intento de validación se rechaza.
             var secondValidateResponse = await client.SendAsync(
-                Request(HttpMethod.Post, $"/api/tickets/validate?ticketId={ticketId}&eventId={eventId}", controlUid));
+                Request(HttpMethod.Post, "/api/tickets/validate", controlUid, new { qrToken, eventId }));
             Assert.Equal(HttpStatusCode.Conflict, secondValidateResponse.StatusCode);
 
             // 6. Verificación directa en Firestore.

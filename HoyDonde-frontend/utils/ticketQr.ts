@@ -1,38 +1,26 @@
 /**
- * Payload del QR de un ticket: JSON compacto con exactamente `ticketId` y
- * `eventId`, sin firma ni datos derivados (el backend no implementa QR firmado
- * ni validación offline — docs/api-mvp-plan.md §"Frontend 1", punto 5).
- * Forma compartida para que Frontend 3 (Control) reutilice el parser al leer
- * el QR escaneado.
+ * The QR of a ticket encodes ONLY the opaque token issued by the backend (128-bit random,
+ * URL-safe base64, 22 characters). It is not a JSON payload and carries no ticket or event id:
+ * the backend resolves everything from the token, and rotates it when the ticket is transferred,
+ * so a stale QR (or a screenshot of it) stops validating. The legacy `{ticketId,eventId}` payload
+ * is no longer accepted by the door validation.
  */
-export interface TicketQrPayload {
-  ticketId: string;
-  eventId: string;
+export const QR_TOKEN_LENGTH = 22;
+
+const QR_TOKEN_PATTERN = /^[A-Za-z0-9_-]{22}$/;
+
+/** Value to render in the QR image, or null when the ticket has no usable token. */
+export function buildTicketQrValue(qrToken: string | null | undefined): string | null {
+  if (typeof qrToken !== 'string') return null;
+  const trimmed = qrToken.trim();
+  return QR_TOKEN_PATTERN.test(trimmed) ? trimmed : null;
 }
 
-export function buildTicketQrPayload(ticketId: string, eventId: string): string {
-  const payload: TicketQrPayload = { ticketId, eventId };
-  return JSON.stringify(payload);
-}
-
-export function parseTicketQrPayload(raw: string): TicketQrPayload | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-
-  if (
-    typeof parsed !== 'object' ||
-    parsed === null ||
-    typeof (parsed as Record<string, unknown>).ticketId !== 'string' ||
-    typeof (parsed as Record<string, unknown>).eventId !== 'string' ||
-    (parsed as Record<string, unknown>).ticketId === '' ||
-    (parsed as Record<string, unknown>).eventId === ''
-  ) {
-    return null;
-  }
-
-  return { ticketId: (parsed as TicketQrPayload).ticketId, eventId: (parsed as TicketQrPayload).eventId };
+/**
+ * Parses what the scanner (or manual entry) read. Returns the token, or null when the content is
+ * not a ticket token — including legacy JSON payloads. Only the shape is checked here; whether
+ * the token is current is always decided by the API.
+ */
+export function parseTicketQrToken(raw: string): string | null {
+  return buildTicketQrValue(raw);
 }

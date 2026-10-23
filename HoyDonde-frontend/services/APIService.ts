@@ -221,7 +221,10 @@ export type TicketMotivoNoUtilizable = 'Usado' | 'Anulado' | 'EventoCancelado' |
 
 export interface TicketResponse {
   id: string;
-  /** Nulo únicamente para tickets emitidos antes de la Etapa "Compra" — nunca se les inventa una Compra retroactiva. */
+  /**
+   * Nulo para tickets emitidos antes de la Etapa "Compra" (nunca se les inventa una Compra
+   * retroactiva) y para quien recibió el ticket por transferencia (la Compra es del comprador).
+   */
   compraId: string | null;
   eventoId: string;
   ticketTypeId: string;
@@ -232,10 +235,21 @@ export interface TicketResponse {
   motivoNoUtilizable: TicketMotivoNoUtilizable;
   eventoNombre: string;
   ticketTypeNombre: string;
-  precioPagado: number;
+  /** Nulo cuando el ticket se recibió por transferencia: el precio original es privado del comprador. */
+  precioPagado: number | null;
   fechaInicio: string;
   fechaFin: string;
   pagoSimulado?: boolean;
+  /**
+   * Valor opaco que se dibuja como QR. Solo viaja al dueño actual y mientras el ticket es
+   * utilizable; rota en cada transferencia. Es un secreto: nunca se loguea ni se persiste.
+   */
+  qrToken?: string | null;
+}
+
+export interface TicketTransferResponse {
+  ticketId: string;
+  transferredAt: string;
 }
 
 export interface TicketBuyRequest {
@@ -302,6 +316,15 @@ export const ticketService = {
 
   getMine: async (): Promise<TicketResponse[]> => {
     const response = await apiClient.get<TicketResponse[]>('/tickets/me');
+    return response.data;
+  },
+
+  /** POST /api/tickets/{id}/transfer — TICKET_TRANSFERIR. Inmediata, gratuita e irreversible. */
+  transfer: async (ticketId: string, recipientEmail: string): Promise<TicketTransferResponse> => {
+    const response = await apiClient.post<TicketTransferResponse>(
+      `/tickets/${encodeURIComponent(ticketId)}/transfer`,
+      { recipientEmail }
+    );
     return response.data;
   },
 };

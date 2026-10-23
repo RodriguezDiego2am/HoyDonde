@@ -63,6 +63,22 @@
         { "fieldPath": "EstadoCompra", "order": "ASCENDING" },
         { "fieldPath": "ExpiresAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "ticket_transfers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "FromPersonaId", "order": "ASCENDING" },
+        { "fieldPath": "Timestamp", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ticket_transfer_lookup_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "FromPersonaId", "order": "ASCENDING" },
+        { "fieldPath": "Timestamp", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

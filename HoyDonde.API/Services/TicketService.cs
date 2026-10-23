@@ -120,6 +120,8 @@ namespace HoyDonde.API.Services
                         PrecioPagado = ticketType.Precio,
                         FechaInicio = evento.FechaInicio,
                         FechaFin = evento.FechaFin,
+                        QrToken = QrTokenGenerator.NewToken(),
+                        QrVersion = 1,
                     };
 
                     var newTicketRef = ticketsColRef.Document(ticket.Id);
@@ -148,7 +150,7 @@ namespace HoyDonde.API.Services
                 CantidadEntradas = compra.CantidadEntradas,
                 ImporteTotal = compra.ImporteTotal,
                 PagoSimulado = compra.PagoSimulado,
-                Tickets = purchasedTickets.Select(t => MapToResponse(t, evento)).ToList(),
+                Tickets = purchasedTickets.Select(t => MapToResponse(t, evento, boughtByCaller: true)).ToList(),
             };
         }
 
@@ -165,16 +167,42 @@ namespace HoyDonde.API.Services
             // MapToResponse). Se agrupa por EventoId y se hace una única lectura batch por
             // identificador distinto, en vez de una lectura por ticket.
             var eventosPorId = await GetEventosByIdsAsync(tickets.Select(t => t.EventoId));
-                var comprasPorId = await GetComprasByIdsAsync(tickets.Select(t => t.CompraId));
+            var comprasPorId = await GetComprasByIdsAsync(tickets.Select(t => t.CompraId));
 
             return tickets
-                    .Select(t => MapToResponse(t, eventosPorId.GetValueOrDefault(t.EventoId),
-                        !string.IsNullOrEmpty(t.CompraId) && comprasPorId.TryGetValue(t.CompraId, out var compra) && compra.PagoSimulado))
+                .Select(t =>
+                {
+                    Compra? compra = null;
+                    if (!string.IsNullOrEmpty(t.CompraId))
+                        comprasPorId.TryGetValue(t.CompraId, out compra);
+                    // The caller is the ticket's current owner. Purchase details belong to whoever
+                    // bought it: with a Compra, that is Compra.ClientePersonaId (never overwritten
+                    // by a transfer); for legacy tickets without one (or whose Compra is missing),
+                    // a rotated QrVersion (>1) is the only signal that the ticket changed hands.
+                    var boughtByCaller = compra == null
+                        ? t.QrVersion <= 1
+                        : string.Equals(compra.ClientePersonaId, clientePersonaId, StringComparison.Ordinal);
+                    return MapToResponse(t, eventosPorId.GetValueOrDefault(t.EventoId), boughtByCaller, pagoSimulado: boughtByCaller && compra is { PagoSimulado: true });
+                })
                 .ToList();
         }
 
-        public async Task<TicketValidationOutcome> ValidateTicketAsync(string controlId, string ticketId, string eventId)
+        public async Task<TicketValidationOutcome> ValidateTicketAsync(string controlId, string qrToken, string? eventId)
         {
+            // Reject anything that cannot be a token before touching Firestore. Legacy
+            // `{ticketId,eventId}` JSON payloads fail this check and are no longer accepted.
+            if (!QrTokenGenerator.LooksLikeToken(qrToken))
+                return TicketValidationOutcome.QrInvalido;
+
+            // The QR carries only the token. Unless the caller named an event, it is derived from
+            // the ticket that currently owns the token; an unknown or stale token has none.
+            if (string.IsNullOrWhiteSpace(eventId))
+            {
+                eventId = await _validationStore.FindEventIdByQrTokenAsync(qrToken);
+                if (eventId is null)
+                    return TicketValidationOutcome.QrInvalido;
+            }
+
             // El Control se resuelve a su PersonaId y su asignación se lee de Firestore; nunca se
             // confía en un eventId "asignado" enviado por el cliente.
             var controlPersonaId = await _personaResolver.ResolvePersonaIdAsync(controlId);
@@ -188,7 +216,7 @@ namespace HoyDonde.API.Services
                 return TicketValidationOutcome.NotAuthorized;
             }
 
-            var result = await _validationStore.TryConsumeAsync(ticketId, eventId, controlPersonaId);
+            var result = await _validationStore.TryConsumeAsync(qrToken, eventId, controlPersonaId);
 
             return result switch
             {
@@ -198,7 +226,7 @@ namespace HoyDonde.API.Services
                 TicketConsumeResult.Anulado => TicketValidationOutcome.Anulado,
                 TicketConsumeResult.EventoCancelado => TicketValidationOutcome.EventoCancelado,
                 TicketConsumeResult.EventoFinalizado => TicketValidationOutcome.EventoFinalizado,
-                _ => TicketValidationOutcome.NotFound
+                _ => TicketValidationOutcome.QrInvalido
             };
         }
 
@@ -217,14 +245,14 @@ namespace HoyDonde.API.Services
                 .ToDictionary(e => e.Id);
         }
 
-            private async Task<Dictionary<string, Compra>> GetComprasByIdsAsync(IEnumerable<string?> compraIds)
-            {
-                var ids = compraIds.Where(id => !string.IsNullOrEmpty(id)).Cast<string>().Distinct().ToList();
-                if (ids.Count == 0) return new Dictionary<string, Compra>();
+        private async Task<Dictionary<string, Compra>> GetComprasByIdsAsync(IEnumerable<string?> compraIds)
+        {
+            var ids = compraIds.Where(id => !string.IsNullOrEmpty(id)).Cast<string>().Distinct().ToList();
+            if (ids.Count == 0) return new Dictionary<string, Compra>();
 
-                var snapshots = await _firestore.GetAllSnapshotsAsync(ids.Select(id => _firestore.Collection(ComprasCollection).Document(id)));
-                return snapshots.Where(snapshot => snapshot.Exists).Select(snapshot => snapshot.ConvertTo<Compra>()).ToDictionary(compra => compra.Id);
-            }
+            var snapshots = await _firestore.GetAllSnapshotsAsync(ids.Select(id => _firestore.Collection(ComprasCollection).Document(id)));
+            return snapshots.Where(snapshot => snapshot.Exists).Select(snapshot => snapshot.ConvertTo<Compra>()).ToDictionary(compra => compra.Id);
+        }
 
         // Estado histórico del ticket + Utilizable/MotivoNoUtilizable derivados del Event actual
         // (docs/api-mvp-plan.md §3). `evento` es null solo en el caso defensivo de un ticket cuyo
@@ -232,7 +260,7 @@ namespace HoyDonde.API.Services
         // FechaFin, en cambio, NUNCA salen de `evento`: son parte de la fotografía inmutable
         // tomada al comprar (Ticket.FechaInicio/FechaFin), para no reescribir el historial si el
         // Event cambiara.
-        private static TicketResponseDto MapToResponse(Ticket ticket, Event? evento, bool pagoSimulado = false)
+        private static TicketResponseDto MapToResponse(Ticket ticket, Event? evento, bool boughtByCaller, bool pagoSimulado = false)
         {
             string? motivo;
             bool utilizable;
@@ -275,7 +303,7 @@ namespace HoyDonde.API.Services
             return new TicketResponseDto
             {
                 Id = ticket.Id,
-                CompraId = ticket.CompraId,
+                CompraId = boughtByCaller ? ticket.CompraId : null,
                 EventoId = ticket.EventoId,
                 TicketTypeId = ticket.TicketTypeId,
                 ClientePersonaId = ticket.ClientePersonaId,
@@ -285,10 +313,12 @@ namespace HoyDonde.API.Services
                 MotivoNoUtilizable = motivo,
                 EventoNombre = ticket.EventoNombre,
                 TicketTypeNombre = ticket.TicketTypeNombre,
-                PrecioPagado = ticket.PrecioPagado,
+                PrecioPagado = boughtByCaller ? ticket.PrecioPagado : null,
                 FechaInicio = ticket.FechaInicio,
                 FechaFin = ticket.FechaFin,
-                    PagoSimulado = pagoSimulado,
+                PagoSimulado = pagoSimulado,
+                // Bearer secret: only for the current owner, and only while it can still be used.
+                QrToken = utilizable ? ticket.QrToken : null,
             };
         }
     }

@@ -19,11 +19,13 @@ namespace HoyDonde.API.Controllers
     public class TicketsController : ControllerBase
     {
         private readonly ITicketService _ticketService;
+        private readonly ITicketTransferService _transferService;
         private readonly ILogger<TicketsController> _logger;
 
-        public TicketsController(ITicketService ticketService, ILogger<TicketsController> logger)
+        public TicketsController(ITicketService ticketService, ITicketTransferService transferService, ILogger<TicketsController> logger)
         {
             _ticketService = ticketService;
+            _transferService = transferService;
             _logger = logger;
         }
 
@@ -53,19 +55,28 @@ namespace HoyDonde.API.Controllers
             return Ok(tickets);
         }
 
+        [HttpPost("{ticketId}/transfer")]
+        [Authorize(Policy = Acciones.TicketTransferir)]
+        public async Task<IActionResult> TransferTicket(string ticketId, [FromBody] TicketTransferRequestDto request)
+        {
+            var actorId = GetAuthenticatedUserId();
+            if (string.IsNullOrEmpty(actorId))
+                return Unauthorized();
+
+            var response = await _transferService.TransferAsync(actorId, ticketId, request.RecipientEmail);
+            return Ok(response);
+        }
+
         [HttpPost("validate")]
         [Authorize(Policy = Acciones.TicketValidar)]
-        public async Task<IActionResult> ValidateTicket([FromQuery] string ticketId, [FromQuery] string eventId)
+        public async Task<IActionResult> ValidateTicket([FromBody] TicketValidateRequestDto request)
         {
-            if (string.IsNullOrEmpty(ticketId) || string.IsNullOrEmpty(eventId))
-                return BadRequest(new { message = "Se requieren ticketId y eventId." });
-
             // El UID del Control sale exclusivamente del token; nunca se acepta desde el cliente.
             var controlId = GetAuthenticatedUserId();
             if (string.IsNullOrEmpty(controlId))
                 return Unauthorized();
 
-            var outcome = await _ticketService.ValidateTicketAsync(controlId, ticketId, eventId);
+            var outcome = await _ticketService.ValidateTicketAsync(controlId, request.QrToken, request.EventId);
 
             return outcome switch
             {
@@ -81,8 +92,8 @@ namespace HoyDonde.API.Controllers
                     Conflict(new { valid = false, message = "El evento fue cancelado." }),
                 TicketValidationOutcome.EventoFinalizado =>
                     Conflict(new { valid = false, message = "El evento ya finalizó." }),
-                TicketValidationOutcome.NotFound =>
-                    NotFound(new { valid = false, message = "Ticket no encontrado." }),
+                TicketValidationOutcome.QrInvalido =>
+                    Conflict(new { valid = false, message = "El código QR no es válido o fue reemplazado." }),
                 _ =>
                     BadRequest(new { valid = false, message = "Ticket inválido o no corresponde al evento." })
             };

@@ -30,6 +30,7 @@ namespace HoyDonde.API.Authorization
         public const string ReporteVerPropio = "REPORTE_VER_PROPIO";
         public const string UsuarioRestablecerPassword = "USUARIO_RESTABLECER_PASSWORD";
         public const string BackupAdministrar = "BACKUP_ADMINISTRAR";
+        public const string TicketTransferir = "TICKET_TRANSFERIR";
 
         public static readonly IReadOnlyList<string> Todas = new[]
         {
@@ -39,6 +40,7 @@ namespace HoyDonde.API.Authorization
             RolCrear, RolEditar, RolActivar, RolAsignarAccion, RolQuitarAccion, RolEliminar,
             UsuarioAsignarRol, UsuarioQuitarRol, UsuarioVerPermisosEfectivos, UsuarioDesactivar,
             ReporteVerGlobal, ReporteVerPropio, UsuarioRestablecerPassword, BackupAdministrar,
+            TicketTransferir,
         };
     }
 }

@@ -11,7 +11,7 @@ import { ActionButton } from '@/components/ui/ActionButton';
 import { EditorialHeader } from '@/components/ui/EditorialHeader';
 import { borderWidth, colors, fonts, radii, spacing } from '@/constants/theme';
 import { useTicketValidation } from '@/hooks/useTicketValidation';
-import { parseTicketQrPayload } from '@/utils/ticketQr';
+import { parseTicketQrToken } from '@/utils/ticketQr';
 
 interface BarcodeScannedEvent {
   data: string;
@@ -29,7 +29,7 @@ function CameraLoadingState({ message }: { message: string }) {
 
 /**
  * Escáner QR de Control (Frontend 3, API_Documentation.md §9): solo parsea localmente con
- * parseTicketQrPayload (misma forma que Frontend 1) y delega toda decisión de validez a
+ * parseTicketQrToken (el QR es solo el token opaco del backend) y delega toda decisión de validez a
  * POST /api/tickets/validate vía useTicketValidation — nunca marca una entrada como válida por
  * el solo hecho de reconocer el QR.
  */
@@ -47,13 +47,13 @@ export default function ControlScanScreen() {
       if (validating || data === lastDataRef.current) return;
       lastDataRef.current = data;
 
-      const payload = parseTicketQrPayload(data);
-      if (!payload) {
+      const qrToken = parseTicketQrToken(data);
+      if (!qrToken) {
         setScanError('Ese código no corresponde a una entrada de HoyDonde?.');
         return;
       }
       setScanError(null);
-      void validate(payload.ticketId, payload.eventId);
+      void validate(qrToken);
     },
     [validating, validate]
   );

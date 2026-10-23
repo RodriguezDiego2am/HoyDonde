@@ -15,21 +15,24 @@ import * as Haptics from 'expo-haptics';
 // eslint-disable-next-line import/first
 import { useTicketValidation } from './useTicketValidation';
 
+const TOKEN = 'AbCdEfGhIjKlMnOpQrStUv';
+const TOKEN_2 = 'ZyXwVuTsRqPoNmLkJiHgFe';
+
 describe('useTicketValidation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('llama a validateTicket una sola vez con los ids exactos', async () => {
+  it('llama a validateTicket una sola vez con el token exacto', async () => {
     mockValidateTicket.mockResolvedValue({ kind: 'valid', message: 'Ticket validado para este evento.' });
     const { result } = renderHook(() => useTicketValidation());
 
     await act(async () => {
-      await result.current.validate('ticket-1', 'evento-1');
+      await result.current.validate(TOKEN);
     });
 
     expect(mockValidateTicket).toHaveBeenCalledTimes(1);
-    expect(mockValidateTicket).toHaveBeenCalledWith({ ticketId: 'ticket-1', eventId: 'evento-1' });
+    expect(mockValidateTicket).toHaveBeenCalledWith({ qrToken: TOKEN });
     expect(result.current.result).toEqual({ kind: 'valid', message: 'Ticket validado para este evento.' });
   });
 
@@ -44,10 +47,10 @@ describe('useTicketValidation', () => {
 
     let firstCall!: Promise<void>;
     act(() => {
-      firstCall = result.current.validate('ticket-1', 'evento-1');
+      firstCall = result.current.validate(TOKEN);
       // Segundo y tercer frame detectando el mismo QR antes de que la primera llamada resuelva.
-      result.current.validate('ticket-1', 'evento-1');
-      result.current.validate('ticket-1', 'evento-1');
+      result.current.validate(TOKEN);
+      result.current.validate(TOKEN);
     });
 
     expect(mockValidateTicket).toHaveBeenCalledTimes(1);
@@ -65,7 +68,7 @@ describe('useTicketValidation', () => {
     const { result } = renderHook(() => useTicketValidation());
 
     await act(async () => {
-      await result.current.validate('t1', 'e1');
+      await result.current.validate(TOKEN);
     });
     expect(result.current.result?.kind).toBe('notFound');
 
@@ -76,11 +79,11 @@ describe('useTicketValidation', () => {
 
     mockValidateTicket.mockResolvedValueOnce({ kind: 'valid', message: 'ok' });
     await act(async () => {
-      await result.current.validate('t2', 'e2');
+      await result.current.validate(TOKEN_2);
     });
 
     expect(mockValidateTicket).toHaveBeenCalledTimes(2);
-    expect(mockValidateTicket).toHaveBeenLastCalledWith({ ticketId: 't2', eventId: 'e2' });
+    expect(mockValidateTicket).toHaveBeenLastCalledWith({ qrToken: TOKEN_2 });
     expect(result.current.result?.kind).toBe('valid');
   });
 
@@ -89,10 +92,10 @@ describe('useTicketValidation', () => {
     const { result } = renderHook(() => useTicketValidation());
 
     await act(async () => {
-      await result.current.validate('t1', 'e1');
+      await result.current.validate(TOKEN);
     });
     await act(async () => {
-      await result.current.validate('t1', 'e1');
+      await result.current.validate(TOKEN);
     });
 
     expect(mockValidateTicket).toHaveBeenCalledTimes(1);
@@ -103,7 +106,7 @@ describe('useTicketValidation', () => {
     const { result } = renderHook(() => useTicketValidation());
 
     await act(async () => {
-      await result.current.validate('t1', 'e1');
+      await result.current.validate(TOKEN);
     });
 
     expect(Haptics.notificationAsync).toHaveBeenCalledWith('success');
@@ -114,7 +117,7 @@ describe('useTicketValidation', () => {
     const { result } = renderHook(() => useTicketValidation());
 
     await act(async () => {
-      await result.current.validate('t1', 'e1');
+      await result.current.validate(TOKEN);
     });
 
     expect(Haptics.notificationAsync).toHaveBeenCalledWith('error');

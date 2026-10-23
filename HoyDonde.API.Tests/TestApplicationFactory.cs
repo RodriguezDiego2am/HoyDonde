@@ -61,6 +61,7 @@ namespace HoyDonde.API.Tests
         public Mock<IUserService> MockUserService { get; } = new();
         public Mock<IAuthService> MockAuthService { get; } = new();
         public Mock<ITicketService> MockTicketService { get; } = new();
+        public Mock<ITicketTransferService> MockTicketTransferService { get; } = new();
         public Mock<IUsuarioRepository> MockUsuarioRepository { get; } = new();
         public Mock<IRolRepository> MockRolRepository { get; } = new();
         public Mock<IAccionRepository> MockAccionRepository { get; } = new();
@@ -148,6 +149,18 @@ namespace HoyDonde.API.Tests
                 var ticketValidationStoreDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ITicketValidationStore));
                 if (ticketValidationStoreDescriptor != null) services.Remove(ticketValidationStoreDescriptor);
 
+                // Ticket transfers: the service is mocked; its Firestore-backed store and the
+                // migration command (both depend on FirestoreDb) are swapped out so ValidateOnBuild
+                // can still resolve the graph.
+                var ticketTransferServiceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ITicketTransferService));
+                if (ticketTransferServiceDescriptor != null) services.Remove(ticketTransferServiceDescriptor);
+                var ticketTransferStoreDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ITicketTransferStore));
+                if (ticketTransferStoreDescriptor != null) services.Remove(ticketTransferStoreDescriptor);
+                var migrateQrCommandDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(HoyDonde.API.Commands.MigrateTicketQrTokensCommand));
+                if (migrateQrCommandDescriptor != null) services.Remove(migrateQrCommandDescriptor);
+                var migrateEmailCommandDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(HoyDonde.API.Commands.MigrateUsuarioEmailNormalizadoCommand));
+                if (migrateEmailCommandDescriptor != null) services.Remove(migrateEmailCommandDescriptor);
+
                 // Etapa 2 del refactor de seguridad: IUsuarioRepository/IRolRepository/
                 // IAccionRepository también dependen de FirestoreDb. Nada en IUserService
                 // (mockeado abajo) llega a construir las implementaciones reales en estos tests,
@@ -226,6 +239,8 @@ namespace HoyDonde.API.Tests
                 services.AddSingleton(MockSecurityAuditReportService.Object);
                 services.AddSingleton(Mock.Of<ISecurityAuditRepository>());
                 services.AddSingleton(Mock.Of<ITicketValidationStore>());
+                services.AddSingleton(MockTicketTransferService.Object);
+                services.AddSingleton(Mock.Of<ITicketTransferStore>());
                 services.AddSingleton(Mock.Of<IPaymentWebhookInbox>());
                 services.AddSingleton(Mock.Of<IPaymentProcessingService>());
                 services.AddSingleton(Mock.Of<IPurchaseCheckoutService>());

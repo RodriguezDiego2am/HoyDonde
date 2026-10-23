@@ -28,6 +28,7 @@ const RESULT_META: Record<TicketValidationOutcomeKind, ResultMeta> = {
   eventoFinalizado: { headline: 'Evento finalizado', tone: 'error', icon: 'event-available' },
   notAuthorized: { headline: 'Control no autorizado', tone: 'cobalt', icon: 'gpp-bad' },
   notFound: { headline: 'Entrada no encontrada', tone: 'error', icon: 'search-off' },
+  qrInvalido: { headline: 'QR no válido', tone: 'error', icon: 'qr-code-2' },
   network: { headline: 'Error de conexión', tone: 'ink', icon: 'wifi-off' },
   unexpected: { headline: 'Error inesperado', tone: 'ink', icon: 'error-outline' },
 };

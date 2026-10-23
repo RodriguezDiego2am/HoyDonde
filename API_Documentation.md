@@ -99,7 +99,7 @@ Firebase UID
 - Cada `[Authorize(Policy = "ACCION_CODIGO")]` se resuelve exclusivamente vía `AccionAuthorizationHandler` → `IPermissionService.TieneAccionAsync`, que recorre esa cadena completa en Firestore. **Nada lee un claim para autorizar.**
 - Un `Usuario` puede tener varios roles; un `Rol` puede otorgar varias acciones.
 - Si el `Usuario` está inactivo (`IsActive == false`), o la asignación de rol está inactiva, o el `Rol` está inactivo, o la `Accion` está inactiva, `TieneAccionAsync` devuelve `false` y el handler simplemente no llama a `context.Succeed(...)` — ASP.NET deniega por default, sin excepción ni 500. Esto es lo que hace que **un Usuario desactivado reciba 403 en cualquier endpoint protegido**, sin lógica adicional en el controller.
-- El catálogo tiene exactamente **25 acciones** (`Authorization/Acciones.cs`), sembradas por `SecurityCatalogSeeder` en 4 roles iniciales: `ADMINISTRADOR`, `ORGANIZADOR`, `CLIENTE`, `CONTROL`. Roles y acciones son entidades Firestore administrables (`/api/security`, §9), no enums ni constantes de código. `REPORTE_VER_GLOBAL` (`ADMINISTRADOR`) y `REPORTE_VER_PROPIO` (`ORGANIZADOR`) son del módulo de reportes (§15); `ROL_ELIMINAR` (`ADMINISTRADOR`) es de la baja física de roles (§10.1); `USUARIO_RESTABLECER_PASSWORD` (`ADMINISTRADOR`) es de la recuperación de contraseña (§16); `BACKUP_ADMINISTRAR` (`ADMINISTRADOR`) es de las copias manuales de Firestore (§18).
+- El catálogo tiene exactamente **26 acciones** (`Authorization/Acciones.cs`), sembradas por `SecurityCatalogSeeder` en 4 roles iniciales: `ADMINISTRADOR`, `ORGANIZADOR`, `CLIENTE`, `CONTROL`. Roles y acciones son entidades Firestore administrables (`/api/security`, §9), no enums ni constantes de código. `REPORTE_VER_GLOBAL` (`ADMINISTRADOR`) y `REPORTE_VER_PROPIO` (`ORGANIZADOR`) son del módulo de reportes (§15); `ROL_ELIMINAR` (`ADMINISTRADOR`) es de la baja física de roles (§10.1); `USUARIO_RESTABLECER_PASSWORD` (`ADMINISTRADOR`) es de la recuperación de contraseña (§16); `BACKUP_ADMINISTRAR` (`ADMINISTRADOR`) es de las copias manuales de Firestore (§18); `TICKET_TRANSFERIR` (`CLIENTE`) es de la transferencia gratuita de entradas (§9.1).
 - Una policy concedida **nunca es suficiente por sí sola** para tocar el recurso de otro actor: cada operación vuelve a leer el dueño/asignación real desde Firestore y lo compara contra el `PersonaId` del actor autenticado (`IAuthenticatedPersonaResolver`, §5). Ejemplos: `EVENTO_PUBLICAR_PROPIO` no alcanza para publicar el evento de otro organizador; `TICKET_VALIDAR` no alcanza para validar tickets de un evento al que ese Control no está asignado.
 
 ---
@@ -403,15 +403,22 @@ Los tres DTOs nunca incluyen UID de Firebase, `ExternalSubjectId`, `UsuarioId`, 
 
 ### `GET /api/tickets/me` — Policy: `TICKET_VER_PROPIO`
 
-Devuelve todos los tickets del cliente autenticado. Resuelve los eventos involucrados con una única lectura batch por evento distinto (nunca una lectura por ticket).
+Devuelve todos los tickets del cliente autenticado (dueño actual: `Ticket.ClientePersonaId`). Resuelve los eventos y compras involucrados con una única lectura batch (nunca una lectura por ticket).
+
+Cada ticket trae `qrToken`, el valor opaco que el frontend dibuja como QR (ver §9.1 y `POST /api/tickets/validate`). Solo viaja al dueño actual y solo mientras `utilizable == true`; rota en cada transferencia. Es un secreto de portador: nunca se loguea ni se persiste en la auditoría. También viene en la respuesta de `POST /api/tickets/buy` (el comprador es el dueño al emitirse).
+
+Un ticket **recibido por transferencia** no revela la compra original: `precioPagado`, `compraId` y `pagoSimulado` salen `null`/`false` para quien no es el comprador (`Compra.ClientePersonaId`, que una transferencia nunca sobrescribe). Para un ticket legacy sin `Compra`, una transferencia previa se detecta por `QrVersion > 1`.
 
 ### `POST /api/tickets/validate` — Policy: `TICKET_VALIDAR`
 
-```
-POST /api/tickets/validate?ticketId=ticket-...&eventId=evento-...
+```json
+POST /api/tickets/validate
+{ "qrToken": "AbCdEfGhIjKlMnOpQrStUv", "eventId": "evento-..." }
 ```
 
-El `PersonaId` del Control sale exclusivamente del token (nunca del query). Dentro de una transacción: se relee el `Ticket` y el `Event`, se verifica que el Control esté asignado a ese evento (`ControlAsignacion`), se verifica vigencia de validación (`Publicado && UtcNow <= FechaFin`) y que el ticket no esté ya `Usado`/`Anulado`. Si todo es válido, se marca `Usado`, se graba `FechaUso` y `ValidadoPorPersonaId` (nunca aceptado del cliente).
+**Cambio de contrato:** el QR contiene únicamente el `qrToken` (128 bits aleatorios, base64 URL-safe, 22 caracteres) y viaja en el **body** (no en la URL, para que no quede en logs de acceso). `eventId` es opcional: si se omite, se deduce del ticket dueño del token; si se envía, debe coincidir con el evento de ese ticket. El QR legado `{ticketId,eventId}` (y los parámetros `?ticketId=&eventId=`) **ya no se aceptan**: un token con otra forma se rechaza como `QrInvalido` sin consultar Firestore.
+
+El `PersonaId` del Control sale exclusivamente del token de autenticación. Se ubica el ticket por `QrToken` y, dentro de una transacción: se relee el `Ticket` (el token se vuelve a comparar en tiempo constante), se verifica que el Control esté asignado al evento del ticket (`ControlAsignacion`), se lee el `Event` y se verifica vigencia de validación (`Publicado && UtcNow <= FechaFin`) y que el ticket no esté ya `Usado`/`Anulado`. Si todo es válido, se marca `Usado`, se graba `FechaUso` y `ValidadoPorPersonaId` (nunca aceptado del cliente). Un token rotado por una transferencia ya no existe en ningún ticket, así que un QR viejo (o una captura) se rechaza.
 
 Respuestas posibles:
 
@@ -423,7 +430,7 @@ Respuestas posibles:
 | `Anulado` | 409 | `{ "valid": false, "message": "El ticket fue anulado." }` |
 | `EventoCancelado` | 409 | `{ "valid": false, "message": "El evento fue cancelado." }` |
 | `EventoFinalizado` | 409 | `{ "valid": false, "message": "El evento ya finalizó." }` |
-| `NotFound` | 404 | `{ "valid": false, "message": "Ticket no encontrado." }` |
+| `QrInvalido` (token desconocido, mal formado, o reemplazado por una transferencia) | 409 | `{ "valid": false, "message": "El código QR no es válido o fue reemplazado." }` |
 
 Un evento cancelado o finalizado **nunca** deja tocar (escribir) el documento del `Ticket`: su `Estado` histórico permanece `Emitido`, aunque la validación se rechace.
 
@@ -466,14 +473,40 @@ Nunca expone `ClientePersonaId` (el comprador ya es el actor autenticado). `even
   "ticketTypeNombre": "General",
   "precioPagado": 5000,
   "fechaInicio": "2026-12-01T22:00:00Z",
-  "fechaFin": "2026-12-02T04:00:00Z"
+  "fechaFin": "2026-12-02T04:00:00Z",
+  "qrToken": "AbCdEfGhIjKlMnOpQrStUv"
 }
 ```
 
-- `compraId`: obligatorio para todo ticket emitido desde que existe la entidad `Compra`. `null` únicamente en tickets emitidos antes de esa etapa (nunca se les asigna una `Compra` retroactiva).
+- `compraId`: obligatorio para todo ticket emitido desde que existe la entidad `Compra`. `null` en tickets emitidos antes de esa etapa (nunca se les asigna una `Compra` retroactiva) y para quien recibió el ticket por transferencia.
+- `precioPagado`: `decimal?` — `null` para quien recibió el ticket por transferencia (el precio original es privado del comprador).
+- `qrToken`: ver `GET /api/tickets/me`; `null` si el ticket no es utilizable o aún no fue migrado (`migrate-ticket-qr-tokens`).
 - `estado`: histórico/persistido (`Emitido`/`Usado`/`Anulado`) — nunca reescrito por una cancelación de evento.
 - `utilizable`/`motivoNoUtilizable`: **derivados en el momento de la lectura** contra el `Event` actual (no la fotografía). `motivoNoUtilizable` es `null` si `utilizable == true`; si no, uno de `"Usado"`, `"Anulado"`, `"EventoCancelado"`, `"EventoFinalizado"`.
 - `eventoNombre`/`ticketTypeNombre`/`precioPagado`/`fechaInicio`/`fechaFin`: fotografía inmutable de la compra — nunca se recalculan contra el `Event` actual, ni siquiera si este cambiara.
+
+### 9.1. `POST /api/tickets/{ticketId}/transfer` — Policy: `TICKET_TRANSFERIR`
+
+Transferencia **gratuita, inmediata e irreversible** de una entrada a otro usuario registrado (reventa fase 1, sin dinero; el destinatario no tiene que aceptar).
+
+```json
+{ "recipientEmail": "destino@example.com" }
+```
+
+`200 OK` → `{ "ticketId": "ticket-...", "transferredAt": "2026-10-22T10:00:00Z" }` (nunca el email del destinatario ni el nuevo token).
+
+Orden de las comprobaciones (`TicketTransferService.TransferAsync`): **(1)** identidad del emisor; **(2)** pre-chequeo de solo lectura + reserva de búsqueda (`PrecheckAndReserveLookupAsync`, una transacción): el ticket debe existir, ser del emisor y ser transferible (si no: `404 TICKET_NOT_FOUND` / `409 TICKET_NOT_TRANSFERABLE`), y el emisor no debe haber agotado su límite de búsquedas de destinatario fallidas (`429 TRANSFER_RATE_LIMITED`); **(3)** recién entonces se resuelve el destinatario por email; **(4)** la transacción autoritativa de abajo, que repite todas las comprobaciones (el pre-chequeo no la reemplaza: la seguridad frente a carreras vive en la transacción).
+
+Dentro de **una** transacción Firestore (`ITicketTransferStore` / `FirestoreTicketTransferStore`): se lee el `Ticket` y se exige `ClientePersonaId == actor`, `Estado == Emitido` y evento con estado efectivo `Publicado` (la misma regla que la validación); se cuenta el límite de transferencias del emisor; y recién entonces se escribe el nuevo `ClientePersonaId`, un `QrToken` nuevo (`QrVersion` + 1) y la fila de auditoría. Si algo falla no se escribe nada. Frente a una validación concurrente en la puerta gana exactamente una de las dos: o se transfiere (el QR viejo deja de existir y se rechaza) o se usa (el ticket usado ya no es transferible).
+
+- **Destinatario:** `IUsuarioRepository.GetByEmailAsync` (email exacto, recortado; se prueban el valor recortado y su forma en minúsculas). Debe ser un `Usuario` activo con la acción `TICKET_VER_PROPIO`. Desconocido, inactivo o sin acceso a entradas colapsan en **un único** `404 TRANSFER_RECIPIENT_INVALID` con mensaje fijo que nunca repite el email. Transferirse a uno mismo es `400 TRANSFER_TO_SELF` (el emisor ya conoce su propio email, así que no filtra nada). Límite conocido: quien posee un ticket transferible todavía puede distinguir "existe" de "no existe" (el éxito de la transferencia o el 404); es inherente a una transferencia inmediata. Se acota así: (a) la búsqueda del destinatario **solo es alcanzable con un ticket propio y transferible** — un ticket ajeno o inexistente responde `404 TICKET_NOT_FOUND` igual para un email registrado que para uno no registrado, sin consultar el destinatario; (b) cada búsqueda fallida (desconocido, inactivo o sin acceso a entradas) cuenta contra un límite propio de **10 por emisor por hora**, verificado **antes** de la búsqueda → `429 TRANSFER_RATE_LIMITED`; una búsqueda exitosa (la transferencia cuesta una entrada) o una transferencia a uno mismo liberan su reserva y no consumen ese cupo.
+- **Dueño:** un ticket inexistente o ajeno responde igual (`404 TICKET_NOT_FOUND`), para no permitir sondear ids ajenos.
+- **Límites (ambos `429 TRANSFER_RATE_LIMITED`, ventana móvil de 1 hora, por emisor):** (1) máximo 10 transferencias exitosas, contadas sobre `ticket_transfers` dentro de la propia transacción; (2) máximo 10 búsquedas de destinatario fallidas, contadas sobre `ticket_transfer_lookup_attempts` (`FromPersonaId`, `Timestamp`; **nunca** guarda el email, ni un hash, ni el ticket). La reserva del intento se escribe en la misma transacción que el conteo (una ráfaga de sondeos paralelos no puede pasar el límite) y se borra si la búsqueda no falla. Índices compuestos `ticket_transfers` y `ticket_transfer_lookup_attempts`: `FromPersonaId ASC, Timestamp ASC` en `firestore.indexes.json`.
+- **Auditoría:** colección `ticket_transfers` (`TicketId`, `EventoId`, `FromPersonaId`, `ToPersonaId`, `Timestamp`, `PreviousQrVersion`, `NewQrVersion`). **Nunca** guarda el token, ni el viejo ni el nuevo: solo las versiones.
+- **Qué no cambia:** `Compra.ClientePersonaId` sigue siendo el comprador original y nunca se sobrescribe; el receptor no ve `precioPagado`/`compraId` (ver `TicketResponseDto`).
+- **Códigos de error:** `TICKET_NOT_FOUND` (404; ticket inexistente o ajeno, también cuando el email no existe), `TRANSFER_RECIPIENT_INVALID` (404; solo si el ticket es propio y transferible), `TRANSFER_TO_SELF` (400), `TICKET_NOT_TRANSFERABLE` (409: usado, anulado, evento cancelado o finalizado), `TRANSFER_RATE_LIMITED` (429), `VALIDATION_ERROR` (400, email con formato inválido).
+
+**Despliegue en una instalación existente** (ver §13): desplegar también el índice compuesto `ticket_transfer_lookup_attempts` (`firebase deploy --only firestore:indexes`); sin él, toda transferencia falla en la consulta del pre-chequeo. Además ejecutar `seed-ticket-transfer-action` (crea la `Accion`; hay que asignarla manualmente al rol `CLIENTE`) `migrate-ticket-qr-tokens` (asigna un token a los tickets que no lo tienen) y `migrate-usuario-email-normalizado` (completa `Usuario.EmailNormalizado`; hasta ejecutarlo la búsqueda por email usa el `Email` exacto o en minúsculas). Hasta migrar, un ticket sin token no se puede validar en la puerta.
 
 ---
 
@@ -563,6 +596,11 @@ Todo error de este API (excepción de dominio tipada, `ModelState` inválido, o 
 | 404 | `CONTROL_INVALID` | `controlPersonaId` no es un Control elegible |
 | 404 | `ROLE_NOT_FOUND` / `ACTION_NOT_FOUND` / `USER_NOT_FOUND` | Recurso de administración de seguridad inexistente |
 | 404 | `BACKUP_NOT_FOUND` | Copia de Firestore inexistente (§18) |
+| 404 | `TICKET_NOT_FOUND` | Ticket inexistente o que no pertenece al actor (transferencia, §9.1) |
+| 404 | `TRANSFER_RECIPIENT_INVALID` | Email destinatario desconocido, inactivo o sin acceso a entradas (§9.1) |
+| 400 | `TRANSFER_TO_SELF` | El destinatario es el propio actor (§9.1) |
+| 409 | `TICKET_NOT_TRANSFERABLE` | Ticket usado/anulado o evento cancelado/finalizado (§9.1) |
+| 429 | `TRANSFER_RATE_LIMITED` | Más de 10 transferencias por hora del mismo emisor (§9.1) |
 | 409 | `EVENT_INVALID_TRANSITION` | Transición de estado no permitida |
 | 409 | `EVENT_MISSING_TICKET_TYPES` | Publicar sin tipos de ticket |
 | 409 | `EVENT_NOT_EDITABLE` | Editar un evento fuera de `Borrador` |
@@ -590,6 +628,7 @@ Todo error de este API (excepción de dominio tipada, `ModelState` inválido, o 
 - Una compra exige `Publicado && UtcNow < FechaInicio`: no se puede comprar una vez que el evento ya empezó, aunque siga visible y validando entradas.
 - Una validación exige `Publicado && UtcNow <= FechaFin`: se puede validar desde que el evento está publicado (incluso antes de `FechaInicio`, sin ventana de "apertura de puertas") hasta `FechaFin` inclusive.
 - Cancelar un evento **nunca** actualiza tickets en batch: el bloqueo de compra/validación es consecuencia directa de que ambas exigen `Estado == Publicado`, reevaluado en cada operación dentro de su propia transacción.
+- Una transferencia rota el `QrToken` del ticket: un QR anterior (incluida una captura de pantalla) deja de validar al instante (`QrInvalido`). El QR legado `{ticketId,eventId}` ya no se acepta en la puerta.
 - Ningún ticket puede validarse dos veces: la segunda validación de un ticket ya `Usado` se rechaza con 409 (`AlreadyUsed`), verificado también bajo validaciones concurrentes del mismo ticket.
 - Ninguna compra puede sobrevender el stock: verificado con N compras concurrentes contra stock 1 (exactamente una compra exitosa, `CantidadDisponible` nunca negativo).
 
@@ -615,6 +654,14 @@ dotnet run --project HoyDonde.API -- bootstrap-admin admin@hoydonde.com
 
 # Sembrar únicamente la Accion ROL_ELIMINAR contra un Firestore real ya existente (§10.1)
 dotnet run --project HoyDonde.API -- seed-role-deletion-action
+
+# Transferencia de entradas (§9.1), contra un Firestore real ya existente:
+#   1) crea únicamente la Accion TICKET_TRANSFERIR (idempotente; asignarla luego al rol CLIENTE desde /admin/roles)
+dotnet run --project HoyDonde.API -- seed-ticket-transfer-action
+#   2) asigna QrToken (QrVersion = 1) a todo ticket que no tenga uno (idempotente, reejecutable)
+dotnet run --project HoyDonde.API -- migrate-ticket-qr-tokens
+#   3) completa Usuario.EmailNormalizado (email en minúsculas, para buscar destinatarios sin distinguir mayúsculas; idempotente, reejecutable)
+dotnet run --project HoyDonde.API -- migrate-usuario-email-normalizado
 ```
 
 No se requiere `firebase login` ni credenciales reales para el comando de test: `hoydonde-security-refactor-tests` es un ID de proyecto arbitrario que nunca resuelve contra un proyecto Firebase real, y el Firestore Emulator no valida credenciales.

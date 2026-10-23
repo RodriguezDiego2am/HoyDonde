@@ -59,6 +59,8 @@ namespace HoyDonde.API.Services
             (Acciones.UsuarioRestablecerPassword, "Generar un enlace de recuperación de contraseña para otro usuario."),
             // Copias manuales de Firestore: exclusiva de ADMINISTRADOR en instalaciones nuevas.
             (Acciones.BackupAdministrar, "Crear, restaurar y consultar copias manuales de Firestore."),
+            // Free ticket transfer between users (resale phase 1).
+            (Acciones.TicketTransferir, "Transferir una entrada propia a otro usuario."),
         };
 
         private static readonly IReadOnlyDictionary<string, string[]> AccionesPorRol = new Dictionary<string, string[]>
@@ -76,7 +78,7 @@ namespace HoyDonde.API.Services
                 Acciones.EventoPublicarPropio, Acciones.EventoCancelarPropio, Acciones.EventoVerPropios,
                 Acciones.ReporteVerPropio,
             },
-            ["CLIENTE"] = new[] { Acciones.TicketComprar, Acciones.TicketVerPropio },
+            ["CLIENTE"] = new[] { Acciones.TicketComprar, Acciones.TicketVerPropio, Acciones.TicketTransferir },
             ["CONTROL"] = new[] { Acciones.TicketValidar },
         };
 

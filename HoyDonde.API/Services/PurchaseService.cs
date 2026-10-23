@@ -215,6 +215,8 @@ namespace HoyDonde.API.Services
                     PrecioPagado = compra.ImporteTotal / compra.CantidadEntradas,
                     FechaInicio = compra.FechaInicio,
                     FechaFin = compra.FechaFin,
+                    QrToken = QrTokenGenerator.NewToken(),
+                    QrVersion = 1,
                 };
                 transaction.Set(_firestore.Collection(TicketsCollection).Document(ticket.Id), ticket);
             }

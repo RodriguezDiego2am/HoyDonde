@@ -66,6 +66,7 @@ namespace HoyDonde.API.Repositories
                     IdentityProvider = request.IdentityProvider,
                     ExternalSubjectId = request.ExternalSubjectId,
                     Email = request.Email,
+                    EmailNormalizado = Usuario.NormalizarEmail(request.Email),
                 };
 
                 var usuarioRol = new UsuarioRol
@@ -125,6 +126,28 @@ namespace HoyDonde.API.Repositories
             var snapshot = await _firestore.Collection(UsuariosCollection)
                 .WhereEqualTo(nameof(Usuario.PersonaId), personaId)
                 .Limit(1)
+                .GetSnapshotAsync();
+            return snapshot.Documents.Count > 0 ? snapshot.Documents[0].ConvertTo<Usuario>() : null;
+        }
+
+        public async Task<Usuario?> GetByEmailAsync(string email)
+        {
+            var trimmed = (email ?? string.Empty).Trim();
+            if (trimmed.Length == 0) return null;
+
+            var normalizado = Usuario.NormalizarEmail(trimmed);
+            var porNormalizado = await _firestore.Collection(UsuariosCollection)
+                .WhereEqualTo(nameof(Usuario.EmailNormalizado), normalizado)
+                .Limit(2)
+                .GetSnapshotAsync();
+            if (porNormalizado.Documents.Count > 0)
+                return porNormalizado.Documents[0].ConvertTo<Usuario>();
+
+            // Fallback for users not yet backfilled by migrate-usuario-email-normalizado.
+            var candidates = new[] { trimmed, normalizado }.Distinct().ToList();
+            var snapshot = await _firestore.Collection(UsuariosCollection)
+                .WhereIn(nameof(Usuario.Email), candidates)
+                .Limit(2)
                 .GetSnapshotAsync();
             return snapshot.Documents.Count > 0 ? snapshot.Documents[0].ConvertTo<Usuario>() : null;
         }

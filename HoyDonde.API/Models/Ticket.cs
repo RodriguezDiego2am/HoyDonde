@@ -60,6 +60,20 @@ namespace HoyDonde.API.Models
         [Google.Cloud.Firestore.FirestoreProperty]
         public DateTime FechaFin { get; set; }
 
+        // Opaque 128-bit random token rendered by the client as the ticket QR. Rotated on every
+        // transfer so any previously shown QR (including screenshots) stops validating. Null only
+        // for tickets issued before ticket transfers existed and not yet migrated
+        // (`migrate-ticket-qr-tokens`); such tickets cannot be validated at the door. The token
+        // is a bearer secret: it is only ever returned to the ticket's current owner and never
+        // written to logs or to the transfer audit.
+        [Google.Cloud.Firestore.FirestoreProperty]
+        public string? QrToken { get; set; }
+
+        // Monotonic counter bumped each time QrToken is rotated. 0 = no token assigned yet,
+        // 1 = initial token, >1 = the ticket has been transferred at least once.
+        [Google.Cloud.Firestore.FirestoreProperty]
+        public int QrVersion { get; set; }
+
         public enum TicketStatus
         {
             Emitido,

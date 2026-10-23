@@ -19,28 +19,30 @@ jest.mock('@/services/ticketValidationService', () => ({
 // eslint-disable-next-line import/first -- debe importarse después de los jest.mock de sus dependencias
 import ControlManualEntryScreen from './ControlManualEntryScreen';
 
+const TOKEN = 'AbCdEfGhIjKlMnOpQrStUv';
+const TOKEN_2 = 'ZyXwVuTsRqPoNmLkJiHgFe';
+
 describe('ControlManualEntryScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('el botón "Validar entrada" está deshabilitado hasta completar ambos campos', () => {
+  it('el botón "Validar entrada" está deshabilitado hasta ingresar un código con forma de token', () => {
     const { getByText, getByPlaceholderText } = render(<ControlManualEntryScreen />);
 
     fireEvent.press(getByText('Validar entrada'));
     expect(mockValidateTicket).not.toHaveBeenCalled();
 
-    fireEvent.changeText(getByPlaceholderText('ticket-...'), 'ticket-1');
+    fireEvent.changeText(getByPlaceholderText('22 caracteres'), 'ticket-1');
     fireEvent.press(getByText('Validar entrada'));
     expect(mockValidateTicket).not.toHaveBeenCalled();
   });
 
-  it('recorta espacios en ambos campos antes de validar (mismo servicio y lock que el escáner)', async () => {
+  it('recorta espacios del código antes de validar (mismo servicio y lock que el escáner)', async () => {
     mockValidateTicket.mockResolvedValue({ kind: 'valid', message: 'Ticket validado para este evento.' });
     const { getByText, getByPlaceholderText, findByText } = render(<ControlManualEntryScreen />);
 
-    fireEvent.changeText(getByPlaceholderText('ticket-...'), '  ticket-1  ');
-    fireEvent.changeText(getByPlaceholderText('evento-...'), '  evento-1  ');
+    fireEvent.changeText(getByPlaceholderText('22 caracteres'), '  ' + TOKEN + '  ');
 
     await act(async () => {
       fireEvent.press(getByText('Validar entrada'));
@@ -48,7 +50,7 @@ describe('ControlManualEntryScreen', () => {
 
     await findByText('Ticket validado para este evento.');
     expect(mockValidateTicket).toHaveBeenCalledTimes(1);
-    expect(mockValidateTicket).toHaveBeenCalledWith({ ticketId: 'ticket-1', eventId: 'evento-1' });
+    expect(mockValidateTicket).toHaveBeenCalledWith({ qrToken: TOKEN });
   });
 
   it('un doble tap mientras la validación está en vuelo no duplica la llamada', async () => {
@@ -60,8 +62,7 @@ describe('ControlManualEntryScreen', () => {
     );
     const { getByText, getByPlaceholderText } = render(<ControlManualEntryScreen />);
 
-    fireEvent.changeText(getByPlaceholderText('ticket-...'), 'ticket-1');
-    fireEvent.changeText(getByPlaceholderText('evento-...'), 'evento-1');
+    fireEvent.changeText(getByPlaceholderText('22 caracteres'), TOKEN);
 
     act(() => {
       fireEvent.press(getByText('Validar entrada'));
@@ -79,8 +80,7 @@ describe('ControlManualEntryScreen', () => {
     mockValidateTicket.mockResolvedValue({ kind: 'anulado', message: 'El ticket fue anulado.' });
     const { getByText, getByPlaceholderText, findByText } = render(<ControlManualEntryScreen />);
 
-    fireEvent.changeText(getByPlaceholderText('ticket-...'), 'ticket-1');
-    fireEvent.changeText(getByPlaceholderText('evento-...'), 'evento-1');
+    fireEvent.changeText(getByPlaceholderText('22 caracteres'), TOKEN);
 
     await act(async () => {
       fireEvent.press(getByText('Validar entrada'));
@@ -90,26 +90,24 @@ describe('ControlManualEntryScreen', () => {
   });
 
   it('"Validar otra entrada" limpia el resultado, el lock y los campos', async () => {
-    mockValidateTicket.mockResolvedValueOnce({ kind: 'notFound', message: 'Ticket no encontrado.' });
+    mockValidateTicket.mockResolvedValueOnce({ kind: 'qrInvalido', message: 'El código QR no es válido o fue reemplazado.' });
     const { getByText, getByPlaceholderText, findByText, queryByPlaceholderText } = render(<ControlManualEntryScreen />);
 
-    fireEvent.changeText(getByPlaceholderText('ticket-...'), 'ticket-1');
-    fireEvent.changeText(getByPlaceholderText('evento-...'), 'evento-1');
+    fireEvent.changeText(getByPlaceholderText('22 caracteres'), TOKEN);
 
     await act(async () => {
       fireEvent.press(getByText('Validar entrada'));
     });
-    await findByText('Ticket no encontrado.');
+    await findByText('El código QR no es válido o fue reemplazado.');
 
-    expect(queryByPlaceholderText('ticket-...')).toBeNull();
+    expect(queryByPlaceholderText('22 caracteres')).toBeNull();
 
     fireEvent.press(getByText('Validar otra entrada'));
 
-    expect(getByPlaceholderText('ticket-...')).toBeTruthy();
+    expect(getByPlaceholderText('22 caracteres')).toBeTruthy();
 
     mockValidateTicket.mockResolvedValueOnce({ kind: 'valid', message: 'Ticket validado para este evento.' });
-    fireEvent.changeText(getByPlaceholderText('ticket-...'), 'ticket-2');
-    fireEvent.changeText(getByPlaceholderText('evento-...'), 'evento-2');
+    fireEvent.changeText(getByPlaceholderText('22 caracteres'), TOKEN_2);
 
     await act(async () => {
       fireEvent.press(getByText('Validar entrada'));
@@ -117,15 +115,14 @@ describe('ControlManualEntryScreen', () => {
 
     await findByText('Ticket validado para este evento.');
     expect(mockValidateTicket).toHaveBeenCalledTimes(2);
-    expect(mockValidateTicket).toHaveBeenLastCalledWith({ ticketId: 'ticket-2', eventId: 'evento-2' });
+    expect(mockValidateTicket).toHaveBeenLastCalledWith({ qrToken: TOKEN_2 });
   });
 
   it('un error de red se muestra con texto claro', async () => {
     mockValidateTicket.mockResolvedValue({ kind: 'network', message: 'No se pudo conectar con el servidor. Verificá tu conexión.' });
     const { getByText, getByPlaceholderText, findByText } = render(<ControlManualEntryScreen />);
 
-    fireEvent.changeText(getByPlaceholderText('ticket-...'), 'ticket-1');
-    fireEvent.changeText(getByPlaceholderText('evento-...'), 'evento-1');
+    fireEvent.changeText(getByPlaceholderText('22 caracteres'), TOKEN);
 
     await act(async () => {
       fireEvent.press(getByText('Validar entrada'));
@@ -138,8 +135,7 @@ describe('ControlManualEntryScreen', () => {
     mockValidateTicket.mockResolvedValue({ kind: 'unexpected', message: 'Ocurrió un error inesperado.', traceId: 'trace-1' });
     const { getByText, getByPlaceholderText, findByText } = render(<ControlManualEntryScreen />);
 
-    fireEvent.changeText(getByPlaceholderText('ticket-...'), 'ticket-1');
-    fireEvent.changeText(getByPlaceholderText('evento-...'), 'evento-1');
+    fireEvent.changeText(getByPlaceholderText('22 caracteres'), TOKEN);
 
     await act(async () => {
       fireEvent.press(getByText('Validar entrada'));
