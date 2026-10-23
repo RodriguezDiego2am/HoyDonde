@@ -57,6 +57,9 @@ namespace HoyDonde.API.Tests.Integration
             Assert.Equal(0, gateway.CreateCalls);
             Assert.Single(tickets);
             Assert.Equal("customer-persona", tickets[0].ClientePersonaId);
+            // PurchaseService.CreateTickets issues a QR token with every ticket.
+            Assert.True(HoyDonde.API.Services.QrTokenGenerator.LooksLikeToken(tickets[0].QrToken));
+            Assert.Equal(1, tickets[0].QrVersion);
         }
 
         [FirestoreEmulatorFact]

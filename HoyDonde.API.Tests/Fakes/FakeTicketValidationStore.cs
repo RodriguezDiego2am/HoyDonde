@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Threading.Tasks;
 using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
@@ -28,14 +29,24 @@ namespace HoyDonde.API.Tests.Fakes
 
         public void SeedEvent(Event evento) => _events[evento.Id] = evento;
 
-        public Task<TicketConsumeResult> TryConsumeAsync(string ticketId, string eventId, string validatedByPersonaId)
+        public Task<string?> FindEventIdByQrTokenAsync(string qrToken) =>
+            Task.FromResult(_tickets.Values.FirstOrDefault(t => t.QrToken == qrToken)?.EventoId);
+
+        // Mirrors the real store: the ticket is located by its current QR token, so a rotated
+        // (stale) token matches nothing.
+        public Task<TicketConsumeResult> TryConsumeAsync(string qrToken, string eventId, string validatedByPersonaId)
         {
-            var gate = _locks.GetOrAdd(ticketId, _ => new object());
+            var found = _tickets.Values.FirstOrDefault(t => t.QrToken == qrToken);
+            if (found is null)
+                return Task.FromResult(TicketConsumeResult.QrInvalido);
+
+            var gate = _locks.GetOrAdd(found.Id, _ => new object());
 
             lock (gate)
             {
-                if (!_tickets.TryGetValue(ticketId, out var ticket))
-                    return Task.FromResult(TicketConsumeResult.NotFound);
+                var ticket = found;
+                if (ticket.QrToken != qrToken)
+                    return Task.FromResult(TicketConsumeResult.QrInvalido);
 
                 if (ticket.EventoId != eventId)
                     return Task.FromResult(TicketConsumeResult.EventMismatch);

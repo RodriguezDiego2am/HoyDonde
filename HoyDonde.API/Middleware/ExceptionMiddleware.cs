@@ -42,6 +42,7 @@ namespace HoyDonde.API.Middleware
                 [typeof(ReporteFiltroInvalidoException)] = (HttpStatusCode.BadRequest, "REPORT_FILTER_INVALID", ex => ex.Message),
                 [typeof(BackupEliminacionNoConfirmadaException)] = (HttpStatusCode.BadRequest, "BACKUP_DELETE_NOT_CONFIRMED", ex => ex.Message),
                 [typeof(ArgumentException)] = (HttpStatusCode.BadRequest, "VALIDATION_ERROR", ex => ex.Message),
+                [typeof(TransferenciaAUnoMismoException)] = (HttpStatusCode.BadRequest, "TRANSFER_TO_SELF", ex => ex.Message),
 
                 [typeof(EventNotFoundException)] = (HttpStatusCode.NotFound, "EVENT_NOT_FOUND", ex => ex.Message),
                 [typeof(TicketTypeInvalidoException)] = (HttpStatusCode.NotFound, "TICKET_TYPE_INVALID", ex => ex.Message),
@@ -50,6 +51,8 @@ namespace HoyDonde.API.Middleware
                 [typeof(AccionNoEncontradaException)] = (HttpStatusCode.NotFound, "ACTION_NOT_FOUND", ex => ex.Message),
                 [typeof(UsuarioNoEncontradoException)] = (HttpStatusCode.NotFound, "USER_NOT_FOUND", ex => ex.Message),
                 [typeof(BackupNoEncontradoException)] = (HttpStatusCode.NotFound, "BACKUP_NOT_FOUND", ex => ex.Message),
+                [typeof(TicketNoEncontradoException)] = (HttpStatusCode.NotFound, "TICKET_NOT_FOUND", ex => ex.Message),
+                [typeof(TransferenciaDestinatarioInvalidoException)] = (HttpStatusCode.NotFound, "TRANSFER_RECIPIENT_INVALID", ex => ex.Message),
 
                 // El Message de EventOwnershipException incluye el UID del actor (uso interno de
                 // logging exclusivamente): la respuesta pública usa un texto fijo, nunca ex.Message.
@@ -73,6 +76,8 @@ namespace HoyDonde.API.Middleware
                 [typeof(BackupNoRestaurableException)] = (HttpStatusCode.Conflict, "BACKUP_NOT_RESTORABLE", ex => ex.Message),
                 [typeof(RestauracionEnCursoException)] = (HttpStatusCode.Conflict, "BACKUP_RESTORE_IN_PROGRESS", ex => ex.Message),
                 [typeof(BackupNoEliminableException)] = (HttpStatusCode.Conflict, "BACKUP_NOT_DELETABLE", ex => ex.Message),
+                [typeof(TicketNoTransferibleException)] = (HttpStatusCode.Conflict, "TICKET_NOT_TRANSFERABLE", ex => ex.Message),
+                [typeof(TransferenciaLimiteExcedidoException)] = (HttpStatusCode.TooManyRequests, "TRANSFER_RATE_LIMITED", ex => ex.Message),
             };
 
         public ExceptionMiddleware(

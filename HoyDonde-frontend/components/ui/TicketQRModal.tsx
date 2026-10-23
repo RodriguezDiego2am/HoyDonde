@@ -3,24 +3,25 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
 import { borderWidth, colors, fonts, radii, spacing } from '@/constants/theme';
-import { buildTicketQrPayload } from '@/utils/ticketQr';
+import { buildTicketQrValue } from '@/utils/ticketQr';
 
 interface TicketQRModalProps {
   visible: boolean;
-  ticketId: string;
-  eventId: string;
+  /** Token opaco emitido por el backend; null si el ticket no tiene un QR utilizable. */
+  qrToken: string | null | undefined;
   eventoNombre: string;
   onClose: () => void;
 }
 
 /**
- * QR sin firma ni validación offline (el backend no las implementa): solo
- * codifica { ticketId, eventId } vía buildTicketQrPayload, la misma forma
- * documentada en utils/ticketQr.ts para que Frontend 3 (Control) reutilice el
- * parser. Los ids se muestran también como texto seleccionable, como
- * fallback operativo si el QR no se puede escanear.
+ * Dibuja el token opaco que emitió el backend (utils/ticketQr.ts). No contiene ids ni datos del
+ * ticket: la API lo resuelve al validar y lo rota si la entrada se transfiere, por lo que un QR
+ * viejo (o una captura de pantalla) deja de servir. El mismo valor se muestra como texto
+ * seleccionable, como fallback operativo si el QR no se puede escanear.
  */
-export function TicketQRModal({ visible, ticketId, eventId, eventoNombre, onClose }: TicketQRModalProps) {
+export function TicketQRModal({ visible, qrToken, eventoNombre, onClose }: TicketQRModalProps) {
+  const qrValue = buildTicketQrValue(qrToken);
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.scrim}>
@@ -30,27 +31,31 @@ export function TicketQRModal({ visible, ticketId, eventId, eventoNombre, onClos
             {eventoNombre}
           </Text>
 
-          <View style={styles.qrFrame}>
-            <QRCode value={buildTicketQrPayload(ticketId, eventId)} size={200} color={colors.ink} backgroundColor={colors.paper} />
-          </View>
+          {qrValue ? (
+            <>
+              <View style={styles.qrFrame}>
+                <QRCode value={qrValue} size={200} color={colors.ink} backgroundColor={colors.paper} />
+              </View>
 
-          <Text style={styles.hint}>Mostrá este código al Control. No tiene firma digital: se valida contra el sistema.</Text>
+              <Text style={styles.hint}>
+                Mostrá este código al Control. Cambia si la entrada se transfiere: un QR anterior deja de valer.
+              </Text>
 
-          <View style={styles.idsBlock}>
-            <View style={styles.idRow}>
-              <Text style={styles.idLabel}>TICKET</Text>
-              <Text selectable style={styles.idValue}>
-                {ticketId}
-              </Text>
-            </View>
-            <View style={styles.idRow}>
-              <Text style={styles.idLabel}>EVENTO</Text>
-              <Text selectable style={styles.idValue}>
-                {eventId}
-              </Text>
-            </View>
-          </View>
-          <Text style={styles.copyHint}>Mantené presionado un id para copiarlo.</Text>
+              <View style={styles.idsBlock}>
+                <View style={styles.idRow}>
+                  <Text style={styles.idLabel}>CÓDIGO</Text>
+                  <Text selectable style={styles.idValue}>
+                    {qrValue}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.copyHint}>Mantené presionado el código para copiarlo.</Text>
+            </>
+          ) : (
+            <Text accessibilityRole="alert" style={styles.hint}>
+              Esta entrada no tiene un QR disponible. Actualizá Mis entradas e intentá de nuevo.
+            </Text>
+          )}
 
           <Pressable
             accessibilityRole="button"

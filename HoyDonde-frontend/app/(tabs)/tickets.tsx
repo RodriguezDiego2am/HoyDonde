@@ -6,7 +6,9 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { ActionButton } from '@/components/ui/ActionButton';
 import { StampTone, StatusStamp } from '@/components/ui/StatusStamp';
 import { TicketCard } from '@/components/ui/TicketCard';
+import { TransferTicketModal } from '@/components/tickets/TransferTicketModal';
 import { TicketQRModal } from '@/components/ui/TicketQRModal';
+import { ACCIONES } from '@/constants/acciones';
 import { colors, fonts, spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { ApiError, TicketResponse, ticketService } from '@/services/APIService';
@@ -47,8 +49,11 @@ export default function MisEntradasScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [qrTicket, setQrTicket] = useState<TicketResponse | null>(null);
+  const [transferTicket, setTransferTicket] = useState<TicketResponse | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const puedeVerEntradas = hasAccion('TICKET_VER_PROPIO');
+  const puedeVerEntradas = hasAccion(ACCIONES.TICKET_VER_PROPIO);
+  const puedeTransferir = hasAccion(ACCIONES.TICKET_TRANSFERIR);
 
   const load = useCallback(
     async (mode: 'initial' | 'refresh') => {
@@ -74,6 +79,12 @@ export default function MisEntradasScreen() {
     // Solo se dispara cuando cambia la identidad/permiso efectivo del usuario.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.uid, puedeVerEntradas]);
+
+  const handleTransferred = (ticketId: string) => {
+    // The ticket now belongs to someone else: drop it locally (the API is the source of truth on refresh).
+    setTickets((current) => current.filter((t) => t.id !== ticketId));
+    setNotice('Entrada transferida. Tu QR anterior dejó de valer.');
+  };
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -131,7 +142,9 @@ export default function MisEntradasScreen() {
         stub={
           <>
             <MaterialIcons name="confirmation-number" size={20} color={colors.ink} />
-            <Text style={styles.stubPrecio}>{formatPrecio(item.precioPagado)}</Text>
+            <Text style={styles.stubPrecio}>
+              {item.precioPagado === null ? 'RECIBIDA' : formatPrecio(item.precioPagado)}
+            </Text>
           </>
         }
       >
@@ -143,7 +156,7 @@ export default function MisEntradasScreen() {
         </View>
 
         <Text style={styles.ticketType}>{item.ticketTypeNombre}</Text>
-            {item.pagoSimulado ? <Text style={styles.legacyLabel}>COMPRA SIMULADA HISTÓRICA</Text> : null}
+        {item.pagoSimulado ? <Text style={styles.legacyLabel}>COMPRA SIMULADA HISTÓRICA</Text> : null}
 
         <View style={styles.metaRow}>
           <MaterialIcons name="event" size={14} color={colors.inkSoft} />
@@ -151,11 +164,24 @@ export default function MisEntradasScreen() {
         </View>
         <View style={styles.metaRow}>
           <MaterialIcons name="receipt-long" size={14} color={colors.inkSoft} />
-          <Text style={styles.metaText}>Comprada el {formatFechaHora(item.fechaCompra)}</Text>
+          <Text style={styles.metaText}>
+            {item.precioPagado === null ? 'Recibida por transferencia' : `Comprada el ${formatFechaHora(item.fechaCompra)}`}
+          </Text>
         </View>
 
         <View style={styles.qrButtonRow}>
           <ActionButton label="Ver QR" variant="secondary" onPress={() => setQrTicket(item)} />
+          {puedeTransferir && item.utilizable ? (
+            <ActionButton
+              label="Transferir"
+              variant="secondary"
+              accessibilityLabel={`Transferir entrada de ${item.eventoNombre}`}
+              onPress={() => {
+                setNotice(null);
+                setTransferTicket(item);
+              }}
+            />
+          ) : null}
         </View>
       </TicketCard>
     );
@@ -178,6 +204,12 @@ export default function MisEntradasScreen() {
         </View>
         <Text style={styles.title}>Mis entradas</Text>
       </View>
+
+      {notice ? (
+        <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.notice}>
+          {notice}
+        </Text>
+      ) : null}
 
       {loading ? (
         <View style={styles.center}>
@@ -209,10 +241,20 @@ export default function MisEntradasScreen() {
       {qrTicket ? (
         <TicketQRModal
           visible
-          ticketId={qrTicket.id}
-          eventId={qrTicket.eventoId}
+          qrToken={qrTicket.qrToken}
           eventoNombre={qrTicket.eventoNombre}
           onClose={() => setQrTicket(null)}
+        />
+      ) : null}
+
+      {transferTicket ? (
+        <TransferTicketModal
+          visible
+          ticketId={transferTicket.id}
+          eventoNombre={transferTicket.eventoNombre}
+          ticketTypeNombre={transferTicket.ticketTypeNombre}
+          onClose={() => setTransferTicket(null)}
+          onTransferred={handleTransferred}
         />
       ) : null}
     </View>
@@ -344,6 +386,17 @@ const styles = StyleSheet.create({
   },
   qrButtonRow: {
     marginTop: spacing.md,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
     alignSelf: 'flex-start',
+  },
+  notice: {
+    fontFamily: fonts.medium,
+    fontSize: 14,
+    color: colors.ink,
+    backgroundColor: colors.sand,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
   },
 });

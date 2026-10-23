@@ -1,27 +1,35 @@
-import { buildTicketQrPayload, parseTicketQrPayload } from './ticketQr';
+import { buildTicketQrValue, parseTicketQrToken } from './ticketQr';
+
+const TOKEN = 'AbCdEfGhIjKlMnOpQrStUv';
 
 describe('ticketQr', () => {
-  it('builds a compact JSON payload with exactly ticketId and eventId', () => {
-    const raw = buildTicketQrPayload('ticket-1', 'evento-1');
-    expect(JSON.parse(raw)).toEqual({ ticketId: 'ticket-1', eventId: 'evento-1' });
+  it('renders the backend token verbatim as the QR value (no JSON, no ids)', () => {
+    expect(buildTicketQrValue(TOKEN)).toBe(TOKEN);
   });
 
-  it('round-trips through parseTicketQrPayload', () => {
-    const raw = buildTicketQrPayload('ticket-9', 'evento-9');
-    expect(parseTicketQrPayload(raw)).toEqual({ ticketId: 'ticket-9', eventId: 'evento-9' });
+  it('has no QR value when the ticket has no token (not owner, not usable, or not migrated)', () => {
+    expect(buildTicketQrValue(null)).toBeNull();
+    expect(buildTicketQrValue(undefined)).toBeNull();
+    expect(buildTicketQrValue('')).toBeNull();
   });
 
-  it('rejects malformed JSON', () => {
-    expect(parseTicketQrPayload('not json')).toBeNull();
+  it('round-trips: what the QR encodes is exactly what the scanner parses', () => {
+    expect(parseTicketQrToken(buildTicketQrValue(TOKEN) as string)).toBe(TOKEN);
   });
 
-  it('rejects JSON missing required fields', () => {
-    expect(parseTicketQrPayload(JSON.stringify({ ticketId: 'ticket-1' }))).toBeNull();
-    expect(parseTicketQrPayload(JSON.stringify({ eventId: 'evento-1' }))).toBeNull();
+  it('accepts url-safe base64 characters and trims surrounding whitespace', () => {
+    expect(parseTicketQrToken('  abc-_DEFghiJKLmnoPQR12  ')).toBe('abc-_DEFghiJKLmnoPQR12');
   });
 
-  it('rejects non-string or empty field values', () => {
-    expect(parseTicketQrPayload(JSON.stringify({ ticketId: 1, eventId: 'evento-1' }))).toBeNull();
-    expect(parseTicketQrPayload(JSON.stringify({ ticketId: '', eventId: 'evento-1' }))).toBeNull();
+  it('rejects the legacy { ticketId, eventId } JSON payload', () => {
+    expect(parseTicketQrToken(JSON.stringify({ ticketId: 'ticket-1', eventId: 'evento-1' }))).toBeNull();
+  });
+
+  it('rejects wrong lengths, foreign characters and URLs', () => {
+    expect(parseTicketQrToken('short')).toBeNull();
+    expect(parseTicketQrToken(`${TOKEN}x`)).toBeNull();
+    expect(parseTicketQrToken('AbCdEfGhIjKlMnOpQrSt+/')).toBeNull();
+    expect(parseTicketQrToken('https://example.com/not-a-ticket')).toBeNull();
+    expect(parseTicketQrToken('')).toBeNull();
   });
 });

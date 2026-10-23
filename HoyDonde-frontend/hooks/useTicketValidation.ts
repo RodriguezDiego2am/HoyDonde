@@ -7,7 +7,7 @@ export interface UseTicketValidation {
   result: TicketValidationResult | null;
   validating: boolean;
   /** Escáner e ingreso manual comparten esta misma función: mismo servicio, mismo lock. */
-  validate: (ticketId: string, eventId: string) => Promise<void>;
+  validate: (qrToken: string) => Promise<void>;
   /** "Escanear siguiente" / "Validar otra entrada": limpia resultado y lock a la vez. */
   reset: () => void;
 }
@@ -23,12 +23,12 @@ export function useTicketValidation(): UseTicketValidation {
   const [validating, setValidating] = useState(false);
   const lockRef = useRef(false);
 
-  const validate = useCallback(async (ticketId: string, eventId: string) => {
+  const validate = useCallback(async (qrToken: string) => {
     if (lockRef.current) return;
     lockRef.current = true;
     setValidating(true);
 
-    const outcome = await validateTicket({ ticketId, eventId });
+    const outcome = await validateTicket({ qrToken });
 
     setResult(outcome);
     setValidating(false);

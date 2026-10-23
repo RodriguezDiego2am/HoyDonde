@@ -7,6 +7,7 @@ using HoyDonde.API.Exceptions;
 using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
 using HoyDonde.API.Services;
+using HoyDonde.API.Tests.Fakes;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -152,6 +153,8 @@ namespace HoyDonde.API.Tests.Integration
             await _fixture.Db!.Collection("tickets").Document(ticketId).SetAsync(new Ticket
             {
                 Id = ticketId,
+                QrToken = TestQr.Token(ticketId),
+                QrVersion = 1,
                 EventoId = eventId,
                 ClientePersonaId = "cliente-persona-1",
                 Estado = Ticket.TicketStatus.Emitido,
@@ -161,7 +164,7 @@ namespace HoyDonde.API.Tests.Integration
 
             await controlAsignacionRepository.AsignarAsync(controlPersonaId, eventId, "organizador-persona-1");
 
-            var outcome = await sut.ValidateTicketAsync(controlUid, ticketId, eventId);
+            var outcome = await sut.ValidateTicketAsync(controlUid, TestQr.Token(ticketId), eventId);
             Assert.Equal(TicketValidationOutcome.Success, outcome);
 
             var snapshot = await _fixture.Db!.Collection("tickets").Document(ticketId).GetSnapshotAsync();
@@ -170,7 +173,7 @@ namespace HoyDonde.API.Tests.Integration
             Assert.Equal(controlPersonaId, persisted.ValidadoPorPersonaId);
 
             // Segundo uso del mismo ticket sigue rechazado.
-            var second = await sut.ValidateTicketAsync(controlUid, ticketId, eventId);
+            var second = await sut.ValidateTicketAsync(controlUid, TestQr.Token(ticketId), eventId);
             Assert.Equal(TicketValidationOutcome.AlreadyUsed, second);
         }
 
@@ -196,6 +199,8 @@ namespace HoyDonde.API.Tests.Integration
             await _fixture.Db!.Collection("tickets").Document(ticketId).SetAsync(new Ticket
             {
                 Id = ticketId,
+                QrToken = TestQr.Token(ticketId),
+                QrVersion = 1,
                 EventoId = eventId,
                 ClientePersonaId = "cliente-persona-1",
                 Estado = Ticket.TicketStatus.Emitido,
@@ -204,7 +209,7 @@ namespace HoyDonde.API.Tests.Integration
             });
 
             // Nunca se llamó AsignarAsync para este Control+Evento.
-            var outcome = await sut.ValidateTicketAsync(controlUid, ticketId, eventId);
+            var outcome = await sut.ValidateTicketAsync(controlUid, TestQr.Token(ticketId), eventId);
 
             Assert.Equal(TicketValidationOutcome.NotAuthorized, outcome);
         }
@@ -647,6 +652,8 @@ namespace HoyDonde.API.Tests.Integration
             await _fixture.Db!.Collection("tickets").Document(ticketId).SetAsync(new Ticket
             {
                 Id = ticketId,
+                QrToken = TestQr.Token(ticketId),
+                QrVersion = 1,
                 EventoId = eventId,
                 ClientePersonaId = "cliente-persona-1",
                 Estado = Ticket.TicketStatus.Emitido,
@@ -656,7 +663,7 @@ namespace HoyDonde.API.Tests.Integration
 
             await controlAsignacionRepository.AsignarAsync(controlPersonaId, eventId, "organizador-persona-1");
 
-            var outcome = await sut.ValidateTicketAsync(controlUid, ticketId, eventId);
+            var outcome = await sut.ValidateTicketAsync(controlUid, TestQr.Token(ticketId), eventId);
             Assert.Equal(TicketValidationOutcome.EventoCancelado, outcome);
 
             var persisted = (await _fixture.Db!.Collection("tickets").Document(ticketId).GetSnapshotAsync()).ConvertTo<Ticket>();
@@ -687,6 +694,8 @@ namespace HoyDonde.API.Tests.Integration
             await _fixture.Db!.Collection("tickets").Document(ticketId).SetAsync(new Ticket
             {
                 Id = ticketId,
+                QrToken = TestQr.Token(ticketId),
+                QrVersion = 1,
                 EventoId = eventId,
                 ClientePersonaId = "cliente-persona-1",
                 Estado = Ticket.TicketStatus.Emitido,
@@ -696,7 +705,7 @@ namespace HoyDonde.API.Tests.Integration
 
             await controlAsignacionRepository.AsignarAsync(controlPersonaId, eventId, "organizador-persona-1");
 
-            var outcome = await sut.ValidateTicketAsync(controlUid, ticketId, eventId);
+            var outcome = await sut.ValidateTicketAsync(controlUid, TestQr.Token(ticketId), eventId);
             Assert.Equal(TicketValidationOutcome.EventoFinalizado, outcome);
         }
 
@@ -726,6 +735,8 @@ namespace HoyDonde.API.Tests.Integration
             await _fixture.Db!.Collection("tickets").Document(ticketId).SetAsync(new Ticket
             {
                 Id = ticketId,
+                QrToken = TestQr.Token(ticketId),
+                QrVersion = 1,
                 EventoId = eventId,
                 ClientePersonaId = "cliente-persona-1",
                 Estado = Ticket.TicketStatus.Emitido,
@@ -735,7 +746,7 @@ namespace HoyDonde.API.Tests.Integration
 
             await controlAsignacionRepository.AsignarAsync(controlPersonaId, eventId, "organizador-persona-1");
 
-            var outcome = await sut.ValidateTicketAsync(controlUid, ticketId, eventId);
+            var outcome = await sut.ValidateTicketAsync(controlUid, TestQr.Token(ticketId), eventId);
             Assert.Equal(TicketValidationOutcome.Success, outcome);
         }
 
@@ -763,6 +774,8 @@ namespace HoyDonde.API.Tests.Integration
             await _fixture.Db!.Collection("tickets").Document(ticketId).SetAsync(new Ticket
             {
                 Id = ticketId,
+                QrToken = TestQr.Token(ticketId),
+                QrVersion = 1,
                 EventoId = eventId,
                 ClientePersonaId = "cliente-persona-1",
                 Estado = Ticket.TicketStatus.Emitido,
@@ -772,8 +785,8 @@ namespace HoyDonde.API.Tests.Integration
 
             await controlAsignacionRepository.AsignarAsync(controlPersonaId, eventId, "organizador-persona-1");
 
-            var task1 = Task.Run(() => sut.ValidateTicketAsync(controlUid, ticketId, eventId));
-            var task2 = Task.Run(() => sut.ValidateTicketAsync(controlUid, ticketId, eventId));
+            var task1 = Task.Run(() => sut.ValidateTicketAsync(controlUid, TestQr.Token(ticketId), eventId));
+            var task2 = Task.Run(() => sut.ValidateTicketAsync(controlUid, TestQr.Token(ticketId), eventId));
 
             var results = await Task.WhenAll(task1, task2);
 
@@ -826,6 +839,8 @@ namespace HoyDonde.API.Tests.Integration
                 await _fixture.Db!.Collection("tickets").Document(ticketId).SetAsync(new Ticket
                 {
                     Id = ticketId,
+                    QrToken = TestQr.Token(ticketId),
+                    QrVersion = 1,
                     EventoId = eventId,
                     ClientePersonaId = clientePersonaId,
                     Estado = estado,
@@ -946,6 +961,8 @@ namespace HoyDonde.API.Tests.Integration
                 await _fixture.Db!.Collection("tickets").Document(ticketId).SetAsync(new Ticket
                 {
                     Id = ticketId,
+                    QrToken = TestQr.Token(ticketId),
+                    QrVersion = 1,
                     EventoId = eventId,
                     ClientePersonaId = clientePersonaId,
                     Estado = Ticket.TicketStatus.Emitido,
@@ -978,6 +995,55 @@ namespace HoyDonde.API.Tests.Integration
                 Assert.Equal("EventoCancelado", misTickets[ticketId].MotivoNoUtilizable);
                 Assert.Equal("Emitido", misTickets[ticketId].Estado);
             }
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task GetTicketsByClienteIdAsync_CompraIdSetButCompraMissing_FallsBackToLegacyHeuristic()
+        {
+            var clienteUid = $"uid-{Guid.NewGuid():N}";
+            var clientePersonaId = $"persona-{Guid.NewGuid():N}";
+            var sut = BuildTicketService(_fixture, ResolverFor((clienteUid, clientePersonaId)));
+            var eventId = $"event-{Guid.NewGuid():N}";
+            await _fixture.Db!.Collection("events").Document(eventId).SetAsync(new Event
+            {
+                Id = eventId,
+                Nombre = "Evento",
+                FechaInicio = DateTime.UtcNow.AddDays(-1),
+                FechaFin = DateTime.UtcNow.AddDays(1),
+                Estado = Event.EventStatus.Publicado
+            });
+
+            async Task<string> SeedTicket(int qrVersion)
+            {
+                var ticketId = $"ticket-{Guid.NewGuid():N}";
+                await _fixture.Db!.Collection("tickets").Document(ticketId).SetAsync(new Ticket
+                {
+                    Id = ticketId,
+                    QrToken = TestQr.Token(ticketId),
+                    QrVersion = qrVersion,
+                    EventoId = eventId,
+                    ClientePersonaId = clientePersonaId,
+                    CompraId = $"compra-inexistente-{Guid.NewGuid():N}",
+                    Estado = Ticket.TicketStatus.Emitido,
+                    EventoNombre = "Evento",
+                    TicketTypeNombre = "General",
+                    PrecioPagado = 100,
+                    FechaInicio = DateTime.UtcNow.AddDays(-1),
+                    FechaFin = DateTime.UtcNow.AddDays(1),
+                });
+                return ticketId;
+            }
+
+            var original = await SeedTicket(qrVersion: 1);
+            var transferred = await SeedTicket(qrVersion: 2);
+
+            var tickets = (await sut.GetTicketsByClienteIdAsync(clienteUid)).ToDictionary(t => t.Id);
+
+            Assert.Equal(100, tickets[original].PrecioPagado);
+            Assert.NotNull(tickets[original].CompraId);
+            Assert.False(tickets[original].PagoSimulado);
+            Assert.Null(tickets[transferred].PrecioPagado);
+            Assert.Null(tickets[transferred].CompraId);
         }
     }
 }

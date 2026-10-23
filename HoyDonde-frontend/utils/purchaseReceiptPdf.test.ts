@@ -51,7 +51,7 @@ import {
 // eslint-disable-next-line import/first
 import { buildQrSvgMarkup } from './qrSvg';
 // eslint-disable-next-line import/first
-import { buildTicketQrPayload } from './ticketQr';
+import { buildTicketQrValue } from './ticketQr';
 // eslint-disable-next-line import/first
 import type { CompraResponse, TicketResponse } from '@/services/APIService';
 
@@ -69,6 +69,7 @@ function ticket(overrides: Partial<TicketResponse> = {}): TicketResponse {
     eventoNombre: 'Festival de Verano',
     ticketTypeNombre: 'General',
     precioPagado: 5000,
+    qrToken: 'AbCdEfGhIjKlMnOpQrStUv',
     fechaInicio: '2026-12-01T22:00:00Z',
     fechaFin: '2026-12-02T04:00:00Z',
     ...overrides,
@@ -87,7 +88,7 @@ function compra(overrides: Partial<CompraResponse> = {}): CompraResponse {
     fechaFin: '2026-12-02T04:00:00Z',
     fechaCompra: '2026-08-02T12:00:00Z',
     cantidadEntradas: tickets.length,
-    importeTotal: tickets.reduce((sum, t) => sum + t.precioPagado, 0),
+    importeTotal: tickets.reduce((sum, t) => sum + (t.precioPagado ?? 0), 0),
     pagoSimulado: true,
     ...overrides,
     tickets,
@@ -238,26 +239,28 @@ describe('buildPurchaseReceiptHtml', () => {
     expect(html).toContain('GRATIS');
   });
 
-  it('un QR por ticket, y el payload es exactamente el mismo que consume el escáner de Control', () => {
-    const t1 = ticket({ id: 'ticket-aaa', eventoId: 'evento-xyz' });
-    const t2 = ticket({ id: 'ticket-bbb', eventoId: 'evento-xyz' });
+  it('un QR por ticket, y cada QR codifica exactamente el token opaco del backend', () => {
+    const tokenA = 'AbCdEfGhIjKlMnOpQrStUv';
+    const tokenB = 'ZyXwVuTsRqPoNmLkJiHgFe';
+    const t1 = ticket({ id: 'ticket-aaa', eventoId: 'evento-xyz', qrToken: tokenA });
+    const t2 = ticket({ id: 'ticket-bbb', eventoId: 'evento-xyz', qrToken: tokenB });
     const html = buildPurchaseReceiptHtml(compra({ eventoId: 'evento-xyz', tickets: [t1, t2] }));
 
     const ticketBlocks = html.match(/<div class="ticket">/g) ?? [];
     expect(ticketBlocks).toHaveLength(2);
 
-    const svg1 = buildQrSvgMarkup(buildTicketQrPayload('ticket-aaa', 'evento-xyz'), { size: 190 });
-    const svg2 = buildQrSvgMarkup(buildTicketQrPayload('ticket-bbb', 'evento-xyz'), { size: 190 });
+    const svg1 = buildQrSvgMarkup(buildTicketQrValue(tokenA) as string, { size: 190 });
+    const svg2 = buildQrSvgMarkup(buildTicketQrValue(tokenB) as string, { size: 190 });
     expect(html).toContain(svg1);
     expect(html).toContain(svg2);
+    expect(svg1).not.toEqual(svg2);
+  });
 
-    // El payload embebido decodifica exactamente a ticketId/eventId, vía el mismo parser que ya
-    // usa Control (utils/ticketQr.ts), verificado manualmente contra un escaneo real (CLAUDE.md
-    // "Frontend 3").
-    expect(JSON.parse(buildTicketQrPayload('ticket-aaa', 'evento-xyz'))).toEqual({
-      ticketId: 'ticket-aaa',
-      eventId: 'evento-xyz',
-    });
+  it('un ticket sin token no dibuja QR (no inventa uno) y el comprobante igual se genera', () => {
+    const html = buildPurchaseReceiptHtml(compra({ tickets: [ticket({ qrToken: null })] }));
+
+    expect(html).not.toContain('<svg');
+    expect(html).toContain('<div class="ticket">');
   });
 
   it('todos los tickets de la sección de detalle comparten el mismo CompraId que la Compra', () => {

@@ -203,6 +203,8 @@ builder.Services.AddScoped<IIdentityProvider, FirebaseIdentityProvider>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<ITicketValidationStore, FirestoreTicketValidationStore>();
+builder.Services.AddScoped<ITicketTransferStore, FirestoreTicketTransferStore>();
+builder.Services.AddScoped<ITicketTransferService, TicketTransferService>();
 builder.Services.AddScoped<ITicketService, TicketService>();
 builder.Services.AddSingleton<MercadoPagoSignatureVerifier>();
 builder.Services.AddScoped<IPaymentWebhookInbox, PaymentWebhookInbox>();
@@ -273,6 +275,14 @@ builder.Services.AddHttpClient<IManagedFirestoreBackupClient, ManagedFirestoreBa
 // Copias manuales de Firestore: comando dedicado que crea únicamente la Accion
 // BACKUP_ADMINISTRAR contra un Firestore real ya existente.
 builder.Services.AddScoped<SeedBackupActionCommand>();
+
+// Free ticket transfer (resale phase 1): dedicated commands for an already-installed Firestore.
+// seed-ticket-transfer-action creates only the TICKET_TRANSFERIR Accion; migrate-ticket-qr-tokens
+// assigns a QR token to tickets issued before transfers existed.
+builder.Services.AddScoped<SeedTicketTransferActionCommand>();
+builder.Services.AddScoped<MigrateTicketQrTokensCommand>();
+// migrate-usuario-email-normalizado backfills Usuario.EmailNormalizado (case-insensitive recipient lookup).
+builder.Services.AddScoped<MigrateUsuarioEmailNormalizadoCommand>();
 
 var app = builder.Build();
 
@@ -348,6 +358,48 @@ if (args.Length > 0 && string.Equals(args[0], "seed-backup-action", StringCompar
     using (var scope = app.Services.CreateScope())
     {
         var command = scope.ServiceProvider.GetRequiredService<SeedBackupActionCommand>();
+        Environment.ExitCode = await command.RunAsync();
+    }
+    Log.CloseAndFlush();
+    return;
+}
+
+// Dedicated command for free ticket transfers:
+// "dotnet run --project HoyDonde.API -- seed-ticket-transfer-action". Same criteria as the other
+// seed commands: not an HTTP endpoint, never starts the server. Creates only the TICKET_TRANSFERIR
+// Accion; never creates/edits roles nor assigns actions to roles.
+if (args.Length > 0 && string.Equals(args[0], "seed-ticket-transfer-action", StringComparison.OrdinalIgnoreCase))
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var command = scope.ServiceProvider.GetRequiredService<SeedTicketTransferActionCommand>();
+        Environment.ExitCode = await command.RunAsync();
+    }
+    Log.CloseAndFlush();
+    return;
+}
+
+// Data migration for free ticket transfers:
+// "dotnet run --project HoyDonde.API -- migrate-ticket-qr-tokens". Assigns a QR token to every
+// ticket that lacks one (idempotent, safe to re-run). Does not start the server.
+if (args.Length > 0 && string.Equals(args[0], "migrate-ticket-qr-tokens", StringComparison.OrdinalIgnoreCase))
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var command = scope.ServiceProvider.GetRequiredService<MigrateTicketQrTokensCommand>();
+        Environment.ExitCode = await command.RunAsync();
+    }
+    Log.CloseAndFlush();
+    return;
+}
+
+// Data migration: "dotnet run --project HoyDonde.API -- migrate-usuario-email-normalizado".
+// Backfills Usuario.EmailNormalizado (idempotent, safe to re-run). Does not start the server.
+if (args.Length > 0 && string.Equals(args[0], "migrate-usuario-email-normalizado", StringComparison.OrdinalIgnoreCase))
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var command = scope.ServiceProvider.GetRequiredService<MigrateUsuarioEmailNormalizadoCommand>();
         Environment.ExitCode = await command.RunAsync();
     }
     Log.CloseAndFlush();

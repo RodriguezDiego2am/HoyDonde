@@ -23,6 +23,14 @@ namespace HoyDonde.API.Models
         [Google.Cloud.Firestore.FirestoreProperty]
         public string Email { get; set; } = string.Empty;
 
+        // Lowercased, trimmed copy of Email used for case-insensitive lookups (Firestore has no
+        // case-insensitive queries). Always derive it with NormalizarEmail; empty on documents
+        // not yet backfilled by migrate-usuario-email-normalizado.
+        [Google.Cloud.Firestore.FirestoreProperty]
+        public string EmailNormalizado { get; set; } = string.Empty;
+
+        public static string NormalizarEmail(string? email) => (email ?? string.Empty).Trim().ToLowerInvariant();
+
         [Google.Cloud.Firestore.FirestoreProperty]
         public bool IsActive { get; set; } = true;
 

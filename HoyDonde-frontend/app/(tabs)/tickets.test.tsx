@@ -46,6 +46,7 @@ function ticket(overrides: Partial<TicketResponse> = {}): TicketResponse {
     eventoNombre: 'Festival de Verano',
     ticketTypeNombre: 'General',
     precioPagado: 5000,
+    qrToken: 'AbCdEfGhIjKlMnOpQrStUv',
     fechaInicio: '2026-12-01T22:00:00Z',
     fechaFin: '2026-12-02T04:00:00Z',
     ...overrides,
@@ -198,6 +199,85 @@ describe('MisEntradasScreen', () => {
     fireEvent.press(getAllByText('Ver QR')[0]);
 
     await waitFor(() => expect(queryAllByTestId('qr-value')).toHaveLength(1));
-    expect(getAllByText('ticket-1').length).toBeGreaterThan(0);
+    // The QR encodes exactly the backend token; no ids are shown.
+    expect(queryAllByTestId('qr-value')[0].props.children).toBe('AbCdEfGhIjKlMnOpQrStUv');
+  });
+
+  it('un ticket recibido por transferencia no muestra precio ni fecha de compra', async () => {
+    mockAuthValue = { user: { uid: 'cliente-1' }, initializing: false, hasAccion: () => true };
+    jest.spyOn(apiClient, 'get').mockResolvedValue({
+      data: [ticket({ precioPagado: null, compraId: null })],
+    } as any);
+
+    const { findByText, queryByText } = render(<MisEntradasScreen />);
+
+    expect(await findByText('RECIBIDA')).toBeTruthy();
+    expect(await findByText('Recibida por transferencia')).toBeTruthy();
+    expect(queryByText(/Comprada el/)).toBeNull();
+  });
+
+  describe('transferencia', () => {
+    const enableTransfer = () => {
+      mockAuthValue = {
+        user: { uid: 'cliente-1' },
+        initializing: false,
+        hasAccion: (accion) => accion === 'TICKET_VER_PROPIO' || accion === 'TICKET_TRANSFERIR',
+      };
+    };
+
+    it('sin la acción TICKET_TRANSFERIR no ofrece Transferir', async () => {
+      mockAuthValue = { user: { uid: 'cliente-1' }, initializing: false, hasAccion: (a) => a === 'TICKET_VER_PROPIO' };
+      jest.spyOn(apiClient, 'get').mockResolvedValue({ data: [ticket()] } as any);
+
+      const { findByText, queryByText } = render(<MisEntradasScreen />);
+      await findByText('Festival de Verano');
+
+      expect(queryByText('Transferir')).toBeNull();
+    });
+
+    it('solo ofrece Transferir en entradas utilizables', async () => {
+      enableTransfer();
+      jest.spyOn(apiClient, 'get').mockResolvedValue({
+        data: [ticket({ id: 't-usado', estado: 'Usado', utilizable: false, motivoNoUtilizable: 'Usado', qrToken: null })],
+      } as any);
+
+      const { findByText, queryByText } = render(<MisEntradasScreen />);
+      await findByText('USADO');
+
+      expect(queryByText('Transferir')).toBeNull();
+    });
+
+    it('flujo completo: email, confirmación explícita, POST y la entrada sale de la lista', async () => {
+      enableTransfer();
+      jest.spyOn(apiClient, 'get').mockResolvedValue({
+        data: [ticket(), ticket({ id: 'ticket-2', eventoNombre: 'Otro evento' })],
+      } as any);
+      const postSpy = jest
+        .spyOn(apiClient, 'post')
+        .mockResolvedValue({ data: { ticketId: 'ticket-1', transferredAt: '2026-10-22T10:00:00Z' } } as any);
+
+      const { findByText, getAllByText, getByText, getByLabelText, queryByText } = render(<MisEntradasScreen />);
+      await findByText('Festival de Verano');
+
+      fireEvent.press(getAllByText('Transferir')[0]);
+      fireEvent.changeText(getByLabelText('Email del destinatario'), '  destino@example.com ');
+      fireEvent.press(getByText('Continuar'));
+
+      // The confirmation states that it is immediate and irreversible; nothing was sent yet.
+      expect(await findByText(/inmediata e irreversible/)).toBeTruthy();
+      expect(postSpy).not.toHaveBeenCalled();
+
+      fireEvent.press(getByText('Transferir ahora'));
+
+      await findByText('Entrada transferida');
+      expect(postSpy).toHaveBeenCalledTimes(1);
+      expect(postSpy).toHaveBeenCalledWith('/tickets/ticket-1/transfer', { recipientEmail: 'destino@example.com' });
+
+      fireEvent.press(getByText('Listo'));
+
+      await waitFor(() => expect(queryByText('Festival de Verano')).toBeNull());
+      expect(getByText('Otro evento')).toBeTruthy();
+      expect(getByText('Entrada transferida. Tu QR anterior dejó de valer.')).toBeTruthy();
+    });
   });
 });

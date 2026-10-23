@@ -34,7 +34,7 @@ namespace HoyDonde.API.Tests
             // Etapa 5 del refactor de seguridad: la autorización real depende exclusivamente de
             // IPermissionService, resuelto contra las acciones concedidas acá.
             _factory.GrantAccion("test-uid-123", "usuario-tickets-test", "persona-tickets-test",
-                Acciones.TicketComprar, Acciones.TicketVerPropio, Acciones.TicketValidar);
+                Acciones.TicketComprar, Acciones.TicketVerPropio, Acciones.TicketValidar, Acciones.TicketTransferir);
         }
 
         [Fact]
@@ -107,9 +107,12 @@ namespace HoyDonde.API.Tests
 
         // ---- ValidateTicket: evento asignado y estado del ticket ----
 
-        private HttpRequestMessage ValidateRequest(string ticketId, string eventId)
+        private HttpRequestMessage ValidateRequest(string qrToken, string eventId)
         {
-            var msg = new HttpRequestMessage(HttpMethod.Post, $"/api/tickets/validate?ticketId={ticketId}&eventId={eventId}");
+            var msg = new HttpRequestMessage(HttpMethod.Post, "/api/tickets/validate")
+            {
+                Content = JsonContent.Create(new { qrToken, eventId })
+            };
             msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Test");
             return msg;
         }
@@ -187,6 +190,44 @@ namespace HoyDonde.API.Tests
         }
 
         [Fact]
+        public async Task ValidateTicket_StaleOrUnknownQr_ReturnsConflictWithQrInvalidMessage()
+        {
+            _factory.MockTicketService
+                .Setup(s => s.ValidateTicketAsync("test-uid-123", "stale-token", "event-1"))
+                .ReturnsAsync(TicketValidationOutcome.QrInvalido);
+
+            var response = await _client.SendAsync(ValidateRequest("stale-token", "event-1"));
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            Assert.Contains("El código QR no es válido o fue reemplazado.", body);
+        }
+
+        [Fact]
+        public async Task ValidateTicket_QrTokenOnly_NoEventId_PassesNullEventToService()
+        {
+            _factory.MockTicketService
+                .Setup(s => s.ValidateTicketAsync("test-uid-123", "only-token", null))
+                .ReturnsAsync(TicketValidationOutcome.Success);
+            var msg = new HttpRequestMessage(HttpMethod.Post, "/api/tickets/validate")
+            {
+                Content = JsonContent.Create(new { qrToken = "only-token" })
+            };
+
+            var response = await _client.SendAsync(msg);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task ValidateTicket_MissingToken_ReturnsBadRequest()
+        {
+            var response = await _client.SendAsync(ValidateRequest("", "event-1"));
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        [Fact]
         public async Task ValidateTicket_SinAccionTicketValidar_ReturnsForbidden()
         {
             // El servicio ni siquiera debería llamarse: la policy TICKET_VALIDAR corta antes.
@@ -234,6 +275,73 @@ namespace HoyDonde.API.Tests
 
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
             Assert.DoesNotContain("test-uid-123", content);
+        }
+
+        // ---- TransferTicket ----
+
+        private HttpRequestMessage TransferRequest(string ticketId, object body, string? uid = null)
+        {
+            var msg = new HttpRequestMessage(HttpMethod.Post, $"/api/tickets/{ticketId}/transfer")
+            {
+                Content = JsonContent.Create(body)
+            };
+            if (uid != null) msg.Headers.Add("Test-Uid", uid);
+            return msg;
+        }
+
+        [Fact]
+        public async Task TransferTicket_ValidRequest_CallsServiceAndReturnsOkWithoutRecipientOrToken()
+        {
+            _factory.MockTicketTransferService
+                .Setup(s => s.TransferAsync("test-uid-123", "ticket-1", "dest@example.com"))
+                .ReturnsAsync(new TicketTransferResponseDto { TicketId = "ticket-1", TransferredAt = DateTime.UtcNow });
+
+            var response = await _client.SendAsync(TransferRequest("ticket-1", new { recipientEmail = "dest@example.com" }));
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Contains("ticket-1", body);
+            Assert.DoesNotContain("dest@example.com", body);
+            Assert.DoesNotContain("qrToken", body, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task TransferTicket_InvalidEmail_ReturnsBadRequest()
+        {
+            var response = await _client.SendAsync(TransferRequest("ticket-1", new { recipientEmail = "not-an-email" }));
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task TransferTicket_SinAccionTicketTransferir_ReturnsForbidden()
+        {
+            var response = await _client.SendAsync(
+                TransferRequest("ticket-1", new { recipientEmail = "dest@example.com" }, uid: "uid-sin-permiso-tickets"));
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        [Theory]
+        [InlineData(typeof(TicketNoEncontradoException), HttpStatusCode.NotFound, "TICKET_NOT_FOUND")]
+        [InlineData(typeof(TransferenciaDestinatarioInvalidoException), HttpStatusCode.NotFound, "TRANSFER_RECIPIENT_INVALID")]
+        [InlineData(typeof(TransferenciaAUnoMismoException), HttpStatusCode.BadRequest, "TRANSFER_TO_SELF")]
+        [InlineData(typeof(TicketNoTransferibleException), HttpStatusCode.Conflict, "TICKET_NOT_TRANSFERABLE")]
+        [InlineData(typeof(TransferenciaLimiteExcedidoException), HttpStatusCode.TooManyRequests, "TRANSFER_RATE_LIMITED")]
+        public async Task TransferTicket_DomainExceptions_MapToStatusAndCode_WithoutEchoingEmail(
+            Type exceptionType, HttpStatusCode expectedStatus, string expectedCode)
+        {
+            _factory.MockTicketTransferService
+                .Setup(s => s.TransferAsync("test-uid-123", "ticket-err", It.IsAny<string>()))
+                .ThrowsAsync((Exception)Activator.CreateInstance(exceptionType)!);
+
+            var response = await _client.SendAsync(TransferRequest("ticket-err", new { recipientEmail = "secret.person@example.com" }));
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(expectedStatus, response.StatusCode);
+            using var doc = JsonDocument.Parse(body);
+            Assert.Equal(expectedCode, doc.RootElement.GetProperty("code").GetString());
+            Assert.DoesNotContain("secret.person", body);
         }
     }
 }

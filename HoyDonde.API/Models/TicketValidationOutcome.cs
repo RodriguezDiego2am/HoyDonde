@@ -4,7 +4,8 @@ namespace HoyDonde.API.Models
     {
         Success,
         NotAuthorized,
-        NotFound,
+        // Unknown or stale (rotated by a transfer) QR token.
+        QrInvalido,
         AlreadyUsed,
         Anulado,
         EventoCancelado,

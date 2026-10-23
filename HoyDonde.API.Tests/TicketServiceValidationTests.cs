@@ -52,6 +52,8 @@ namespace HoyDonde.API.Tests
         private static Ticket EmitidoTicket(string id = "ticket-1", string eventId = EventId) => new Ticket
         {
             Id = id,
+            QrToken = TestQr.Token(id),
+            QrVersion = 1,
             EventoId = eventId,
             ClientePersonaId = "cliente-persona-1",
             Estado = Ticket.TicketStatus.Emitido
@@ -64,7 +66,7 @@ namespace HoyDonde.API.Tests
             store.Seed(EmitidoTicket());
             var sut = CreateSut(store);
 
-            var outcome = await sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId);
+            var outcome = await sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), EventId);
 
             Assert.Equal(TicketValidationOutcome.Success, outcome);
         }
@@ -76,8 +78,8 @@ namespace HoyDonde.API.Tests
             store.Seed(EmitidoTicket());
             var sut = CreateSut(store);
 
-            var first = await sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId);
-            var second = await sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId);
+            var first = await sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), EventId);
+            var second = await sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), EventId);
 
             Assert.Equal(TicketValidationOutcome.Success, first);
             Assert.Equal(TicketValidationOutcome.AlreadyUsed, second);
@@ -91,8 +93,8 @@ namespace HoyDonde.API.Tests
             var sut = CreateSut(store);
 
             // Task.Run fuerza ejecución real en threads del pool, no sólo await secuencial.
-            var task1 = Task.Run(() => sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId));
-            var task2 = Task.Run(() => sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId));
+            var task1 = Task.Run(() => sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), EventId));
+            var task2 = Task.Run(() => sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), EventId));
 
             var results = await Task.WhenAll(task1, task2);
 
@@ -109,7 +111,7 @@ namespace HoyDonde.API.Tests
             store.Seed(ticket);
             var sut = CreateSut(store);
 
-            var outcome = await sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId);
+            var outcome = await sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), EventId);
 
             Assert.Equal(TicketValidationOutcome.Anulado, outcome);
         }
@@ -128,7 +130,7 @@ namespace HoyDonde.API.Tests
             });
             var sut = CreateSut(store);
 
-            var outcome = await sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId);
+            var outcome = await sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), EventId);
 
             Assert.Equal(TicketValidationOutcome.EventoCancelado, outcome);
         }
@@ -147,7 +149,7 @@ namespace HoyDonde.API.Tests
             });
             var sut = CreateSut(store);
 
-            var outcome = await sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId);
+            var outcome = await sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), EventId);
 
             Assert.Equal(TicketValidationOutcome.EventoFinalizado, outcome);
         }
@@ -166,7 +168,7 @@ namespace HoyDonde.API.Tests
             });
             var sut = CreateSut(store);
 
-            var outcome = await sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId);
+            var outcome = await sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), EventId);
 
             Assert.Equal(TicketValidationOutcome.Success, outcome);
         }
@@ -178,7 +180,7 @@ namespace HoyDonde.API.Tests
             store.Seed(EmitidoTicket(eventId: "event-2"));
             var sut = CreateSut(store);
 
-            var outcome = await sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId);
+            var outcome = await sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), EventId);
 
             Assert.Equal(TicketValidationOutcome.NotAuthorized, outcome);
         }
@@ -192,7 +194,7 @@ namespace HoyDonde.API.Tests
             // debería llegar a mirar el ticket.
             var sut = CreateSut(store, asignado: false);
 
-            var outcome = await sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId);
+            var outcome = await sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), EventId);
 
             Assert.Equal(TicketValidationOutcome.NotAuthorized, outcome);
         }
@@ -215,8 +217,8 @@ namespace HoyDonde.API.Tests
             var logger = new Mock<ILogger<TicketService>>();
             var sut = new TicketService(null!, personaResolver.Object, controlAsignacionRepository.Object, store, logger.Object);
 
-            var outcomeEvent1 = await sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId);
-            var outcomeEvent2 = await sut.ValidateTicketAsync(ControlUid, "ticket-2", otherEventId);
+            var outcomeEvent1 = await sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), EventId);
+            var outcomeEvent2 = await sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-2"), otherEventId);
 
             Assert.Equal(TicketValidationOutcome.Success, outcomeEvent1);
             Assert.Equal(TicketValidationOutcome.Success, outcomeEvent2);
@@ -230,7 +232,93 @@ namespace HoyDonde.API.Tests
             var sut = CreateSut(store, controlProvisioned: false);
 
             await Assert.ThrowsAsync<HoyDonde.API.Exceptions.IdentityNotProvisionedException>(
-                () => sut.ValidateTicketAsync(ControlUid, "ticket-1", EventId));
+                () => sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), EventId));
+        }
+
+        // ---- QR token contract ----
+
+        [Fact]
+        public async Task ValidateTicketAsync_StaleToken_ReturnsQrInvalido_AndDoesNotConsumeTicket()
+        {
+            var store = new FakeTicketValidationStore();
+            var ticket = EmitidoTicket();
+            store.Seed(ticket);
+            var staleToken = ticket.QrToken!;
+            // Simulates a transfer: the ticket now carries a different, current token.
+            ticket.QrToken = QrTokenGenerator.NewToken();
+            var sut = CreateSut(store);
+
+            var stale = await sut.ValidateTicketAsync(ControlUid, staleToken, EventId);
+            var current = await sut.ValidateTicketAsync(ControlUid, ticket.QrToken, EventId);
+
+            Assert.Equal(TicketValidationOutcome.QrInvalido, stale);
+            Assert.Equal(TicketValidationOutcome.Success, current);
+        }
+
+        [Fact]
+        public async Task ValidateTicketAsync_UnknownWellFormedToken_ReturnsQrInvalido()
+        {
+            var store = new FakeTicketValidationStore();
+            store.Seed(EmitidoTicket());
+            var sut = CreateSut(store);
+
+            var outcome = await sut.ValidateTicketAsync(ControlUid, QrTokenGenerator.NewToken(), EventId);
+
+            Assert.Equal(TicketValidationOutcome.QrInvalido, outcome);
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("ticket-1")]
+        [InlineData("{\"ticketId\":\"ticket-1\",\"eventId\":\"event-1\"}")]
+        public async Task ValidateTicketAsync_LegacyOrMalformedPayload_ReturnsQrInvalido(string payload)
+        {
+            var store = new FakeTicketValidationStore();
+            store.Seed(EmitidoTicket());
+            var sut = CreateSut(store);
+
+            var outcome = await sut.ValidateTicketAsync(ControlUid, payload, EventId);
+
+            Assert.Equal(TicketValidationOutcome.QrInvalido, outcome);
+        }
+
+        [Fact]
+        public async Task ValidateTicketAsync_WithoutEventId_DerivesEventFromTokenAndValidates()
+        {
+            var store = new FakeTicketValidationStore();
+            store.Seed(EmitidoTicket());
+            var sut = CreateSut(store);
+
+            var outcome = await sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), null);
+
+            Assert.Equal(TicketValidationOutcome.Success, outcome);
+        }
+
+        [Fact]
+        public async Task ValidateTicketAsync_WithoutEventId_UnknownToken_ReturnsQrInvalido()
+        {
+            var store = new FakeTicketValidationStore();
+            store.Seed(EmitidoTicket());
+            var sut = CreateSut(store);
+
+            var outcome = await sut.ValidateTicketAsync(ControlUid, QrTokenGenerator.NewToken(), null);
+
+            Assert.Equal(TicketValidationOutcome.QrInvalido, outcome);
+        }
+
+        [Fact]
+        public async Task ValidateTicketAsync_WithoutEventId_ControlNotAssignedToTicketsEvent_ReturnsNotAuthorized_AndDoesNotConsume()
+        {
+            var store = new FakeTicketValidationStore();
+            store.Seed(EmitidoTicket());
+            var sut = CreateSut(store, asignado: false);
+
+            var outcome = await sut.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), null);
+
+            Assert.Equal(TicketValidationOutcome.NotAuthorized, outcome);
+            // Still unused afterwards: an assigned control can validate it.
+            var assigned = CreateSut(store);
+            Assert.Equal(TicketValidationOutcome.Success, await assigned.ValidateTicketAsync(ControlUid, TestQr.Token("ticket-1"), null));
         }
     }
 }

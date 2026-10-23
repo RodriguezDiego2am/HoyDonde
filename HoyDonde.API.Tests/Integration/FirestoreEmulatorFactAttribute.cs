@@ -16,3 +16,17 @@ namespace HoyDonde.API.Tests.Integration
         }
     }
 }
+
+namespace HoyDonde.API.Tests.Integration
+{
+    public sealed class FirestoreEmulatorTheoryAttribute : TheoryAttribute
+    {
+        public FirestoreEmulatorTheoryAttribute()
+        {
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FIRESTORE_EMULATOR_HOST")))
+            {
+                Skip = "Requiere FIRESTORE_EMULATOR_HOST (Firestore Emulator) — no disponible en este entorno.";
+            }
+        }
+    }
+}

@@ -1,4 +1,6 @@
 using System;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using Google.Cloud.Firestore;
 using HoyDonde.API.Models;
@@ -16,22 +18,50 @@ namespace HoyDonde.API.Repositories
             _firestore = firestore;
         }
 
-        public async Task<TicketConsumeResult> TryConsumeAsync(string ticketId, string eventId, string validatedByPersonaId)
+        public async Task<string?> FindEventIdByQrTokenAsync(string qrToken)
         {
-            var ticketRef = _firestore.Collection(TicketsCollection).Document(ticketId);
+            var lookup = await _firestore.Collection(TicketsCollection)
+                .WhereEqualTo(nameof(Ticket.QrToken), qrToken)
+                .Limit(1)
+                .GetSnapshotAsync();
+            if (lookup.Count == 0) return null;
+            var eventId = lookup.Documents[0].ConvertTo<Ticket>().EventoId;
+            return string.IsNullOrEmpty(eventId) ? null : eventId;
+        }
+
+        public async Task<TicketConsumeResult> TryConsumeAsync(string qrToken, string eventId, string validatedByPersonaId)
+        {
+            // The QR carries only the opaque token, so the ticket is located by it. A rotated
+            // (stale) token matches no ticket and is rejected exactly like an unknown one.
+            var lookup = await _firestore.Collection(TicketsCollection)
+                .WhereEqualTo(nameof(Ticket.QrToken), qrToken)
+                .Limit(1)
+                .GetSnapshotAsync();
+            if (lookup.Count == 0)
+                return TicketConsumeResult.QrInvalido;
+
+            var ticketRef = lookup.Documents[0].Reference;
             var eventRef = _firestore.Collection(EventsCollection).Document(eventId);
-            var result = TicketConsumeResult.NotFound;
+            var result = TicketConsumeResult.QrInvalido;
 
             await _firestore.RunTransactionAsync(async transaction =>
             {
                 var snapshot = await transaction.GetSnapshotAsync(ticketRef);
                 if (!snapshot.Exists)
                 {
-                    result = TicketConsumeResult.NotFound;
+                    result = TicketConsumeResult.QrInvalido;
                     return;
                 }
 
                 var ticket = snapshot.ConvertTo<Ticket>();
+
+                // Re-verified inside the transaction: a transfer that rotated the token between
+                // the lookup above and this read makes the scanned QR stale.
+                if (!TokensMatch(ticket.QrToken, qrToken))
+                {
+                    result = TicketConsumeResult.QrInvalido;
+                    return;
+                }
 
                 if (ticket.EventoId != eventId)
                 {
@@ -85,6 +115,13 @@ namespace HoyDonde.API.Repositories
             });
 
             return result;
+        }
+
+        private static bool TokensMatch(string? stored, string presented)
+        {
+            if (string.IsNullOrEmpty(stored)) return false;
+            return CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(stored), Encoding.UTF8.GetBytes(presented));
         }
     }
 }

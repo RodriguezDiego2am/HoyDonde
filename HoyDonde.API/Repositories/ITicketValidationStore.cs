@@ -5,7 +5,8 @@ namespace HoyDonde.API.Repositories
     public enum TicketConsumeResult
     {
         Success,
-        NotFound,
+        // Unknown or stale (rotated by a transfer) QR token.
+        QrInvalido,
         EventMismatch,
         AlreadyUsed,
         Anulado,
@@ -20,6 +21,11 @@ namespace HoyDonde.API.Repositories
     // <= FechaFin) se evalúa contra el Event leído dentro de la misma transacción.
     public interface ITicketValidationStore
     {
-        Task<TicketConsumeResult> TryConsumeAsync(string ticketId, string eventId, string validatedByPersonaId);
+        // Event of the ticket that currently owns this QR token; null for an unknown or stale token.
+        // Lets the QR carry only the token: the caller derives the event, then checks the Control's
+        // assignment against it. TryConsumeAsync still re-verifies everything transactionally.
+        Task<string?> FindEventIdByQrTokenAsync(string qrToken);
+
+        Task<TicketConsumeResult> TryConsumeAsync(string qrToken, string eventId, string validatedByPersonaId);
     }
 }

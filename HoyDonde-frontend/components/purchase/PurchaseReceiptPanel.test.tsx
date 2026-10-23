@@ -60,7 +60,7 @@ function compra(overrides: Partial<CompraResponse> = {}): CompraResponse {
     fechaFin: '2026-12-02T04:00:00Z',
     fechaCompra: '2026-08-02T12:00:00Z',
     cantidadEntradas: tickets.length,
-    importeTotal: tickets.reduce((sum, t) => sum + t.precioPagado, 0),
+    importeTotal: tickets.reduce((sum, t) => sum + (t.precioPagado ?? 0), 0),
     pagoSimulado: true,
     ...overrides,
     tickets,

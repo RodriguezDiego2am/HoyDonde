@@ -9,6 +9,6 @@ namespace HoyDonde.API.Services
     {
         Task<CompraResponseDto> BuyTicketsAsync(string clienteId, TicketBuyRequest request);
         Task<List<TicketResponseDto>> GetTicketsByClienteIdAsync(string clienteId);
-        Task<TicketValidationOutcome> ValidateTicketAsync(string controlId, string ticketId, string eventId);
+        Task<TicketValidationOutcome> ValidateTicketAsync(string controlId, string qrToken, string? eventId);
     }
 }

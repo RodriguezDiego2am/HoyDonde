@@ -28,6 +28,12 @@ namespace HoyDonde.API.Repositories
         // tiene esa PersonaId.
         Task<Usuario?> GetByPersonaIdAsync(string personaId);
 
+        // Resolves a Usuario by email (ticket transfers). The trimmed input is normalized and matched
+        // against Usuario.EmailNormalizado first (case-insensitive); users not yet backfilled by
+        // migrate-usuario-email-normalizado fall back to the exact trimmed or lower-case Email.
+        // null when none matches.
+        Task<Usuario?> GetByEmailAsync(string email);
+
         // Resolución batch de varios Usuario por PersonaId (API-MVP 5, docs/api-mvp-plan.md §6):
         // evita una lectura individual por Control al listar los Controles del ámbito de un
         // Organizador o los asignados a un evento. Firestore WhereIn admite hasta 30 valores por

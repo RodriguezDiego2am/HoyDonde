@@ -2,8 +2,8 @@ import { apiClient } from './APIService';
 import { ApiError } from './apiError';
 
 export interface TicketValidationRequest {
-  ticketId: string;
-  eventId: string;
+  /** Contenido del QR: el token opaco emitido por el backend. El evento lo deduce la API del propio ticket. */
+  qrToken: string;
 }
 
 export type TicketValidationOutcomeKind =
@@ -14,6 +14,7 @@ export type TicketValidationOutcomeKind =
   | 'eventoFinalizado'
   | 'notAuthorized'
   | 'notFound'
+  | 'qrInvalido'
   | 'network'
   | 'unexpected';
 
@@ -31,21 +32,21 @@ const KNOWN_MESSAGE_KIND: Record<string, TicketValidationOutcomeKind> = {
   'El evento ya finalizó.': 'eventoFinalizado',
   'No autorizado para validar tickets de este evento.': 'notAuthorized',
   'Ticket no encontrado.': 'notFound',
+  'El código QR no es válido o fue reemplazado.': 'qrInvalido',
 };
 
 const GENERIC_NETWORK_MESSAGE = 'No se pudo conectar con el servidor. Verificá tu conexión.';
 
 /**
- * POST /api/tickets/validate?ticketId=...&eventId=... — Policy TICKET_VALIDAR
+ * POST /api/tickets/validate con body { qrToken } — Policy TICKET_VALIDAR
  * (API_Documentation.md §9, TicketsController.ValidateTicket). La API decide todo: pertenencia
  * del Control al evento, vigencia del evento y estado del ticket — esta función nunca infiere
  * validez localmente, solo traduce la respuesta real a un resultado tipado.
  */
-export async function validateTicket({ ticketId, eventId }: TicketValidationRequest): Promise<TicketValidationResult> {
+export async function validateTicket({ qrToken }: TicketValidationRequest): Promise<TicketValidationResult> {
   try {
-    const response = await apiClient.post<{ valid: boolean; message: string }>('/tickets/validate', null, {
-      params: { ticketId, eventId },
-    });
+    // El token viaja en el body (nunca en la URL) para que no quede en logs de acceso.
+    const response = await apiClient.post<{ valid: boolean; message: string }>('/tickets/validate', { qrToken });
     return { kind: 'valid', message: response.data.message };
   } catch (error) {
     if (error instanceof ApiError) {

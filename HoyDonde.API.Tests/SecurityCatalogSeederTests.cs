@@ -66,6 +66,13 @@ namespace HoyDonde.API.Tests
             rolRepository.Verify(r => r.AssignAccionAsync("ORGANIZADOR", "BACKUP_ADMINISTRAR", It.IsAny<string>()), Times.Never);
             rolRepository.Verify(r => r.AssignAccionAsync("CLIENTE", "BACKUP_ADMINISTRAR", It.IsAny<string>()), Times.Never);
             rolRepository.Verify(r => r.AssignAccionAsync("CONTROL", "BACKUP_ADMINISTRAR", It.IsAny<string>()), Times.Never);
+
+            // TICKET_TRANSFERIR (free ticket transfer): CLIENTE only, for new installations.
+            accionRepository.Verify(r => r.CreateAsync(It.Is<Accion>(x => x.Codigo == "TICKET_TRANSFERIR")), Times.Once);
+            rolRepository.Verify(r => r.AssignAccionAsync("CLIENTE", "TICKET_TRANSFERIR", SecurityCatalogSeeder.SeedActor), Times.Once);
+            rolRepository.Verify(r => r.AssignAccionAsync("ORGANIZADOR", "TICKET_TRANSFERIR", It.IsAny<string>()), Times.Never);
+            rolRepository.Verify(r => r.AssignAccionAsync("CONTROL", "TICKET_TRANSFERIR", It.IsAny<string>()), Times.Never);
+            rolRepository.Verify(r => r.AssignAccionAsync("ADMINISTRADOR", "TICKET_TRANSFERIR", It.IsAny<string>()), Times.Never);
         }
 
         [Fact]

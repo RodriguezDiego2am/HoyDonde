@@ -4,7 +4,7 @@ import { File, Paths } from 'expo-file-system';
 
 import { escapeHtml } from './reportPdf';
 import { formatFechaHora, formatPrecio } from './format';
-import { buildTicketQrPayload } from './ticketQr';
+import { buildTicketQrValue } from './ticketQr';
 import { buildQrSvgMarkup } from './qrSvg';
 import type { CompraResponse, TicketResponse } from '@/services/APIService';
 
@@ -71,6 +71,9 @@ export function groupPurchaseTickets(tickets: TicketResponse[]): PurchaseReceipt
   const indexByTipo = new Map<string, number>();
 
   for (const ticket of tickets) {
+    // The purchase response is always the buyer's own, so the price is present (null only
+    // applies to tickets received by transfer, which never appear in a purchase receipt).
+    const precio = ticket.precioPagado ?? 0;
     const idx = indexByTipo.get(ticket.ticketTypeId);
     if (idx === undefined) {
       indexByTipo.set(ticket.ticketTypeId, groups.length);
@@ -78,12 +81,12 @@ export function groupPurchaseTickets(tickets: TicketResponse[]): PurchaseReceipt
         ticketTypeId: ticket.ticketTypeId,
         ticketTypeNombre: ticket.ticketTypeNombre,
         cantidad: 1,
-        precioUnitario: ticket.precioPagado,
-        subtotal: ticket.precioPagado,
+        precioUnitario: precio,
+        subtotal: precio,
       });
     } else {
       groups[idx].cantidad += 1;
-      groups[idx].subtotal += ticket.precioPagado;
+      groups[idx].subtotal += precio;
     }
   }
 
@@ -98,7 +101,7 @@ export interface PurchaseReceiptTotals {
 export function computePurchaseTotals(tickets: TicketResponse[]): PurchaseReceiptTotals {
   return {
     cantidadTotal: tickets.length,
-    importeTotal: tickets.reduce((sum, t) => sum + t.precioPagado, 0),
+    importeTotal: tickets.reduce((sum, t) => sum + (t.precioPagado ?? 0), 0),
   };
 }
 
@@ -114,8 +117,9 @@ export function buildReceiptFileName(fechaCompraIso: string): string {
 }
 
 function buildTicketSectionHtml(ticket: TicketResponse, index: number, total: number): string {
-  const payload = buildTicketQrPayload(ticket.id, ticket.eventoId);
-  const qrSvg = buildQrSvgMarkup(payload, { size: 190 });
+  // The QR is the opaque backend token. It stays valid only until the ticket is transferred.
+  const payload = buildTicketQrValue(ticket.qrToken);
+  const qrSvg = payload ? buildQrSvgMarkup(payload, { size: 190 }) : '';
 
   return `
   <div class="ticket">
@@ -125,7 +129,7 @@ function buildTicketSectionHtml(ticket: TicketResponse, index: number, total: nu
     </div>
     <div class="ticketId">ID de la entrada: <span class="mono">${escapeHtml(ticket.id)}</span></div>
     <div class="qrWrap">${qrSvg}</div>
-    <p class="ticketHint">Presentá este código QR al Control del evento para validar esta entrada. Es de un solo uso: no lo compartas.</p>
+    <p class="ticketHint">Presentá este código QR al Control del evento para validar esta entrada. Es de un solo uso: no lo compartas. Si transferís la entrada, este QR deja de valer.</p>
   </div>`;
 }
 

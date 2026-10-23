@@ -1,5 +1,7 @@
 using System;
 using System.Threading.Tasks;
+using HoyDonde.API.Commands;
+using Microsoft.Extensions.Logging.Abstractions;
 using HoyDonde.API.Models;
 using HoyDonde.API.Repositories;
 using Xunit;
@@ -207,6 +209,68 @@ namespace HoyDonde.API.Tests.Integration
 
             var conAsignacion = await sut.GetUsuarioIdsConRolActivoAsync(rolCodigo);
             Assert.Equal(new[] { usuarioId }, conAsignacion);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task ProvisionarAsync_PersistsEmailNormalizado_AndGetByEmailIsCaseInsensitive()
+        {
+            var sut = new FirestoreUsuarioRepository(_fixture.Db!);
+            var usuarioId = $"usuario-{Guid.NewGuid():N}";
+            var local = Guid.NewGuid().ToString("N");
+            await sut.ProvisionarAsync(NewRequest(
+                $"persona-{Guid.NewGuid():N}", usuarioId, $"uid-{Guid.NewGuid():N}", $"Juan.{local}@Gmail.com", "CLIENTE"));
+
+            var stored = await sut.GetByIdAsync(usuarioId);
+            Assert.Equal($"juan.{local}@gmail.com", stored!.EmailNormalizado);
+            Assert.Equal($"Juan.{local}@Gmail.com", stored.Email);
+
+            var found = await sut.GetByEmailAsync($"  jUAN.{local}@gmail.COM ");
+            Assert.Equal(usuarioId, found!.Id);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task GetByEmailAsync_FallsBackToEmail_ForUsersNotYetMigrated()
+        {
+            var sut = new FirestoreUsuarioRepository(_fixture.Db!);
+            var usuarioId = $"usuario-{Guid.NewGuid():N}";
+            var email = $"legacy-{Guid.NewGuid():N}@test.com";
+            await _fixture.Db!.Collection("usuarios").Document(usuarioId).SetAsync(new Usuario
+            {
+                Id = usuarioId,
+                PersonaId = $"persona-{Guid.NewGuid():N}",
+                Email = email,
+            });
+
+            var found = await sut.GetByEmailAsync(email.ToUpperInvariant());
+
+            Assert.Equal(usuarioId, found!.Id);
+        }
+
+        [FirestoreEmulatorFact]
+        public async Task MigrateUsuarioEmailNormalizado_BackfillsMixedCaseEmails_AndIsIdempotent()
+        {
+            var db = _fixture.Db!;
+            var sut = new FirestoreUsuarioRepository(db);
+            var usuarioId = $"usuario-{Guid.NewGuid():N}";
+            var local = Guid.NewGuid().ToString("N");
+            await db.Collection("usuarios").Document(usuarioId).SetAsync(new Usuario
+            {
+                Id = usuarioId,
+                PersonaId = $"persona-{Guid.NewGuid():N}",
+                Email = $" Mixed.{local}@Example.COM ",
+            });
+            Assert.Null(await sut.GetByEmailAsync($"MIXED.{local}@example.com"));
+
+            var command = new MigrateUsuarioEmailNormalizadoCommand(db, NullLogger<MigrateUsuarioEmailNormalizadoCommand>.Instance);
+            var first = await command.MigrateAsync();
+
+            Assert.True(first.Migrated >= 1);
+            var migrated = await sut.GetByIdAsync(usuarioId);
+            Assert.Equal($"mixed.{local}@example.com", migrated!.EmailNormalizado);
+            Assert.Equal(usuarioId, (await sut.GetByEmailAsync($"MIXED.{local}@example.com"))!.Id);
+
+            var second = await command.MigrateAsync();
+            Assert.Equal(0, second.Migrated);
         }
     }
 }

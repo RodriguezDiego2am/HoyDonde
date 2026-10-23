@@ -7,30 +7,29 @@ import { ActionButton } from '@/components/ui/ActionButton';
 import { EditorialHeader } from '@/components/ui/EditorialHeader';
 import { colors, fonts, spacing } from '@/constants/theme';
 import { useTicketValidation } from '@/hooks/useTicketValidation';
+import { parseTicketQrToken } from '@/utils/ticketQr';
 
 /**
  * Alternativa secundaria al escáner (Frontend 3): comparte servicio, lock y presentación de
  * resultado con ControlScanScreen a través de useTicketValidation/ControlResultView — nunca
- * duplica la lógica de validación. Los ids pueden pegarse desde el fallback legible de "Mis
- * entradas" (components/ui/TicketQRModal.tsx).
+ * duplica la lógica de validación. El código puede pegarse desde el fallback legible de "Mis
+ * entradas" (components/ui/TicketQRModal.tsx): es el mismo token opaco que codifica el QR.
  */
 export default function ControlManualEntryScreen() {
-  const [ticketId, setTicketId] = useState('');
-  const [eventId, setEventId] = useState('');
+  const [code, setCode] = useState('');
   const { result, validating, validate, reset } = useTicketValidation();
 
-  const trimmedTicketId = ticketId.trim();
-  const trimmedEventId = eventId.trim();
-  const canSubmit = trimmedTicketId.length > 0 && trimmedEventId.length > 0 && !validating;
+  const qrToken = parseTicketQrToken(code);
+  const showFormatError = code.trim().length > 0 && qrToken === null;
+  const canSubmit = qrToken !== null && !validating;
 
   const handleSubmit = () => {
-    if (!canSubmit) return;
-    void validate(trimmedTicketId, trimmedEventId);
+    if (!qrToken || validating) return;
+    void validate(qrToken);
   };
 
   const handleScanNext = () => {
-    setTicketId('');
-    setEventId('');
+    setCode('');
     reset();
   };
 
@@ -48,11 +47,17 @@ export default function ControlManualEntryScreen() {
       />
 
       <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
-        <FormInput label="Ticket ID" value={ticketId} onChangeText={setTicketId} placeholder="ticket-..." />
-        <FormInput label="Event ID" value={eventId} onChangeText={setEventId} placeholder="evento-..." />
+        <FormInput
+          label="Código de la entrada"
+          value={code}
+          onChangeText={setCode}
+          placeholder="22 caracteres"
+          error={showFormatError ? 'El código debe tener 22 caracteres (letras, números, - o _).' : null}
+        />
 
         <Text style={styles.hint}>
-          Podés pegar ambos ids desde la pantalla de detalle de la entrada en &quot;Mis entradas&quot; del cliente.
+          Pedile al cliente el código que aparece debajo del QR en &quot;Mis entradas&quot;. Es el mismo que codifica el QR
+          y cambia si la entrada se transfiere.
         </Text>
 
         <View style={styles.buttonRow}>

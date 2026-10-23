@@ -16,6 +16,7 @@ const CASES: { kind: TicketValidationOutcomeKind; message: string; headline: str
     headline: 'CONTROL NO AUTORIZADO',
   },
   { kind: 'notFound', message: 'Ticket no encontrado.', headline: 'ENTRADA NO ENCONTRADA' },
+  { kind: 'qrInvalido', message: 'El código QR no es válido o fue reemplazado.', headline: 'QR NO VÁLIDO' },
   { kind: 'network', message: 'No se pudo conectar con el servidor. Verificá tu conexión.', headline: 'ERROR DE CONEXIÓN' },
   { kind: 'unexpected', message: 'Ocurrió un error inesperado.', headline: 'ERROR INESPERADO' },
 ];

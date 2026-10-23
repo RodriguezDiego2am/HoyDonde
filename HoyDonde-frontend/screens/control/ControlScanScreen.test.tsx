@@ -45,12 +45,15 @@ jest.mock('@/services/ticketValidationService', () => ({
 // eslint-disable-next-line import/first -- debe importarse después de los jest.mock de sus dependencias
 import ControlScanScreen from './ControlScanScreen';
 
+const TOKEN = 'AbCdEfGhIjKlMnOpQrStUv';
+const TOKEN_2 = 'ZyXwVuTsRqPoNmLkJiHgFe';
+
 function scanData(getByTestId: (id: string) => any, data: string) {
   fireEvent(getByTestId('control-camera-view'), 'barcodeScanned', { data });
 }
 
-function scanPayload(getByTestId: (id: string) => any, payload: { ticketId: string; eventId: string }) {
-  scanData(getByTestId, JSON.stringify(payload));
+function scanToken(getByTestId: (id: string) => any, token: string) {
+  scanData(getByTestId, token);
 }
 
 describe('ControlScanScreen', () => {
@@ -105,18 +108,18 @@ describe('ControlScanScreen', () => {
     expect(getByText('Cámara en pausa')).toBeTruthy();
   });
 
-  it('un QR válido llama a validateTicket una sola vez con los ids exactos', async () => {
+  it('un QR válido llama a validateTicket una sola vez con el token exacto', async () => {
     mockPermission = { granted: true, status: 'granted', canAskAgain: true };
     mockValidateTicket.mockResolvedValue({ kind: 'valid', message: 'Ticket validado para este evento.' });
     const { getByTestId, findByText } = render(<ControlScanScreen />);
 
     act(() => {
-      scanPayload(getByTestId, { ticketId: 'ticket-1', eventId: 'evento-1' });
+      scanToken(getByTestId, TOKEN);
     });
 
     await findByText('Ticket validado para este evento.');
     expect(mockValidateTicket).toHaveBeenCalledTimes(1);
-    expect(mockValidateTicket).toHaveBeenCalledWith({ ticketId: 'ticket-1', eventId: 'evento-1' });
+    expect(mockValidateTicket).toHaveBeenCalledWith({ qrToken: TOKEN });
   });
 
   it('varios frames del mismo QR no duplican la validación', async () => {
@@ -130,9 +133,9 @@ describe('ControlScanScreen', () => {
     const { getByTestId } = render(<ControlScanScreen />);
 
     act(() => {
-      scanPayload(getByTestId, { ticketId: 'ticket-1', eventId: 'evento-1' });
-      scanPayload(getByTestId, { ticketId: 'ticket-1', eventId: 'evento-1' });
-      scanPayload(getByTestId, { ticketId: 'ticket-1', eventId: 'evento-1' });
+      scanToken(getByTestId, TOKEN);
+      scanToken(getByTestId, TOKEN);
+      scanToken(getByTestId, TOKEN);
     });
 
     expect(mockValidateTicket).toHaveBeenCalledTimes(1);
@@ -142,12 +145,24 @@ describe('ControlScanScreen', () => {
     });
   });
 
-  it('un QR inválido (JSON sin la forma esperada) se rechaza localmente y no llama a la API', () => {
+  it('un QR que no es un token (texto arbitrario) se rechaza localmente y no llama a la API', () => {
     mockPermission = { granted: true, status: 'granted', canAskAgain: true };
     const { getByTestId, getByText } = render(<ControlScanScreen />);
 
     act(() => {
       scanData(getByTestId, 'esto no es un JSON de ticket');
+    });
+
+    expect(mockValidateTicket).not.toHaveBeenCalled();
+    expect(getByText('Ese código no corresponde a una entrada de HoyDonde?.')).toBeTruthy();
+  });
+
+  it('el QR legado { ticketId, eventId } ya no se acepta: se rechaza localmente y no llama a la API', () => {
+    mockPermission = { granted: true, status: 'granted', canAskAgain: true };
+    const { getByTestId, getByText } = render(<ControlScanScreen />);
+
+    act(() => {
+      scanData(getByTestId, JSON.stringify({ ticketId: 'ticket-1', eventId: 'evento-1' }));
     });
 
     expect(mockValidateTicket).not.toHaveBeenCalled();
@@ -167,13 +182,13 @@ describe('ControlScanScreen', () => {
 
   it('"Escanear siguiente" limpia el resultado y el lock, y remonta la cámara', async () => {
     mockPermission = { granted: true, status: 'granted', canAskAgain: true };
-    mockValidateTicket.mockResolvedValue({ kind: 'notFound', message: 'Ticket no encontrado.' });
+    mockValidateTicket.mockResolvedValue({ kind: 'qrInvalido', message: 'El código QR no es válido o fue reemplazado.' });
     const { getByTestId, findByText, getByText, queryByTestId } = render(<ControlScanScreen />);
 
     act(() => {
-      scanPayload(getByTestId, { ticketId: 'ticket-1', eventId: 'evento-1' });
+      scanToken(getByTestId, TOKEN);
     });
-    await findByText('Ticket no encontrado.');
+    await findByText('El código QR no es válido o fue reemplazado.');
     expect(queryByTestId('control-camera-view')).toBeNull();
 
     fireEvent.press(getByText('Escanear siguiente'));
@@ -182,11 +197,11 @@ describe('ControlScanScreen', () => {
 
     mockValidateTicket.mockResolvedValue({ kind: 'valid', message: 'Ticket validado para este evento.' });
     act(() => {
-      scanPayload(getByTestId, { ticketId: 'ticket-2', eventId: 'evento-2' });
+      scanToken(getByTestId, TOKEN_2);
     });
     await findByText('Ticket validado para este evento.');
     expect(mockValidateTicket).toHaveBeenCalledTimes(2);
-    expect(mockValidateTicket).toHaveBeenLastCalledWith({ ticketId: 'ticket-2', eventId: 'evento-2' });
+    expect(mockValidateTicket).toHaveBeenLastCalledWith({ qrToken: TOKEN_2 });
   });
 
   it('la cámara queda inactiva (desmontada) mientras se muestra un resultado', async () => {
@@ -195,7 +210,7 @@ describe('ControlScanScreen', () => {
     const { getByTestId, findByText, queryByTestId } = render(<ControlScanScreen />);
 
     act(() => {
-      scanPayload(getByTestId, { ticketId: 'ticket-1', eventId: 'evento-1' });
+      scanToken(getByTestId, TOKEN);
     });
 
     await findByText('No autorizado para validar tickets de este evento.');

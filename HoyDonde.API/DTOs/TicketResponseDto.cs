@@ -6,8 +6,8 @@ namespace HoyDonde.API.DTOs
     {
         public string Id { get; set; } = string.Empty;
 
-        // Nulo únicamente para tickets emitidos antes de la Etapa "Compra" (docs/api-mvp-plan.md
-        // §14): nunca se les inventa una Compra retroactiva.
+        // Nulo para tickets emitidos antes de la Etapa "Compra" (docs/api-mvp-plan.md §14), y
+        // también para quien recibió el ticket por transferencia (la Compra es del comprador).
         public string? CompraId { get; set; }
 
         public string EventoId { get; set; } = string.Empty;
@@ -31,11 +31,17 @@ namespace HoyDonde.API.DTOs
         // de la transacción de compra); nunca se recalcula contra el Event actual.
         public string EventoNombre { get; set; } = string.Empty;
         public string TicketTypeNombre { get; set; } = string.Empty;
-        public decimal PrecioPagado { get; set; }
+        // Null when the caller received the ticket through a transfer: the original price is private
+        // to the purchaser.
+        public decimal? PrecioPagado { get; set; }
         public DateTime FechaInicio { get; set; }
         public DateTime FechaFin { get; set; }
 
-            // True only for explicitly identified historical simulated purchases.
-            public bool PagoSimulado { get; set; }
+        // True only for explicitly identified historical simulated purchases.
+        public bool PagoSimulado { get; set; }
+
+        // Opaque value the client renders as the ticket QR. Only present for the ticket's current
+        // owner while Utilizable == true; rotates on every transfer. Treat as a secret: never log it.
+        public string? QrToken { get; set; }
     }
 }

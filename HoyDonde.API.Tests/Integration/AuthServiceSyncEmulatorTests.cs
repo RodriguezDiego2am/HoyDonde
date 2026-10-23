@@ -114,7 +114,7 @@ namespace HoyDonde.API.Tests.Integration
 
             var resultado = await sut.SyncClienteAsync(uid, "cliente-acciones@test.com", new SyncClienteRequest(null, null, null));
 
-            Assert.Equal(new List<string> { "TICKET_COMPRAR", "TICKET_VER_PROPIO" }, resultado.Acciones);
+            Assert.Equal(new List<string> { "TICKET_COMPRAR", "TICKET_TRANSFERIR", "TICKET_VER_PROPIO" }, resultado.Acciones);
         }
 
         [FirestoreEmulatorFact]
@@ -141,7 +141,7 @@ namespace HoyDonde.API.Tests.Integration
             var accionesEsperadas = new List<string>
             {
                 "CONTROL_CREAR", "EVENTO_CANCELAR_PROPIO", "EVENTO_CREAR", "EVENTO_EDITAR_PROPIO",
-                "EVENTO_PUBLICAR_PROPIO", "EVENTO_VER_PROPIOS", "REPORTE_VER_PROPIO", "TICKET_COMPRAR", "TICKET_VER_PROPIO",
+                "EVENTO_PUBLICAR_PROPIO", "EVENTO_VER_PROPIOS", "REPORTE_VER_PROPIO", "TICKET_COMPRAR", "TICKET_TRANSFERIR", "TICKET_VER_PROPIO",
             };
             Assert.Equal(accionesEsperadas, segundo.Acciones);
             Assert.Equal(segundo.Acciones.Distinct().Count(), segundo.Acciones.Count);
